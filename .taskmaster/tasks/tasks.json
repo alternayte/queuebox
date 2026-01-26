@@ -1,0 +1,739 @@
+{
+  "master": {
+    "tasks": [
+      {
+        "id": 1,
+        "title": "Implement Core Domain Models and Publisher Interface",
+        "description": "Create the foundational domain types in the core module including OutboxMessage, InboxMessage, MessageState, Destination abstractions, and the Publisher interface that all other modules will depend on.",
+        "details": "Implementation in `core/src/main/kotlin/`:\n\n1. **MessageState.kt** - Sealed class for message states:\n```kotlin\nsealed class MessageState {\n    data object Pending : MessageState()\n    data object Processing : MessageState()\n    data object Sent : MessageState()\n    data class Failed(val error: String, val attempt: Int) : MessageState()\n    data object Dead : MessageState()\n}\n```\nInclude companion functions for valid transitions: `canTransitionTo(from: MessageState, to: MessageState): Boolean`\n\n2. **OutboxMessage.kt** - Data class with:\n```kotlin\n@Serializable\ndata class OutboxMessage(\n    val id: UUID = UUID.randomUUID(),\n    val topic: String,\n    val key: String? = null,\n    val payload: JsonElement,\n    val state: MessageState = MessageState.Pending,\n    val attempt: Int = 0,\n    val maxAttempts: Int = 5,\n    val scheduledAt: Instant = Clock.System.now(),\n    val createdAt: Instant = Clock.System.now(),\n    val updatedAt: Instant = Clock.System.now()\n)\n```\nUse `kotlinx-serialization` for JSON and `kotlinx-datetime` for timestamps.\n\n3. **InboxMessage.kt** - Data class with unique constraint fields:\n```kotlin\n@Serializable\ndata class InboxMessage(\n    val id: UUID = UUID.randomUUID(),\n    val source: String,\n    val idempotencyKey: String,\n    val eventType: String? = null,\n    val payload: JsonElement,\n    val state: MessageState = MessageState.Pending,\n    val createdAt: Instant = Clock.System.now(),\n    val processedAt: Instant? = null\n)\n```\n\n4. **Destination.kt** - Sealed interface hierarchy:\n```kotlin\nsealed interface Destination {\n    data class Http(\n        val name: String,\n        val baseUrl: String,\n        val path: String = \"/\",\n        val timeoutMs: Long = 30000,\n        val headers: Map<String, String> = emptyMap()\n    ) : Destination\n    \n    data class RabbitMQ(\n        val name: String,\n        val url: String,\n        val exchange: String,\n        val exchangeType: String = \"topic\",\n        val routingKeyTemplate: String = \"{{ topic }}\"\n    ) : Destination\n}\n```\n\n5. **Publisher.kt** - Interface:\n```kotlin\ninterface Publisher {\n    suspend fun publish(message: OutboxMessage): Result<Unit>\n    fun supports(destination: Destination): Boolean\n}\n```\n\n6. **InboxReceiver.kt** - Interface:\n```kotlin\ninterface InboxReceiver {\n    suspend fun receive(message: InboxMessage): InboxResult\n}\n\nsealed class InboxResult {\n    data object Stored : InboxResult()\n    data object Duplicate : InboxResult()\n    data class Error(val message: String) : InboxResult()\n}\n```\n\nUpdate `core/build.gradle.kts` to add kotlinx-serialization and kotlinx-datetime dependencies from the existing version catalog.",
+        "testStrategy": "Unit tests for:\n1. MessageState transitions - test all valid and invalid state transitions using parameterized tests\n2. OutboxMessage - test UUID generation, default values, data class equality\n3. InboxMessage - test equality based on source + idempotencyKey combination\n4. Destination sealed class - test pattern matching exhaustiveness\n\nUse kotlin-test with JUnit5 platform. Test file: `core/src/test/kotlin/model/MessageStateTest.kt`, `OutboxMessageTest.kt`, `InboxMessageTest.kt`",
+        "priority": "high",
+        "dependencies": [],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Update core/build.gradle.kts with kotlinx-serialization and kotlinx-datetime dependencies",
+            "description": "Add the required kotlinx-serialization and kotlinx-datetime dependencies from the version catalog to the core module's build.gradle.kts file to enable JSON serialization and timestamp handling for all domain models.",
+            "dependencies": [],
+            "details": "Update `core/build.gradle.kts` to include:\n1. Apply the kotlinx-serialization plugin: `kotlin(\"plugin.serialization\")` in the plugins block\n2. Add kotlinx-serialization-json dependency: `implementation(libs.kotlinx.serialization.json)` or equivalent from version catalog\n3. Add kotlinx-datetime dependency: `implementation(libs.kotlinx.datetime)` or equivalent from version catalog\n4. Verify the version catalog (libs.versions.toml) already contains these dependencies, if not add them\n5. Ensure the project syncs successfully after changes",
+            "status": "pending",
+            "testStrategy": "Run `./gradlew :core:build` to verify the build succeeds with new dependencies. Check that kotlinx.serialization and kotlinx.datetime packages are importable in core module source files."
+          },
+          {
+            "id": 2,
+            "title": "Implement MessageState sealed class with transition validation logic",
+            "description": "Create the MessageState.kt file with a sealed class representing all possible message states (Pending, Processing, Sent, Failed, Dead) and companion object functions for validating state transitions.",
+            "dependencies": [
+              1
+            ],
+            "details": "Create `core/src/main/kotlin/MessageState.kt` with:\n1. Sealed class MessageState as the base type\n2. Data object Pending : MessageState() - initial state for new messages\n3. Data object Processing : MessageState() - message is being processed\n4. Data object Sent : MessageState() - message successfully delivered\n5. Data class Failed(val error: String, val attempt: Int) : MessageState() - delivery failed with error details\n6. Data object Dead : MessageState() - message exhausted all retries\n7. Companion object with `canTransitionTo(from: MessageState, to: MessageState): Boolean` function implementing valid transitions:\n   - Pending -> Processing (start processing)\n   - Processing -> Sent (success)\n   - Processing -> Failed (failure)\n   - Failed -> Processing (retry)\n   - Failed -> Dead (max retries exceeded)\n8. Add @Serializable annotation to the sealed class for kotlinx-serialization support",
+            "status": "pending",
+            "testStrategy": "Unit tests using parameterized tests covering: all valid transitions return true, all invalid transitions return false (e.g., Pending->Sent, Dead->Processing), edge cases like same-state transitions."
+          },
+          {
+            "id": 3,
+            "title": "Implement OutboxMessage and InboxMessage data classes with serialization annotations",
+            "description": "Create OutboxMessage.kt and InboxMessage.kt data classes with kotlinx-serialization annotations, default values, and proper timestamp handling using kotlinx-datetime.",
+            "dependencies": [
+              1,
+              2
+            ],
+            "details": "Create `core/src/main/kotlin/OutboxMessage.kt`:\n1. @Serializable data class with fields: id (UUID with default randomUUID()), topic (String), key (String?), payload (JsonElement), state (MessageState with default Pending), attempt (Int = 0), maxAttempts (Int = 5), scheduledAt (Instant = Clock.System.now()), createdAt (Instant = Clock.System.now()), updatedAt (Instant = Clock.System.now())\n2. Add custom UUID serializer if needed for kotlinx-serialization\n\nCreate `core/src/main/kotlin/InboxMessage.kt`:\n1. @Serializable data class with fields: id (UUID with default randomUUID()), source (String), idempotencyKey (String), eventType (String?), payload (JsonElement), state (MessageState = Pending), createdAt (Instant = Clock.System.now()), processedAt (Instant?)\n2. The source + idempotencyKey combination should conceptually represent uniqueness (enforced at repository level)\n\nNote: May need to create a UUIDSerializer contextual serializer for java.util.UUID or use kotlinx-serialization-json's JsonElement directly.",
+            "status": "pending",
+            "testStrategy": "Unit tests for: UUID generation produces unique IDs, default values are correctly applied, data class equality works as expected, JSON serialization/deserialization round-trips correctly for both classes, timestamp defaults use current time."
+          },
+          {
+            "id": 4,
+            "title": "Implement Destination sealed interface with Http and RabbitMQ variants",
+            "description": "Create the Destination.kt file with a sealed interface hierarchy defining Http and RabbitMQ destination types with their respective configuration properties.",
+            "dependencies": [
+              1
+            ],
+            "details": "Create `core/src/main/kotlin/Destination.kt`:\n1. Sealed interface Destination as the base type\n2. Data class Http : Destination with properties:\n   - name: String (unique identifier for this destination)\n   - baseUrl: String (e.g., \"https://api.example.com\")\n   - path: String = \"/\" (endpoint path)\n   - timeoutMs: Long = 30000 (request timeout in milliseconds)\n   - headers: Map<String, String> = emptyMap() (additional HTTP headers)\n3. Data class RabbitMQ : Destination with properties:\n   - name: String (unique identifier)\n   - url: String (AMQP connection URL)\n   - exchange: String (exchange name)\n   - exchangeType: String = \"topic\" (exchange type: direct, topic, fanout, headers)\n   - routingKeyTemplate: String = \"{{ topic }}\" (template for routing key, supports variable substitution)\n4. Add @Serializable annotations to all types for configuration serialization support",
+            "status": "pending",
+            "testStrategy": "Unit tests for: data class equality and copy functions work correctly, default values are applied, sealed interface exhaustive when pattern matching, JSON serialization/deserialization preserves type information correctly."
+          },
+          {
+            "id": 5,
+            "title": "Implement Publisher and InboxReceiver interfaces with Result types",
+            "description": "Create the Publisher.kt and InboxReceiver.kt interfaces that define the contracts for publishing outbox messages and receiving inbox messages, along with the InboxResult sealed class.",
+            "dependencies": [
+              1,
+              2,
+              3,
+              4
+            ],
+            "details": "Create `core/src/main/kotlin/Publisher.kt`:\n1. Interface Publisher with methods:\n   - suspend fun publish(message: OutboxMessage): Result<Unit> - publishes a message to its destination, returns success or failure\n   - fun supports(destination: Destination): Boolean - checks if this publisher can handle the given destination type\n\nCreate `core/src/main/kotlin/InboxReceiver.kt`:\n1. Sealed class InboxResult with variants:\n   - data object Stored : InboxResult() - message was successfully stored\n   - data object Duplicate : InboxResult() - message was already received (idempotency check)\n   - data class Error(val message: String) : InboxResult() - storage failed with error\n2. Interface InboxReceiver with method:\n   - suspend fun receive(message: InboxMessage): InboxResult - receives and stores an inbox message\n\nThese interfaces will be implemented by HttpPublisher, RabbitMQPublisher, and repository classes in dependent modules.",
+            "status": "pending",
+            "testStrategy": "Unit tests for InboxResult: verify sealed class exhaustive matching works, Error contains message. Interface tests will be in implementing modules. Verify interfaces compile correctly and can be implemented by test stubs."
+          }
+        ]
+      },
+      {
+        "id": 2,
+        "title": "Extend Configuration System with Full PRD Schema",
+        "description": "Enhance the existing config module to support the complete configuration schema from the PRD including database settings, destinations, routes, sources, polling configuration, and environment variable substitution.",
+        "details": "Extend `config/src/main/kotlin/` to match PRD requirements:\n\n1. **Update QueueBoxConfig.kt** with complete schema:\n```kotlin\n@Serializable\ndata class QueueBoxConfig(\n    val server: ServerConfig = ServerConfig(),\n    val database: DatabaseConfig,\n    val outbox: OutboxConfig = OutboxConfig(),\n    val inbox: InboxConfig = InboxConfig(),\n    val destinations: Map<String, DestinationConfig> = emptyMap(),\n    val routes: List<RouteConfig> = emptyList(),\n    val sources: Map<String, SourceConfig> = emptyMap()\n)\n\n@Serializable\ndata class DatabaseConfig(\n    val url: String,\n    val username: String,\n    val password: String,\n    val poolSize: Int = 10,\n    val connectionTimeoutMs: Long = 30000\n)\n\n@Serializable\ndata class OutboxConfig(\n    val pollIntervalMs: Long = 100,\n    val batchSize: Int = 100,\n    val retryBaseDelayMs: Long = 1000,\n    val maxAttempts: Int = 5\n)\n\n@Serializable\ndata class InboxConfig(\n    val basePath: String = \"/inbox\"\n)\n\n@Serializable\nsealed class DestinationConfig {\n    @Serializable\n    @SerialName(\"http\")\n    data class Http(\n        val baseUrl: String,\n        val path: String = \"/\",\n        val timeoutMs: Long = 30000,\n        val headers: Map<String, String> = emptyMap()\n    ) : DestinationConfig()\n    \n    @Serializable\n    @SerialName(\"rabbitmq\")\n    data class RabbitMQ(\n        val url: String,\n        val exchange: String,\n        val exchangeType: String = \"topic\"\n    ) : DestinationConfig()\n}\n\n@Serializable\ndata class RouteConfig(\n    val topicPattern: String,\n    val destination: String,\n    val routingKeyTemplate: String? = null\n)\n\n@Serializable\ndata class SourceConfig(\n    val path: String,\n    val idempotencyKeyPath: String,\n    val eventTypePath: String? = null\n)\n```\n\n2. **Enhance ConfigLoader.kt** - Hoplite already supports env var substitution with `${VAR}` syntax. Add validation:\n```kotlin\nobject ConfigLoader {\n    fun load(path: String = \"queuebox.yml\"): QueueBoxConfig {\n        val config = ConfigLoaderBuilder.default()\n            .addResourceSource(\"/$path\")\n            .addEnvironmentSource()\n            .build()\n            .loadConfigOrThrow<QueueBoxConfig>()\n        return ConfigValidator.validate(config)\n    }\n}\n```\n\n3. **Create ConfigValidator.kt**:\n```kotlin\nobject ConfigValidator {\n    fun validate(config: QueueBoxConfig): QueueBoxConfig {\n        // Validate database URL format\n        require(config.database.url.startsWith(\"jdbc:postgresql://\")) { \"Database URL must be PostgreSQL\" }\n        // Validate port ranges\n        require(config.server.httpPort in 1..65535) { \"Invalid HTTP port\" }\n        // Validate destinations referenced in routes exist\n        config.routes.forEach { route ->\n            require(route.destination in config.destinations) {\n                \"Route references unknown destination: ${route.destination}\"\n            }\n        }\n        return config\n    }\n}\n```\n\n4. **Update queuebox.yml** with full example configuration",
+        "testStrategy": "Unit tests for:\n1. ConfigLoader - test loading valid YAML, test env var substitution with mocked environment\n2. ConfigValidator - test validation passes for valid config, fails with clear messages for invalid configs\n3. Test missing required fields throw appropriate exceptions\n4. Test destination reference validation in routes\n\nIntegration test: Load actual queuebox.yml and verify it parses correctly",
+        "priority": "high",
+        "dependencies": [
+          1
+        ],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Extend QueueBoxConfig.kt with DatabaseConfig, OutboxConfig polling/retry, and InboxConfig data classes",
+            "description": "Update the existing QueueBoxConfig.kt to add DatabaseConfig with connection pooling settings, enhance OutboxConfig with polling interval, batch size, and retry configuration, and update InboxConfig with basePath field.",
+            "dependencies": [],
+            "details": "Modify QueueBoxConfig.kt to include: 1) Add DatabaseConfig data class with url, username, password, poolSize (default 10), and connectionTimeoutMs (default 30000). 2) Update OutboxConfig to include pollIntervalMs (default 100), batchSize (default 100), retryBaseDelayMs (default 1000), and maxAttempts (default 5) - remove the existing destinations field which will be moved to top-level. 3) Update InboxConfig to use basePath field (default \"/inbox\") instead of httpPath. 4) Update QueueBoxConfig to include database: DatabaseConfig as a required field, plus destinations, routes, and sources maps with defaults.",
+            "status": "pending",
+            "testStrategy": "Unit tests verifying: 1) DatabaseConfig serializes/deserializes correctly with all fields, 2) OutboxConfig defaults are applied when not specified, 3) InboxConfig basePath defaults correctly, 4) QueueBoxConfig requires database field but allows other fields to use defaults."
+          },
+          {
+            "id": 2,
+            "title": "Add DestinationConfig sealed class with Http and RabbitMQ variants using @SerialName annotations",
+            "description": "Create a sealed class hierarchy for DestinationConfig with Http and RabbitMQ variants, using kotlinx-serialization polymorphic annotations for proper YAML/JSON discrimination.",
+            "dependencies": [
+              1
+            ],
+            "details": "Add to QueueBoxConfig.kt: 1) Create sealed class DestinationConfig with @Serializable annotation. 2) Add Http subclass with @SerialName(\"http\") containing baseUrl (required), path (default \"/\"), timeoutMs (default 30000), and headers map (default empty). 3) Add RabbitMQ subclass with @SerialName(\"rabbitmq\") containing url (required), exchange (required), and exchangeType (default \"topic\"). 4) Ensure the sealed class discriminator works with Hoplite's YAML parsing by configuring proper polymorphic serialization if needed.",
+            "status": "pending",
+            "testStrategy": "Unit tests verifying: 1) Http destination deserializes from YAML with type discriminator, 2) RabbitMQ destination deserializes correctly, 3) Unknown type throws appropriate error, 4) Default values are applied for optional fields in both variants."
+          },
+          {
+            "id": 3,
+            "title": "Add RouteConfig and SourceConfig data classes for topic-based routing",
+            "description": "Create RouteConfig for mapping topic patterns to destinations with optional routing key templates, and SourceConfig for defining inbox HTTP endpoints with idempotency key extraction paths.",
+            "dependencies": [
+              1
+            ],
+            "details": "Add to QueueBoxConfig.kt: 1) Create RouteConfig data class with topicPattern (required String for glob/regex matching), destination (required String referencing a key in destinations map), and routingKeyTemplate (optional String for RabbitMQ routing key interpolation). 2) Create SourceConfig data class with path (required String for HTTP endpoint path), idempotencyKeyPath (required String JSONPath for extracting dedup key from payload), and eventTypePath (optional String JSONPath for extracting event type). 3) Update QueueBoxConfig to include routes: List<RouteConfig> with empty default and sources: Map<String, SourceConfig> with empty default.",
+            "status": "pending",
+            "testStrategy": "Unit tests verifying: 1) RouteConfig serializes/deserializes with required fields, 2) SourceConfig paths are preserved correctly, 3) Empty routes and sources lists work with defaults, 4) Multiple routes and sources can be configured in a single config."
+          },
+          {
+            "id": 4,
+            "title": "Create ConfigValidator.kt with validation rules for database URLs, port ranges, and destination references",
+            "description": "Implement a ConfigValidator object that validates loaded configuration, ensuring database URLs are PostgreSQL, ports are valid, and all route destinations reference existing destination definitions.",
+            "dependencies": [
+              1,
+              2,
+              3
+            ],
+            "details": "Create new file ConfigValidator.kt with: 1) Object ConfigValidator with validate(config: QueueBoxConfig): QueueBoxConfig function. 2) Validate database.url starts with \"jdbc:postgresql://\" using require(). 3) Validate server.httpPort is in range 1..65535. 4) Validate all routes reference destinations that exist in the destinations map. 5) Validate poolSize > 0 and connectionTimeoutMs > 0. 6) Return the validated config or throw IllegalArgumentException with descriptive messages. 7) Update ConfigLoader.kt to call ConfigValidator.validate() after loading config from Hoplite.",
+            "status": "pending",
+            "testStrategy": "Unit tests for each validation rule: 1) Valid config passes validation, 2) Non-PostgreSQL URL throws with clear message, 3) Invalid port (0, -1, 65536) throws, 4) Route referencing non-existent destination throws listing the missing destination, 5) Invalid poolSize/timeout values throw."
+          },
+          {
+            "id": 5,
+            "title": "Update queuebox.yml with full example configuration and test env var substitution",
+            "description": "Create a comprehensive example queuebox.yml demonstrating all configuration options including environment variable substitution using Hoplite's ${VAR} syntax for sensitive values like database credentials.",
+            "dependencies": [
+              1,
+              2,
+              3,
+              4
+            ],
+            "details": "Update or create config/src/main/resources/queuebox.yml with: 1) Server config with httpPort. 2) Database config using ${DB_URL}, ${DB_USER}, ${DB_PASSWORD} env var substitution for sensitive values, with explicit poolSize and timeout. 3) Outbox config with polling interval, batch size, and retry settings. 4) Inbox config with basePath. 5) Example destinations map with both http and rabbitmq types demonstrating @SerialName discriminators. 6) Example routes showing topic pattern matching and routing key templates. 7) Example sources with JSONPath expressions for idempotency extraction. 8) Add comments explaining each section and env var usage. 9) Write integration test verifying env var substitution works with mocked environment variables.",
+            "status": "pending",
+            "testStrategy": "Integration tests: 1) Load config with all env vars set, verify substitution works, 2) Load config with missing required env var, verify clear error, 3) Load full example config and verify all fields parse correctly, 4) Verify Hoplite's ConfigLoaderBuilder with addEnvironmentSource() enables ${VAR} syntax."
+          }
+        ]
+      },
+      {
+        "id": 3,
+        "title": "Implement PostgreSQL Repository Layer with Connection Pooling",
+        "description": "Build the database layer in the postgres module with HikariCP connection pooling, OutboxRepository for claiming and state management, and InboxRepository for storage with deduplication.",
+        "details": "Implementation in `postgres/src/main/kotlin/`:\n\n1. **Update build.gradle.kts** - Add dependencies:\n```kotlin\ndependencies {\n    implementation(project(\":core\"))\n    implementation(project(\":config\"))\n    implementation(\"com.zaxxer:HikariCP:6.0.0\")\n    implementation(\"org.postgresql:postgresql:42.7.4\")\n    implementation(\"org.jetbrains.exposed:exposed-core:0.56.0\")\n    implementation(\"org.jetbrains.exposed:exposed-jdbc:0.56.0\")\n    implementation(\"org.jetbrains.exposed:exposed-json:0.56.0\")\n    implementation(\"org.jetbrains.exposed:exposed-kotlin-datetime:0.56.0\")\n    testImplementation(\"org.testcontainers:postgresql:1.20.4\")\n    testImplementation(\"org.testcontainers:junit-jupiter:1.20.4\")\n}\n```\n\n2. **DatabaseFactory.kt**:\n```kotlin\nobject DatabaseFactory {\n    fun create(config: DatabaseConfig): HikariDataSource {\n        val hikariConfig = HikariConfig().apply {\n            jdbcUrl = config.url\n            username = config.username\n            password = config.password\n            maximumPoolSize = config.poolSize\n            connectionTimeout = config.connectionTimeoutMs\n            isAutoCommit = false\n            transactionIsolation = \"TRANSACTION_READ_COMMITTED\"\n        }\n        return HikariDataSource(hikariConfig)\n    }\n    \n    fun init(dataSource: DataSource) {\n        Database.connect(dataSource)\n    }\n}\n```\n\n3. **Tables.kt** - Exposed table definitions:\n```kotlin\nobject OutboxTable : UUIDTable(\"outbox\") {\n    val topic = varchar(\"topic\", 255)\n    val key = varchar(\"key\", 255).nullable()\n    val payload = jsonb<JsonElement>(\"payload\", Json.Default)\n    val state = varchar(\"state\", 50).default(\"pending\")\n    val attempt = integer(\"attempt\").default(0)\n    val maxAttempts = integer(\"max_attempts\").default(5)\n    val scheduledAt = timestamp(\"scheduled_at\").defaultExpression(CurrentTimestamp())\n    val createdAt = timestamp(\"created_at\").defaultExpression(CurrentTimestamp())\n    val updatedAt = timestamp(\"updated_at\").defaultExpression(CurrentTimestamp())\n}\n\nobject InboxTable : UUIDTable(\"inbox\") {\n    val source = varchar(\"source\", 255)\n    val idempotencyKey = varchar(\"idempotency_key\", 255)\n    val eventType = varchar(\"event_type\", 255).nullable()\n    val payload = jsonb<JsonElement>(\"payload\", Json.Default)\n    val state = varchar(\"state\", 50).default(\"pending\")\n    val createdAt = timestamp(\"created_at\").defaultExpression(CurrentTimestamp())\n    val processedAt = timestamp(\"processed_at\").nullable()\n    \n    init {\n        uniqueIndex(source, idempotencyKey)\n    }\n}\n```\n\n4. **OutboxRepository.kt**:\n```kotlin\nclass OutboxRepository {\n    suspend fun claimBatch(batchSize: Int): List<OutboxMessage> = newSuspendedTransaction {\n        OutboxTable\n            .select { (OutboxTable.state eq \"pending\") and (OutboxTable.scheduledAt lessEq Clock.System.now()) }\n            .limit(batchSize)\n            .forUpdate(ForUpdateOption.PostgreSQL.ForUpdate(mode = ForUpdateMode.SKIP_LOCKED))\n            .map { it.toOutboxMessage() }\n            .also { messages ->\n                OutboxTable.update({ OutboxTable.id inList messages.map { it.id } }) {\n                    it[state] = \"processing\"\n                    it[updatedAt] = Clock.System.now().toJavaInstant()\n                }\n            }\n    }\n    \n    suspend fun markSent(id: UUID) = updateState(id, \"sent\")\n    suspend fun markFailed(id: UUID, error: String) { /* increment attempt, set error */ }\n    suspend fun scheduleRetry(id: UUID, delayMs: Long) { /* set scheduled_at = now + delay, state = pending */ }\n    suspend fun markDead(id: UUID) = updateState(id, \"dead\")\n}\n```\n\n5. **InboxRepository.kt**:\n```kotlin\nclass InboxRepository {\n    suspend fun store(message: InboxMessage): InboxResult = newSuspendedTransaction {\n        try {\n            InboxTable.insertIgnore {\n                it[id] = message.id\n                it[source] = message.source\n                it[idempotencyKey] = message.idempotencyKey\n                it[eventType] = message.eventType\n                it[payload] = message.payload\n            }\n            if (/* insertIgnore returned 0 rows */) InboxResult.Duplicate else InboxResult.Stored\n        } catch (e: Exception) {\n            InboxResult.Error(e.message ?: \"Unknown error\")\n        }\n    }\n    \n    suspend fun claimPending(batchSize: Int): List<InboxMessage> { /* similar to outbox */ }\n}\n```\n\n6. **Create SQL migration scripts** in `postgres/src/main/resources/db/migration/`",
+        "testStrategy": "Integration tests using TestContainers PostgreSQL:\n1. **OutboxRepositoryTest** - Test claimBatch returns correct messages, FOR UPDATE SKIP LOCKED works with concurrent claims (launch multiple coroutines), state transitions work correctly\n2. **InboxRepositoryTest** - Test store returns Stored for new messages, Duplicate for existing (source, idempotencyKey) pairs\n3. **Connection pool test** - Verify pool exhaustion handling\n\nUse `@Testcontainers` annotation with PostgreSQLContainer",
+        "priority": "high",
+        "dependencies": [
+          1,
+          2
+        ],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Update postgres/build.gradle.kts with required dependencies",
+            "description": "Add HikariCP, PostgreSQL driver, Exposed ORM modules, and TestContainers dependencies to the postgres module build file.",
+            "dependencies": [],
+            "details": "Add the following dependencies to postgres/build.gradle.kts:\n- implementation(project(\":core\")) and implementation(project(\":config\")) for module dependencies\n- com.zaxxer:HikariCP:6.0.0 for connection pooling\n- org.postgresql:postgresql:42.7.4 for PostgreSQL JDBC driver\n- org.jetbrains.exposed:exposed-core:0.56.0, exposed-jdbc:0.56.0, exposed-json:0.56.0, and exposed-kotlin-datetime:0.56.0 for Exposed ORM with JSONB and datetime support\n- testImplementation for org.testcontainers:postgresql:1.20.4 and org.testcontainers:junit-jupiter:1.20.4 for integration testing",
+            "status": "pending",
+            "testStrategy": "Verify build compiles successfully with `./gradlew :postgres:compileKotlin` and all dependencies resolve correctly"
+          },
+          {
+            "id": 2,
+            "title": "Create DatabaseFactory.kt with HikariCP configuration",
+            "description": "Implement DatabaseFactory object that creates HikariDataSource with proper connection pool settings and initializes Exposed Database connection.",
+            "dependencies": [
+              1
+            ],
+            "details": "Create postgres/src/main/kotlin/DatabaseFactory.kt with:\n- create(config: DatabaseConfig) function that builds HikariConfig with jdbcUrl, username, password, maximumPoolSize, connectionTimeout settings\n- Set isAutoCommit = false and transactionIsolation = TRANSACTION_READ_COMMITTED for proper transaction handling\n- Return HikariDataSource instance\n- init(dataSource: DataSource) function that calls Database.connect(dataSource) to initialize Exposed\n- Consider adding shutdown/close method for graceful pool shutdown\n- Import DatabaseConfig from the config module",
+            "status": "pending",
+            "testStrategy": "Unit test that DatabaseFactory creates a valid HikariDataSource with expected configuration values; integration test connecting to TestContainers PostgreSQL"
+          },
+          {
+            "id": 3,
+            "title": "Create Tables.kt with Exposed table definitions",
+            "description": "Define OutboxTable and InboxTable using Exposed DSL with proper column types, JSONB support, timestamps, and unique constraints.",
+            "dependencies": [
+              1
+            ],
+            "details": "Create postgres/src/main/kotlin/Tables.kt with:\n- OutboxTable extending UUIDTable(\"outbox\") with columns: topic (varchar 255), key (nullable varchar 255), payload (jsonb<JsonElement>), state (varchar 50, default \"pending\"), attempt (integer, default 0), maxAttempts (integer, default 5), scheduledAt (timestamp with default CurrentTimestamp), createdAt, updatedAt timestamps\n- InboxTable extending UUIDTable(\"inbox\") with columns: source (varchar 255), idempotencyKey (varchar 255), eventType (nullable varchar 255), payload (jsonb<JsonElement>), state (varchar 50, default \"pending\"), createdAt (timestamp), processedAt (nullable timestamp)\n- Add uniqueIndex on (source, idempotencyKey) in InboxTable init block\n- Configure Json.Default for JSONB serialization",
+            "status": "pending",
+            "testStrategy": "Verify table definitions compile correctly; integration test that tables can be created in PostgreSQL and constraints are enforced"
+          },
+          {
+            "id": 4,
+            "title": "Implement OutboxRepository with claiming and state management",
+            "description": "Create OutboxRepository class with claimBatch using FOR UPDATE SKIP LOCKED, markSent, markFailed, scheduleRetry, and markDead methods for outbox state transitions.",
+            "dependencies": [
+              2,
+              3
+            ],
+            "details": "Create postgres/src/main/kotlin/OutboxRepository.kt with:\n- claimBatch(batchSize: Int): List<OutboxMessage> - Use newSuspendedTransaction to select pending messages where scheduledAt <= now, apply LIMIT and forUpdate(ForUpdateOption.PostgreSQL.ForUpdate(mode = ForUpdateMode.SKIP_LOCKED)), map to OutboxMessage domain objects, then update claimed messages to state=\"processing\"\n- markSent(id: UUID) - Update state to \"sent\" and updatedAt timestamp\n- markFailed(id: UUID, error: String) - Increment attempt counter, store error message, update state based on attempts vs maxAttempts\n- scheduleRetry(id: UUID, delayMs: Long) - Set scheduledAt = now + delay, state = \"pending\", increment attempt\n- markDead(id: UUID) - Update state to \"dead\" for messages exceeding maxAttempts\n- Private helper toOutboxMessage() extension function on ResultRow",
+            "status": "pending",
+            "testStrategy": "Integration tests with TestContainers: verify claimBatch returns correct messages, concurrent claims with multiple coroutines respect SKIP LOCKED, state transitions work correctly, retry scheduling calculates correct scheduledAt"
+          },
+          {
+            "id": 5,
+            "title": "Implement InboxRepository with deduplication support",
+            "description": "Create InboxRepository class with store method using insertIgnore for deduplication and claimPending method for batch processing.",
+            "dependencies": [
+              2,
+              3
+            ],
+            "details": "Create postgres/src/main/kotlin/InboxRepository.kt with:\n- store(message: InboxMessage): InboxResult - Use newSuspendedTransaction with insertIgnore to handle unique constraint violations gracefully. Check if insertIgnore returned 0 affected rows to distinguish between Stored and Duplicate results. Catch exceptions and return InboxResult.Error\n- claimPending(batchSize: Int): List<InboxMessage> - Similar to OutboxRepository.claimBatch, select pending inbox messages with FOR UPDATE SKIP LOCKED, update to processing state\n- markProcessed(id: UUID) - Update state to \"processed\" and set processedAt timestamp\n- Define InboxResult sealed class/interface with Stored, Duplicate, and Error subtypes\n- Private helper toInboxMessage() extension function on ResultRow",
+            "status": "pending",
+            "testStrategy": "Integration tests: verify store returns Stored for new messages, Duplicate for same source+idempotencyKey, claimPending respects SKIP LOCKED, markProcessed sets correct timestamp"
+          },
+          {
+            "id": 6,
+            "title": "Create SQL migration scripts for outbox and inbox tables",
+            "description": "Write Flyway-compatible SQL migration scripts V1__create_outbox.sql and V2__create_inbox.sql with proper indexes and constraints.",
+            "dependencies": [
+              3
+            ],
+            "details": "Create postgres/src/main/resources/db/migration/ directory with:\n- V1__create_outbox.sql: CREATE TABLE outbox with UUID primary key (using gen_random_uuid() default), all columns matching OutboxTable definition, JSONB type for payload, appropriate indexes on (state, scheduled_at) for efficient claiming queries, created_at/updated_at with DEFAULT CURRENT_TIMESTAMP\n- V2__create_inbox.sql: CREATE TABLE inbox with UUID primary key, all columns matching InboxTable definition, JSONB payload, UNIQUE constraint on (source, idempotency_key), index on (state) for pending message queries\n- Ensure PostgreSQL-specific syntax (JSONB, gen_random_uuid(), TIMESTAMP WITH TIME ZONE)\n- Add comments explaining index purposes",
+            "status": "pending",
+            "testStrategy": "Run migrations against TestContainers PostgreSQL, verify tables created with correct schema using information_schema queries, test unique constraint enforcement"
+          },
+          {
+            "id": 7,
+            "title": "Write integration tests for concurrent claiming and deduplication",
+            "description": "Create comprehensive integration tests using TestContainers PostgreSQL to verify concurrent batch claiming with SKIP LOCKED and inbox deduplication scenarios.",
+            "dependencies": [
+              4,
+              5,
+              6
+            ],
+            "details": "Create postgres/src/test/kotlin/ test classes:\n- OutboxRepositoryTest: Setup TestContainers PostgreSQL with @Container annotation, run migrations before tests. Test claimBatch returns only pending messages with scheduledAt <= now. Test concurrent claiming by launching 10+ coroutines simultaneously calling claimBatch(5), verify no message claimed twice, all messages eventually claimed. Test state transitions (markSent, markFailed, scheduleRetry, markDead). Test retry scheduling calculates future scheduledAt correctly.\n- InboxRepositoryTest: Test store() returns Stored for new messages. Insert same source+idempotencyKey twice, verify second returns Duplicate. Test claimPending with concurrent coroutines similar to outbox. Test markProcessed sets timestamp.\n- Use kotlinx.coroutines.test for coroutine testing, withContext(Dispatchers.IO) for parallel database operations",
+            "status": "pending",
+            "testStrategy": "Run tests with `./gradlew :postgres:test`, verify all pass including concurrent scenarios. Check test coverage includes edge cases like empty batches, max attempts reached, and constraint violations"
+          }
+        ]
+      },
+      {
+        "id": 4,
+        "title": "Implement Outbox Poller with Topic-Based Routing and Retry Strategy",
+        "description": "Create the outbox polling service that continuously polls the outbox table, routes messages to destinations based on topic patterns, and handles retries with exponential backoff.",
+        "details": "Implementation in `outbox-service/src/main/kotlin/`:\n\n1. **Update build.gradle.kts**:\n```kotlin\ndependencies {\n    implementation(project(\":core\"))\n    implementation(project(\":config\"))\n    implementation(project(\":postgres\"))\n    implementation(libs.bundles.kotlinxEcosystem)\n}\n```\n\n2. **RetryStrategy.kt**:\n```kotlin\nclass RetryStrategy(private val config: OutboxConfig) {\n    fun calculateDelay(attempt: Int): Long {\n        // Exponential backoff: base_delay * 2^attempt with jitter\n        val exponentialDelay = config.retryBaseDelayMs * (1 shl attempt)\n        val jitter = (0..(exponentialDelay / 4)).random()\n        return (exponentialDelay + jitter).coerceAtMost(60_000L) // Max 1 minute\n    }\n    \n    fun shouldRetry(attempt: Int, maxAttempts: Int): Boolean = attempt < maxAttempts\n}\n```\n\n3. **MessageRouter.kt** - Glob pattern matching:\n```kotlin\nclass MessageRouter(private val routes: List<RouteConfig>, private val destinations: Map<String, Destination>) {\n    fun route(topic: String): RoutingResult? {\n        val matchedRoute = routes.firstOrNull { matchesPattern(topic, it.topicPattern) }\n        return matchedRoute?.let {\n            RoutingResult(\n                destination = destinations[it.destination]!!,\n                routingKey = renderTemplate(it.routingKeyTemplate ?: topic, topic)\n            )\n        }\n    }\n    \n    private fun matchesPattern(topic: String, pattern: String): Boolean {\n        // Support glob: \"*\" matches any single segment, \"**\" matches multiple\n        // \"order.*\" matches \"order.created\", \"order.updated\"\n        // \"*\" matches everything\n        val regex = pattern\n            .replace(\".\", \"\\\\.\")\n            .replace(\"**\", \".*\")\n            .replace(\"*\", \"[^.]+\")\n            .toRegex()\n        return regex.matches(topic)\n    }\n}\n\ndata class RoutingResult(val destination: Destination, val routingKey: String)\n```\n\n4. **OutboxPoller.kt** - Coroutine-based polling loop:\n```kotlin\nclass OutboxPoller(\n    private val config: OutboxConfig,\n    private val repository: OutboxRepository,\n    private val router: MessageRouter,\n    private val publishers: List<Publisher>,\n    private val retryStrategy: RetryStrategy\n) {\n    private val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())\n    private var running = true\n    \n    fun start() {\n        scope.launch {\n            while (running) {\n                try {\n                    processBatch()\n                } catch (e: CancellationException) {\n                    throw e\n                } catch (e: Exception) {\n                    logger.error(\"Polling error\", e)\n                }\n                delay(config.pollIntervalMs)\n            }\n        }\n    }\n    \n    private suspend fun processBatch() {\n        val messages = repository.claimBatch(config.batchSize)\n        messages.forEach { message ->\n            val routingResult = router.route(message.topic)\n            if (routingResult == null) {\n                repository.markDead(message.id) // No route found\n                return@forEach\n            }\n            \n            val publisher = publishers.find { it.supports(routingResult.destination) }\n            publisher?.publish(message)?.fold(\n                onSuccess = { repository.markSent(message.id) },\n                onFailure = { error ->\n                    if (retryStrategy.shouldRetry(message.attempt, message.maxAttempts)) {\n                        val delay = retryStrategy.calculateDelay(message.attempt)\n                        repository.scheduleRetry(message.id, delay)\n                    } else {\n                        repository.markDead(message.id)\n                    }\n                }\n            )\n        }\n    }\n    \n    suspend fun shutdown() {\n        running = false\n        scope.coroutineContext.job.children.forEach { it.join() } // Wait for in-flight\n        scope.cancel()\n    }\n}\n```",
+        "testStrategy": "Unit tests:\n1. **RetryStrategyTest** - Verify exponential backoff calculations, max delay capping, jitter range\n2. **MessageRouterTest** - Test glob patterns: exact match, single wildcard \"*\", multi-segment \"**\", first-match-wins behavior, no-match returns null\n3. **OutboxPollerTest** - Mock repository and publishers, test full flow: claim → route → publish → markSent/retry/dead\n\nIntegration test with TestContainers: Full cycle test with actual database and mock HTTP endpoint",
+        "priority": "high",
+        "dependencies": [
+          1,
+          2,
+          3
+        ],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Update outbox-service build.gradle.kts with module dependencies",
+            "description": "Configure the outbox-service module's build.gradle.kts to include dependencies on core, config, and postgres modules, plus kotlinx-coroutines for the async polling implementation.",
+            "dependencies": [],
+            "details": "Add the following dependencies to outbox-service/build.gradle.kts:\n- implementation(project(\":core\")) for domain models like OutboxMessage\n- implementation(project(\":config\")) for OutboxConfig and RouteConfig\n- implementation(project(\":postgres\")) for OutboxRepository\n- implementation(libs.bundles.kotlinxEcosystem) for kotlinx-coroutines-core\n\nEnsure the version catalog (libs.versions.toml) has the kotlinxEcosystem bundle defined with coroutines. The module should be registered in settings.gradle.kts if not already included.",
+            "status": "pending",
+            "testStrategy": "Verify build compiles successfully with `./gradlew :outbox-service:build`. Confirm all transitive dependencies are resolved and no version conflicts exist."
+          },
+          {
+            "id": 2,
+            "title": "Implement RetryStrategy with exponential backoff and jitter",
+            "description": "Create RetryStrategy.kt that calculates retry delays using exponential backoff with jitter, capped at a maximum delay to prevent excessive wait times.",
+            "dependencies": [
+              1
+            ],
+            "details": "Implement RetryStrategy class in outbox-service/src/main/kotlin/RetryStrategy.kt:\n- Constructor takes OutboxConfig with retryBaseDelayMs property\n- calculateDelay(attempt: Int): Long computes delay as baseDelay * 2^attempt\n- Add random jitter of 0 to 25% of the exponential delay to prevent thundering herd\n- Cap maximum delay at 60,000ms (1 minute) using coerceAtMost\n- shouldRetry(attempt: Int, maxAttempts: Int): Boolean returns true if attempt < maxAttempts\n- Use bit shift (1 shl attempt) for efficient power-of-2 calculation\n- Handle edge cases: attempt=0 should return base delay, negative attempts should be treated as 0",
+            "status": "pending",
+            "testStrategy": "Unit tests verifying: delay doubles with each attempt, jitter is within expected range (0-25% of base delay), delay never exceeds 60s cap, shouldRetry returns correct boolean based on attempt vs maxAttempts comparison."
+          },
+          {
+            "id": 3,
+            "title": "Implement MessageRouter with glob pattern matching",
+            "description": "Create MessageRouter.kt that matches message topics against configured patterns using glob syntax (*, **) and returns the appropriate destination with rendered routing key.",
+            "dependencies": [
+              1
+            ],
+            "details": "Implement MessageRouter in outbox-service/src/main/kotlin/MessageRouter.kt:\n- Constructor takes List<RouteConfig> (ordered by priority) and Map<String, Destination>\n- route(topic: String): RoutingResult? finds first matching route or returns null\n- matchesPattern(topic: String, pattern: String): Boolean converts glob to regex:\n  - Escape literal dots: \".\" -> \"\\\\.\"\n  - Convert \"**\" to \".*\" (matches any characters including dots)\n  - Convert \"*\" to \"[^.]+\" (matches single segment, no dots)\n  - Order matters: replace \"**\" before \"*\" to avoid double conversion\n- renderTemplate(template: String, topic: String): String for routing key templates\n- RoutingResult data class with destination: Destination and routingKey: String\n- First-match-wins semantics for route priority",
+            "status": "pending",
+            "testStrategy": "Unit tests for pattern matching: exact match \"order.created\", single wildcard \"order.*\" matches \"order.created\" but not \"order.item.created\", multi-segment \"order.**\" matches both, \"*\" matches everything. Test first-match-wins with overlapping patterns. Test null return for no matching route."
+          },
+          {
+            "id": 4,
+            "title": "Implement OutboxPoller coroutine-based polling loop",
+            "description": "Create OutboxPoller.kt with a coroutine-based polling loop using SupervisorJob for fault isolation, batch claiming from repository, and coordinated dispatch to publishers.",
+            "dependencies": [
+              1,
+              2,
+              3
+            ],
+            "details": "Implement OutboxPoller in outbox-service/src/main/kotlin/OutboxPoller.kt:\n- Constructor takes OutboxConfig, OutboxRepository, MessageRouter, List<Publisher>, RetryStrategy\n- Create CoroutineScope with Dispatchers.Default + SupervisorJob() for child failure isolation\n- start() launches coroutine with while(running) loop\n- processBatch() calls repository.claimBatch(config.batchSize) to get claimed messages\n- For each message: route via MessageRouter, find supporting Publisher, call publish()\n- Handle publish Result: onSuccess -> repository.markSent(id), onFailure -> check retry\n- If shouldRetry, calculate delay and call repository.scheduleRetry(id, delay)\n- If max retries exceeded, call repository.markDead(id)\n- If no route found for topic, mark message as dead immediately\n- Wrap processBatch in try-catch, rethrow CancellationException, log other errors\n- Add delay(config.pollIntervalMs) between batches",
+            "status": "pending",
+            "testStrategy": "Integration test with mock repository: verify claimBatch called with correct size, verify markSent on successful publish, verify scheduleRetry with calculated delay on failure, verify markDead after max retries. Test SupervisorJob isolation - one message failure shouldn't stop others."
+          },
+          {
+            "id": 5,
+            "title": "Add graceful shutdown with coroutine cancellation handling",
+            "description": "Implement graceful shutdown for OutboxPoller that stops the polling loop, waits for in-flight message processing to complete, and properly cancels the coroutine scope.",
+            "dependencies": [
+              4
+            ],
+            "details": "Add shutdown handling to OutboxPoller:\n- suspend fun shutdown() sets running = false to stop the polling loop\n- Wait for in-flight processing: scope.coroutineContext.job.children.forEach { it.join() }\n- Cancel the scope after children complete: scope.cancel()\n- Consider adding shutdown timeout to prevent indefinite waiting\n- Ensure processBatch handles CancellationException by rethrowing (not catching)\n- Add isRunning() function to check poller state for health checks\n- Consider using atomic boolean for thread-safe running flag\n- Log shutdown initiation and completion for observability\n- Return messages being processed to unclaimed state on abrupt termination (optional enhancement)",
+            "status": "pending",
+            "testStrategy": "Test graceful shutdown: start poller, trigger shutdown, verify no new batches claimed after shutdown called. Test in-flight completion: mock slow publisher, call shutdown, verify message completes before scope cancels. Test cancellation propagation doesn't leave orphaned coroutines."
+          },
+          {
+            "id": 6,
+            "title": "Write unit tests for RetryStrategy and MessageRouter plus integration test",
+            "description": "Create comprehensive test suites for RetryStrategy and MessageRouter components, plus an integration test validating the full OutboxPoller flow with mocked repository.",
+            "dependencies": [
+              2,
+              3,
+              4,
+              5
+            ],
+            "details": "Create test files in outbox-service/src/test/kotlin/:\n\n1. RetryStrategyTest.kt:\n- Test exponential growth: attempt 0,1,2,3 with 100ms base -> 100,200,400,800ms (before jitter)\n- Test jitter is bounded: run multiple times, verify delay varies but within expected range\n- Test max cap: high attempt numbers should cap at 60000ms\n- Test shouldRetry edge cases: attempt=maxAttempts returns false, attempt<maxAttempts returns true\n\n2. MessageRouterTest.kt:\n- Test exact pattern match: \"order.created\" matches only \"order.created\"\n- Test single wildcard: \"order.*\" matches \"order.created\", \"order.updated\", not \"order.item.created\"\n- Test double wildcard: \"order.**\" matches all order prefixed topics\n- Test universal wildcard: \"*\" matches everything\n- Test first-match-wins: define overlapping routes, verify first matching route wins\n- Test no match: unmatched topic returns null\n\n3. OutboxPollerIntegrationTest.kt:\n- Use mock repository, router, publisher\n- Verify full flow: claim -> route -> publish -> markSent\n- Verify retry flow: claim -> route -> publish fails -> scheduleRetry\n- Verify dead letter: max retries exceeded -> markDead",
+            "status": "pending",
+            "testStrategy": "Run tests with `./gradlew :outbox-service:test`. Verify all tests pass. Check code coverage for RetryStrategy and MessageRouter exceeds 90%. Integration test should use kotlinx-coroutines-test for deterministic coroutine testing."
+          }
+        ]
+      },
+      {
+        "id": 5,
+        "title": "Implement HTTP Publisher for Outbox Delivery",
+        "description": "Create the HTTP publisher that delivers outbox messages to HTTP endpoints using Ktor client with proper headers, timeout handling, and error reporting.",
+        "details": "Implementation in `outbox-service/src/main/kotlin/http/`:\n\n1. **Update build.gradle.kts** - Add Ktor client:\n```kotlin\ndependencies {\n    // ... existing\n    implementation(\"io.ktor:ktor-client-core:3.4.0\")\n    implementation(\"io.ktor:ktor-client-cio:3.4.0\")\n    implementation(\"io.ktor:ktor-client-content-negotiation:3.4.0\")\n    implementation(\"io.ktor:ktor-serialization-kotlinx-json:3.4.0\")\n}\n```\n\n2. **HttpPublisher.kt**:\n```kotlin\nclass HttpPublisher : Publisher {\n    private val clients = ConcurrentHashMap<String, HttpClient>()\n    \n    private fun getClient(destination: Destination.Http): HttpClient {\n        return clients.getOrPut(destination.name) {\n            HttpClient(CIO) {\n                install(ContentNegotiation) {\n                    json()\n                }\n                install(HttpTimeout) {\n                    requestTimeoutMillis = destination.timeoutMs\n                    connectTimeoutMillis = destination.timeoutMs / 2\n                }\n                expectSuccess = false // Don't throw on non-2xx\n            }\n        }\n    }\n    \n    override fun supports(destination: Destination): Boolean = destination is Destination.Http\n    \n    override suspend fun publish(message: OutboxMessage): Result<Unit> {\n        val dest = message.destination as? Destination.Http \n            ?: return Result.failure(IllegalArgumentException(\"Not an HTTP destination\"))\n        \n        return try {\n            val client = getClient(dest)\n            val response = client.post(dest.baseUrl + dest.path) {\n                contentType(ContentType.Application.Json)\n                // Standard headers\n                header(\"X-Message-Id\", message.id.toString())\n                header(\"X-Topic\", message.topic)\n                header(\"X-Attempt\", message.attempt.toString())\n                message.key?.let { header(\"X-Message-Key\", it) }\n                // Custom headers from config\n                dest.headers.forEach { (k, v) -> header(k, v) }\n                setBody(message.payload)\n            }\n            \n            if (response.status.isSuccess()) {\n                Result.success(Unit)\n            } else {\n                Result.failure(HttpPublishException(\n                    statusCode = response.status.value,\n                    body = response.bodyAsText(),\n                    message = \"HTTP ${response.status.value}: ${response.status.description}\"\n                ))\n            }\n        } catch (e: HttpRequestTimeoutException) {\n            Result.failure(HttpPublishException(\"Request timeout after ${dest.timeoutMs}ms\", cause = e))\n        } catch (e: ConnectTimeoutException) {\n            Result.failure(HttpPublishException(\"Connection timeout\", cause = e))\n        } catch (e: Exception) {\n            Result.failure(HttpPublishException(\"Publish failed: ${e.message}\", cause = e))\n        }\n    }\n    \n    fun close() {\n        clients.values.forEach { it.close() }\n        clients.clear()\n    }\n}\n\nclass HttpPublishException(\n    message: String,\n    val statusCode: Int? = null,\n    val body: String? = null,\n    cause: Throwable? = null\n) : Exception(message, cause)\n```\n\n3. **HttpPublisherFactory.kt** - Factory for DI:\n```kotlin\nobject HttpPublisherFactory {\n    fun create(): HttpPublisher = HttpPublisher()\n}\n```",
+        "testStrategy": "Integration tests using mock HTTP server (Ktor's `testApplication` or WireMock):\n1. **Successful delivery** - POST to mock endpoint, verify headers (X-Message-Id, X-Topic, X-Attempt), verify JSON body\n2. **Timeout handling** - Mock slow response, verify timeout exception after configured duration\n3. **Error responses** - Mock 500 response, verify failure result with status code\n4. **Connection refused** - Test against non-existent port, verify connection error handling\n5. **Custom headers** - Verify destination-configured headers are included",
+        "priority": "high",
+        "dependencies": [
+          1,
+          4
+        ],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Add Ktor Client Dependencies to outbox-service build.gradle.kts",
+            "description": "Update the outbox-service module's build.gradle.kts to include Ktor HTTP client dependencies for making outbound HTTP requests with JSON serialization support.",
+            "dependencies": [],
+            "details": "Add the following Ktor client dependencies to outbox-service/build.gradle.kts:\n- io.ktor:ktor-client-core:3.4.0 - Core client functionality\n- io.ktor:ktor-client-cio:3.4.0 - CIO engine for coroutine-based async I/O\n- io.ktor:ktor-client-content-negotiation:3.4.0 - Content negotiation plugin\n- io.ktor:ktor-serialization-kotlinx-json:3.4.0 - JSON serialization support\n\nCheck if version catalog (libs.versions.toml) already has Ktor versions defined and use catalog references if available. Ensure dependencies are added to the correct configuration block (implementation).",
+            "status": "pending",
+            "testStrategy": "Verify build compiles successfully after adding dependencies. Run `./gradlew :outbox-service:dependencies` to confirm Ktor client libraries are resolved correctly."
+          },
+          {
+            "id": 2,
+            "title": "Create HttpPublishException for Detailed Error Reporting",
+            "description": "Implement a custom exception class that captures HTTP-specific error details including status code, response body, and underlying cause for comprehensive error reporting.",
+            "dependencies": [
+              1
+            ],
+            "details": "Create HttpPublishException.kt in outbox-service/src/main/kotlin/http/ with:\n- Primary constructor accepting message: String, statusCode: Int? = null, body: String? = null, cause: Throwable? = null\n- Extend Exception class with message and cause passed to superclass\n- statusCode property for HTTP status codes (e.g., 400, 500)\n- body property for response body text when available\n- Both properties nullable to handle timeout/connection errors that don't have HTTP responses\n\nThis exception will be used by HttpPublisher to wrap all failure scenarios with appropriate context.",
+            "status": "pending",
+            "testStrategy": "Unit test exception creation with various parameter combinations: status code only, body only, both, neither. Verify message, statusCode, body, and cause are accessible. Test that exception properly chains causes."
+          },
+          {
+            "id": 3,
+            "title": "Implement HttpPublisher with Client Pooling and Header Injection",
+            "description": "Build the HttpPublisher class implementing the Publisher interface with per-destination HttpClient pooling, standard header injection (X-Message-Id, X-Topic, X-Attempt), custom headers from config, and Result-based error handling.",
+            "dependencies": [
+              1,
+              2
+            ],
+            "details": "Create HttpPublisher.kt in outbox-service/src/main/kotlin/http/ implementing Publisher interface:\n\n1. Client pooling via ConcurrentHashMap<String, HttpClient> keyed by destination name\n2. getClient() method that creates/retrieves HttpClient configured with:\n   - CIO engine\n   - ContentNegotiation plugin with JSON\n   - HttpTimeout plugin with requestTimeoutMillis and connectTimeoutMillis from destination config\n   - expectSuccess = false to handle non-2xx responses manually\n\n3. supports() returns true for Destination.Http instances\n\n4. publish() method:\n   - Validates destination type, returns failure if not Destination.Http\n   - Makes POST request to baseUrl + path\n   - Sets Content-Type: application/json\n   - Injects standard headers: X-Message-Id, X-Topic, X-Attempt, X-Message-Key (if key present)\n   - Injects custom headers from destination.headers map\n   - Sets message.payload as body\n   - Returns Result.success(Unit) for 2xx responses\n   - Returns Result.failure(HttpPublishException) for non-2xx with statusCode and body\n   - Catches HttpRequestTimeoutException, ConnectTimeoutException, generic Exception\n\n5. close() method to close all pooled clients\n\nAlso create HttpPublisherFactory object with create() method for DI.",
+            "status": "pending",
+            "testStrategy": "Unit tests for supports() method with different Destination types. Test client pooling creates one client per destination name and reuses it. Test close() properly closes all clients."
+          },
+          {
+            "id": 4,
+            "title": "Write Integration Tests for HttpPublisher",
+            "description": "Create comprehensive integration tests using Ktor testApplication or WireMock to verify successful delivery, timeout handling, error response scenarios, and header injection.",
+            "dependencies": [
+              3
+            ],
+            "details": "Create HttpPublisherTest.kt in outbox-service/src/test/kotlin/http/ with integration tests:\n\n1. **Successful delivery test**:\n   - Set up mock HTTP endpoint that returns 200\n   - Publish message, verify Result.success\n   - Assert request received correct headers: X-Message-Id, X-Topic, X-Attempt, X-Message-Key\n   - Assert custom headers from destination config are present\n   - Assert JSON body matches message.payload\n\n2. **Timeout handling test**:\n   - Configure mock to delay response beyond timeout duration\n   - Verify Result.failure with HttpPublishException\n   - Assert exception message indicates timeout\n\n3. **Error response test (4xx)**:\n   - Mock returns 400 with error body\n   - Verify Result.failure with HttpPublishException\n   - Assert statusCode = 400 and body contains error text\n\n4. **Error response test (5xx)**:\n   - Mock returns 500 with server error\n   - Verify Result.failure with statusCode = 500\n\n5. **Connection failure test**:\n   - Use invalid URL or stopped server\n   - Verify appropriate exception wrapped\n\nUse either Ktor's testApplication with routing or WireMock for mock server. Add test dependencies if needed (WireMock, etc.).",
+            "status": "pending",
+            "testStrategy": "Run tests with `./gradlew :outbox-service:test`. Verify all scenarios pass. Check test coverage for HttpPublisher class. Ensure tests are isolated and don't depend on external services."
+          }
+        ]
+      },
+      {
+        "id": 6,
+        "title": "Implement HTTP Inbox Receiver with Idempotency Extraction",
+        "description": "Build the inbox service that receives webhooks via Ktor routes, extracts idempotency keys using JSONPath, and stores messages with deduplication.",
+        "details": "Implementation in `inbox-service/src/main/kotlin/`:\n\n1. **Update build.gradle.kts**:\n```kotlin\ndependencies {\n    implementation(project(\":core\"))\n    implementation(project(\":config\"))\n    implementation(project(\":postgres\"))\n    implementation(libs.bundles.ktorEcosystem)\n    implementation(\"com.jayway.jsonpath:json-path:2.9.0\")\n}\n```\n\n2. **IdempotencyExtractor.kt** - JSONPath extraction:\n```kotlin\nclass IdempotencyExtractor {\n    fun extract(payload: JsonElement, jsonPath: String): Result<String> {\n        return try {\n            val jsonString = Json.encodeToString(payload)\n            val documentContext = JsonPath.parse(jsonString)\n            val value: Any = documentContext.read(jsonPath)\n            Result.success(value.toString())\n        } catch (e: PathNotFoundException) {\n            Result.failure(ExtractionException(\"Path not found: $jsonPath\"))\n        } catch (e: Exception) {\n            Result.failure(ExtractionException(\"Extraction failed: ${e.message}\", e))\n        }\n    }\n}\n\nclass ExtractionException(message: String, cause: Throwable? = null) : Exception(message, cause)\n```\n\n3. **InboxHandler.kt** - Coordination logic:\n```kotlin\nclass InboxHandler(\n    private val repository: InboxRepository,\n    private val extractor: IdempotencyExtractor\n) {\n    suspend fun handle(source: String, sourceConfig: SourceConfig, payload: JsonElement): InboxHandlerResult {\n        // Extract idempotency key\n        val idempotencyKey = extractor.extract(payload, sourceConfig.idempotencyKeyPath)\n            .getOrElse { return InboxHandlerResult.ExtractionFailed(it.message ?: \"Unknown\") }\n        \n        // Extract optional event type\n        val eventType = sourceConfig.eventTypePath?.let {\n            extractor.extract(payload, it).getOrNull()\n        }\n        \n        // Build inbox message\n        val message = InboxMessage(\n            source = source,\n            idempotencyKey = idempotencyKey,\n            eventType = eventType,\n            payload = payload\n        )\n        \n        // Store with deduplication\n        return when (val result = repository.store(message)) {\n            is InboxResult.Stored -> InboxHandlerResult.Accepted(message.id)\n            is InboxResult.Duplicate -> InboxHandlerResult.Duplicate\n            is InboxResult.Error -> InboxHandlerResult.StorageFailed(result.message)\n        }\n    }\n}\n\nsealed class InboxHandlerResult {\n    data class Accepted(val messageId: UUID) : InboxHandlerResult()\n    data object Duplicate : InboxHandlerResult()\n    data class ExtractionFailed(val reason: String) : InboxHandlerResult()\n    data class StorageFailed(val reason: String) : InboxHandlerResult()\n}\n```\n\n4. **InboxRoutes.kt** - Ktor route installer:\n```kotlin\nfun Application.configureInboxRoutes(config: InboxConfig, sources: Map<String, SourceConfig>, handler: InboxHandler) {\n    routing {\n        sources.forEach { (sourceName, sourceConfig) ->\n            post(\"${config.basePath}${sourceConfig.path}\") {\n                val payload = try {\n                    call.receive<JsonElement>()\n                } catch (e: Exception) {\n                    call.respond(HttpStatusCode.BadRequest, mapOf(\"error\" to \"Invalid JSON\"))\n                    return@post\n                }\n                \n                when (val result = handler.handle(sourceName, sourceConfig, payload)) {\n                    is InboxHandlerResult.Accepted -> \n                        call.respond(HttpStatusCode.OK, mapOf(\"messageId\" to result.messageId.toString()))\n                    is InboxHandlerResult.Duplicate -> \n                        call.respond(HttpStatusCode.OK, mapOf(\"status\" to \"duplicate\"))\n                    is InboxHandlerResult.ExtractionFailed -> \n                        call.respond(HttpStatusCode.BadRequest, mapOf(\"error\" to result.reason))\n                    is InboxHandlerResult.StorageFailed -> \n                        call.respond(HttpStatusCode.InternalServerError, mapOf(\"error\" to \"Storage failed\"))\n                }\n            }\n        }\n    }\n}\n```",
+        "testStrategy": "Unit tests:\n1. **IdempotencyExtractorTest** - Test various JSONPath expressions: `$.data.id`, `$.headers.x-request-id`, nested paths, array access. Test missing path handling.\n2. **InboxHandlerTest** - Mock repository and extractor, test all result paths\n\nIntegration tests with Ktor testApplication:\n1. **Webhook receipt** - POST JSON to inbox endpoint, verify 200 and messageId returned\n2. **Duplicate detection** - POST same idempotency key twice, verify second returns 200 with duplicate status\n3. **Invalid JSON** - POST malformed JSON, verify 400\n4. **Missing idempotency key** - POST JSON without required field, verify 400 with extraction error",
+        "priority": "high",
+        "dependencies": [
+          1,
+          2,
+          3
+        ],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Update inbox-service build.gradle.kts with Required Dependencies",
+            "description": "Configure the inbox-service module's build.gradle.kts with all necessary dependencies including core, config, postgres project references, Ktor server ecosystem bundle, and json-path library for JSONPath extraction.",
+            "dependencies": [],
+            "details": "Update inbox-service/build.gradle.kts to include: 1) implementation(project(':core')) for domain models like InboxMessage, InboxResult, 2) implementation(project(':config')) for InboxConfig and SourceConfig access, 3) implementation(project(':postgres')) for InboxRepository, 4) implementation(libs.bundles.ktorEcosystem) for Ktor server components (ktor-server-core, ktor-server-netty, ktor-serialization-json, ktor-content-negotiation), 5) implementation('com.jayway.jsonpath:json-path:2.9.0') for JSONPath extraction, 6) testImplementation for ktor-server-tests and kotest/junit for testing. Ensure the kotlin serialization plugin is applied for JSON handling.",
+            "status": "pending",
+            "testStrategy": "Verify build compiles successfully by running './gradlew :inbox-service:build'. Check that all dependencies resolve correctly and no version conflicts exist."
+          },
+          {
+            "id": 2,
+            "title": "Implement IdempotencyExtractor with JSONPath Support",
+            "description": "Create the IdempotencyExtractor class that uses the json-path library to extract idempotency keys from arbitrary JSON payloads using configurable JSONPath expressions.",
+            "dependencies": [
+              1
+            ],
+            "details": "Implement IdempotencyExtractor.kt in inbox-service/src/main/kotlin/ with: 1) A single public method 'extract(payload: JsonElement, jsonPath: String): Result<String>' that takes kotlinx.serialization JsonElement and a JSONPath expression, 2) Convert JsonElement to JSON string using Json.encodeToString(), 3) Use JsonPath.parse() from com.jayway.jsonpath to create document context, 4) Read value at specified path and convert to String, 5) Return Result.success(value) on success, 6) Catch PathNotFoundException and return Result.failure(ExtractionException) with descriptive message, 7) Catch generic exceptions and wrap in ExtractionException with cause. Also define ExtractionException as a custom exception class with optional cause parameter.",
+            "status": "pending",
+            "testStrategy": "Unit tests covering: valid JSONPath expressions ($.data.id, $.headers.x-request-id), nested paths ($.event.metadata.requestId), array access ($.items[0].id), missing path handling (PathNotFoundException), null values, invalid JSONPath syntax, empty payload handling."
+          },
+          {
+            "id": 3,
+            "title": "Implement InboxHandler Coordination Logic",
+            "description": "Create the InboxHandler class that coordinates idempotency extraction, message building, and repository storage with proper result handling through a sealed class hierarchy.",
+            "dependencies": [
+              1,
+              2
+            ],
+            "details": "Implement InboxHandler.kt in inbox-service/src/main/kotlin/ with: 1) Constructor accepting InboxRepository and IdempotencyExtractor dependencies, 2) Suspend function 'handle(source: String, sourceConfig: SourceConfig, payload: JsonElement): InboxHandlerResult' as the main entry point, 3) Extract idempotency key using extractor with sourceConfig.idempotencyKeyPath - return ExtractionFailed on failure, 4) Optionally extract eventType if sourceConfig.eventTypePath is configured, 5) Build InboxMessage with source, idempotencyKey, eventType, and payload, 6) Call repository.store(message) and map InboxResult to InboxHandlerResult: Stored->Accepted(messageId), Duplicate->Duplicate, Error->StorageFailed, 7) Define sealed class InboxHandlerResult with: Accepted(messageId: UUID), Duplicate object, ExtractionFailed(reason: String), StorageFailed(reason: String). Ensure SourceConfig is either imported from config module or defined locally with idempotencyKeyPath and optional eventTypePath fields.",
+            "status": "pending",
+            "testStrategy": "Unit tests with mocked InboxRepository and IdempotencyExtractor: test successful extraction and storage returning Accepted, test duplicate detection returning Duplicate, test extraction failure returning ExtractionFailed, test repository error returning StorageFailed, test optional eventType extraction when path is provided vs null."
+          },
+          {
+            "id": 4,
+            "title": "Implement InboxRoutes Ktor Route Installer",
+            "description": "Create the Ktor routing configuration that dynamically registers webhook receiver routes based on configured source definitions, with proper JSON parsing and HTTP status code mapping.",
+            "dependencies": [
+              1,
+              3
+            ],
+            "details": "Implement InboxRoutes.kt in inbox-service/src/main/kotlin/ with: 1) Extension function 'Application.configureInboxRoutes(config: InboxConfig, sources: Map<String, SourceConfig>, handler: InboxHandler)' for Ktor application setup, 2) Inside routing block, iterate over sources map to dynamically register POST routes at '${config.basePath}${sourceConfig.path}', 3) In each route handler: parse request body as JsonElement using call.receive<JsonElement>() with try-catch for BadRequest on parse failure, 4) Call handler.handle(sourceName, sourceConfig, payload), 5) Map InboxHandlerResult to HTTP responses: Accepted->200 OK with messageId JSON, Duplicate->200 OK with status:duplicate JSON, ExtractionFailed->400 BadRequest with error message, StorageFailed->500 InternalServerError with generic error. Use kotlinx.serialization for JSON response bodies. Ensure content negotiation is installed for JSON handling.",
+            "status": "pending",
+            "testStrategy": "Integration tests using Ktor testApplication: test successful webhook receipt returns 200 with messageId, test duplicate webhook returns 200 with duplicate status, test invalid JSON body returns 400, test missing idempotency key path returns 400, test repository failure returns 500. Verify routes are correctly registered at configured paths."
+          },
+          {
+            "id": 5,
+            "title": "Write Comprehensive Unit and Integration Tests",
+            "description": "Create thorough test coverage for IdempotencyExtractor unit tests and integration tests using Ktor testApplication for end-to-end webhook receipt, deduplication, and error scenarios.",
+            "dependencies": [
+              2,
+              3,
+              4
+            ],
+            "details": "Create test files in inbox-service/src/test/kotlin/: 1) IdempotencyExtractorTest.kt with unit tests: various JSONPath expressions ($.data.id, $.headers.x-request-id), nested path extraction, array index access ($.items[0].id), missing path returns failure, null value handling, deeply nested objects, special characters in keys, 2) InboxHandlerTest.kt with unit tests using mocked dependencies: all InboxHandlerResult paths, optional eventType extraction, 3) InboxRoutesIntegrationTest.kt using testApplication: configure test application with mock handler, test POST to configured endpoints, verify 200/400/500 responses, test JSON content-type requirement, test concurrent requests for duplicate detection, 4) Add test dependencies to build.gradle.kts: ktor-server-tests, kotlin-test, kotest assertions, mockk for mocking. Use TestContainers PostgreSQL for full integration tests with real database if InboxRepository is available.",
+            "status": "pending",
+            "testStrategy": "Run './gradlew :inbox-service:test' to execute all tests. Verify test coverage includes: happy path extraction, all error scenarios, concurrent duplicate detection, HTTP status code mapping, JSON parsing errors. Consider adding test for various webhook payload formats (Stripe, GitHub, custom)."
+          }
+        ]
+      },
+      {
+        "id": 7,
+        "title": "Implement Application Wiring with Health Checks and Metrics",
+        "description": "Wire all components together in the app module, implement health check and metrics endpoints, and add graceful shutdown handling.",
+        "details": "Implementation in `app/src/main/kotlin/`:\n\n1. **Application.kt** - Main entry with DI wiring:\n```kotlin\nfun main() {\n    val config = ConfigLoader.load()\n    \n    // Database setup\n    val dataSource = DatabaseFactory.create(config.database)\n    DatabaseFactory.init(dataSource)\n    \n    // Repositories\n    val outboxRepository = OutboxRepository()\n    val inboxRepository = InboxRepository()\n    \n    // Convert config destinations to domain Destinations\n    val destinations = config.destinations.mapValues { (name, destConfig) ->\n        when (destConfig) {\n            is DestinationConfig.Http -> Destination.Http(\n                name = name,\n                baseUrl = destConfig.baseUrl,\n                path = destConfig.path,\n                timeoutMs = destConfig.timeoutMs,\n                headers = destConfig.headers\n            )\n            is DestinationConfig.RabbitMQ -> Destination.RabbitMQ(\n                name = name,\n                url = destConfig.url,\n                exchange = destConfig.exchange,\n                exchangeType = destConfig.exchangeType\n            )\n        }\n    }\n    \n    // Publishers\n    val httpPublisher = HttpPublisher()\n    val publishers = listOf(httpPublisher)\n    \n    // Outbox service\n    val router = MessageRouter(config.routes, destinations)\n    val retryStrategy = RetryStrategy(config.outbox)\n    val outboxPoller = OutboxPoller(config.outbox, outboxRepository, router, publishers, retryStrategy)\n    \n    // Inbox service\n    val extractor = IdempotencyExtractor()\n    val inboxHandler = InboxHandler(inboxRepository, extractor)\n    \n    // Health manager\n    val healthManager = HealthManager(dataSource)\n    \n    // Metrics\n    val metricsCollector = MetricsCollector()\n    \n    // Start poller\n    outboxPoller.start()\n    \n    // Start server\n    embeddedServer(Netty, config.server.httpPort) {\n        configureRouting()\n        configureInboxRoutes(config.inbox, config.sources, inboxHandler)\n        configureHealthRoutes(healthManager)\n        configureMetricsRoutes(metricsCollector)\n    }.start(wait = true)\n    \n    // Shutdown hook\n    Runtime.getRuntime().addShutdownHook(Thread {\n        runBlocking {\n            outboxPoller.shutdown()\n            httpPublisher.close()\n            dataSource.close()\n        }\n    })\n}\n```\n\n2. **HealthManager.kt**:\n```kotlin\nclass HealthManager(private val dataSource: DataSource) {\n    fun check(): HealthStatus {\n        val dbHealthy = checkDatabase()\n        return HealthStatus(\n            status = if (dbHealthy) \"healthy\" else \"unhealthy\",\n            components = mapOf(\n                \"database\" to ComponentHealth(if (dbHealthy) \"up\" else \"down\")\n            )\n        )\n    }\n    \n    private fun checkDatabase(): Boolean = try {\n        dataSource.connection.use { it.isValid(5) }\n    } catch (e: Exception) { false }\n}\n\n@Serializable\ndata class HealthStatus(val status: String, val components: Map<String, ComponentHealth>)\n@Serializable\ndata class ComponentHealth(val status: String)\n```\n\n3. **HealthRoutes.kt**:\n```kotlin\nfun Application.configureHealthRoutes(healthManager: HealthManager) {\n    routing {\n        get(\"/health\") {\n            val health = healthManager.check()\n            val status = if (health.status == \"healthy\") HttpStatusCode.OK else HttpStatusCode.ServiceUnavailable\n            call.respond(status, health)\n        }\n    }\n}\n```\n\n4. **MetricsCollector.kt** - Basic Prometheus-format metrics:\n```kotlin\nclass MetricsCollector {\n    private val messagesProcessed = AtomicLong(0)\n    private val messagesFailed = AtomicLong(0)\n    private val inboxReceived = AtomicLong(0)\n    \n    fun incrementProcessed() { messagesProcessed.incrementAndGet() }\n    fun incrementFailed() { messagesFailed.incrementAndGet() }\n    fun incrementInboxReceived() { inboxReceived.incrementAndGet() }\n    \n    fun toPrometheusFormat(): String = buildString {\n        appendLine(\"# HELP queuebox_messages_processed_total Total messages processed\")\n        appendLine(\"# TYPE queuebox_messages_processed_total counter\")\n        appendLine(\"queuebox_messages_processed_total ${messagesProcessed.get()}\")\n        // ... similar for other metrics\n    }\n}\n```\n\n5. **MetricsRoutes.kt**:\n```kotlin\nfun Application.configureMetricsRoutes(collector: MetricsCollector) {\n    routing {\n        get(\"/metrics\") {\n            call.respondText(collector.toPrometheusFormat(), ContentType.Text.Plain)\n        }\n    }\n}\n```",
+        "testStrategy": "Integration tests:\n1. **Application startup** - Verify app starts with valid config, all components initialize\n2. **Health endpoint** - Test /health returns healthy status with database up, unhealthy when DB down\n3. **Metrics endpoint** - Test /metrics returns valid Prometheus format\n4. **Graceful shutdown** - Start app, trigger SIGTERM, verify in-flight messages complete before exit\n\nEnd-to-end test: Write to outbox table → verify message delivered to mock HTTP endpoint",
+        "priority": "high",
+        "dependencies": [
+          4,
+          5,
+          6
+        ],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Refactor App.kt main function with complete dependency injection wiring",
+            "description": "Restructure the main() function in App.kt to wire all application components together using manual dependency injection, including database setup, repositories, publishers, handlers, and services.",
+            "dependencies": [],
+            "details": "1. Initialize ConfigLoader to load QueueBoxConfig\n2. Create DatabaseFactory and initialize DataSource with HikariCP connection pooling from config.database\n3. Call DatabaseFactory.init(dataSource) for schema setup\n4. Instantiate OutboxRepository and InboxRepository with the dataSource\n5. Convert config.destinations map to domain Destination objects (Http and RabbitMQ sealed class variants)\n6. Create HttpPublisher instance and collect into publishers list\n7. Instantiate MessageRouter with config.routes and destinations map\n8. Create RetryStrategy from config.outbox settings\n9. Build OutboxPoller with config.outbox, outboxRepository, router, publishers, and retryStrategy\n10. Create IdempotencyExtractor and InboxHandler with inboxRepository\n11. Instantiate HealthManager with dataSource and MetricsCollector\n12. Call outboxPoller.start() before server startup\n13. Configure embeddedServer with all routing modules: configureRouting(), configureInboxRoutes(), configureHealthRoutes(), configureMetricsRoutes()\n14. Ensure proper initialization order respects component dependencies",
+            "status": "pending",
+            "testStrategy": "Integration test verifying application starts successfully with valid configuration, all components initialize without exceptions, and basic health endpoint responds. Test with both minimal and full configuration scenarios."
+          },
+          {
+            "id": 2,
+            "title": "Implement HealthManager.kt with database connectivity and extensible component health",
+            "description": "Create HealthManager class that checks database connectivity and provides an extensible framework for reporting health status of multiple components.",
+            "dependencies": [
+              1
+            ],
+            "details": "1. Create HealthManager class in app/src/main/kotlin/ accepting DataSource as constructor parameter\n2. Implement check() method returning HealthStatus data class\n3. Create private checkDatabase() method that:\n   - Uses dataSource.connection.use { it.isValid(5) } to test connectivity\n   - Wraps in try-catch returning false on any SQLException\n   - Uses 5-second timeout for connection validation\n4. Define HealthStatus data class with @Serializable annotation:\n   - status: String (\"healthy\" or \"unhealthy\")\n   - components: Map<String, ComponentHealth>\n5. Define ComponentHealth data class with @Serializable:\n   - status: String (\"up\" or \"down\")\n6. In check(), aggregate database health into components map\n7. Return overall status as \"healthy\" only if all components are up\n8. Design for extensibility: allow future components (RabbitMQ, external services) to be added to health checks",
+            "status": "pending",
+            "testStrategy": "Unit tests: mock DataSource to test healthy/unhealthy scenarios, verify correct status strings. Integration tests with TestContainers PostgreSQL: verify actual database connectivity check, test behavior when database is unavailable."
+          },
+          {
+            "id": 3,
+            "title": "Implement HealthRoutes.kt with /health endpoint and appropriate HTTP status codes",
+            "description": "Create Ktor routing extension function for health check endpoint that returns JSON health status with correct HTTP status codes (200 for healthy, 503 for unhealthy).",
+            "dependencies": [
+              2
+            ],
+            "details": "1. Create HealthRoutes.kt in app/src/main/kotlin/\n2. Implement Application.configureHealthRoutes(healthManager: HealthManager) extension function\n3. Within routing {} block, define GET \"/health\" route:\n   - Call healthManager.check() to get HealthStatus\n   - Determine HTTP status: HttpStatusCode.OK if status == \"healthy\", HttpStatusCode.ServiceUnavailable otherwise\n   - Use call.respond(status, health) to return JSON response\n4. Ensure ContentNegotiation with JSON is already configured (reuse from main routing)\n5. Health response format should match Kubernetes liveness/readiness probe expectations:\n   - Return full component breakdown in response body\n   - Use standard HTTP status codes for orchestration compatibility",
+            "status": "pending",
+            "testStrategy": "Integration tests using Ktor testApplication: verify /health returns 200 with healthy status when database is up, returns 503 with unhealthy status when database check fails. Test response JSON structure matches HealthStatus schema."
+          },
+          {
+            "id": 4,
+            "title": "Implement MetricsCollector.kt with atomic counters and Prometheus format export",
+            "description": "Create MetricsCollector class with thread-safe atomic counters for tracking messages processed, failed, and received, plus Prometheus-compatible text format export.",
+            "dependencies": [],
+            "details": "1. Create MetricsCollector.kt in app/src/main/kotlin/\n2. Define private AtomicLong counters:\n   - messagesProcessed: tracks successful outbox message deliveries\n   - messagesFailed: tracks failed delivery attempts\n   - inboxReceived: tracks incoming webhook/message receipts\n3. Implement increment methods (thread-safe):\n   - incrementProcessed(): messagesProcessed.incrementAndGet()\n   - incrementFailed(): messagesFailed.incrementAndGet()\n   - incrementInboxReceived(): inboxReceived.incrementAndGet()\n4. Implement toPrometheusFormat(): String method:\n   - Use buildString {} for efficient string construction\n   - For each metric, output HELP line, TYPE line, and value line\n   - Follow Prometheus exposition format: metric_name{labels} value\n   - Use queuebox_ prefix for all metrics\n   - Example format:\n     # HELP queuebox_messages_processed_total Total messages processed\n     # TYPE queuebox_messages_processed_total counter\n     queuebox_messages_processed_total 42\n5. Consider adding labels for destination/source in future iterations",
+            "status": "pending",
+            "testStrategy": "Unit tests: verify atomic counters increment correctly under concurrent access (launch multiple coroutines incrementing), verify toPrometheusFormat() output matches Prometheus text format specification, test initial values are 0."
+          },
+          {
+            "id": 5,
+            "title": "Implement MetricsRoutes.kt with /metrics endpoint for Prometheus scraping",
+            "description": "Create Ktor routing extension for metrics endpoint that returns Prometheus-format metrics as plain text for scraping by monitoring systems.",
+            "dependencies": [
+              4
+            ],
+            "details": "1. Create MetricsRoutes.kt in app/src/main/kotlin/\n2. Implement Application.configureMetricsRoutes(collector: MetricsCollector) extension function\n3. Within routing {} block, define GET \"/metrics\" route:\n   - Call collector.toPrometheusFormat() to get metrics string\n   - Use call.respondText(metricsText, ContentType.Text.Plain) for response\n   - Prometheus expects Content-Type: text/plain; charset=utf-8\n4. No authentication on metrics endpoint (standard for internal Prometheus scraping)\n5. Ensure endpoint is lightweight and fast for frequent scraping intervals\n6. Consider adding version parameter to content type: text/plain; version=0.0.4 (Prometheus format version)",
+            "status": "pending",
+            "testStrategy": "Integration tests using Ktor testApplication: verify /metrics returns 200 with Content-Type text/plain, verify response body contains valid Prometheus format with all expected metric names, test metrics increment after simulated processing."
+          },
+          {
+            "id": 6,
+            "title": "Add graceful shutdown handling with Runtime shutdown hook",
+            "description": "Implement graceful shutdown using Runtime.getRuntime().addShutdownHook() that properly sequences component shutdown, waits for in-flight messages to complete, and closes all resources.",
+            "dependencies": [
+              1
+            ],
+            "details": "1. In App.kt main(), after server.start(wait=true), add shutdown hook BEFORE starting the server (hooks must be registered before blocking)\n2. Create shutdown hook using Runtime.getRuntime().addShutdownHook(Thread { ... })\n3. Inside shutdown hook, use runBlocking {} to execute suspend functions:\n   a. First: Call outboxPoller.shutdown() to stop claiming new batches\n   b. Wait for outboxPoller to complete in-flight message processing (poller should have awaitCompletion method or timeout)\n   c. Close httpPublisher with httpPublisher.close() to release HTTP client resources\n   d. Close RabbitMQ connections if present\n   e. Finally: Close dataSource.close() to release connection pool\n4. Implement proper sequencing: stop accepting work → complete in-flight → close connections\n5. Add configurable shutdown timeout (e.g., 30 seconds) to prevent hanging\n6. Log shutdown progress at each step for observability\n7. Handle InterruptedException appropriately during shutdown",
+            "status": "pending",
+            "testStrategy": "Integration test: start application, send SIGTERM signal, verify shutdown hook executes in correct order (verify via logs or test hooks). Test that in-flight messages complete before connections close. Test shutdown timeout behavior when operations hang."
+          }
+        ]
+      },
+      {
+        "id": 8,
+        "title": "Create Docker Configuration and Compose Setup",
+        "description": "Build multi-stage Dockerfile for minimal runtime image and docker-compose.yml for local development with PostgreSQL and optional RabbitMQ.",
+        "details": "1. **Dockerfile** (multi-stage build):\n```dockerfile\n# Build stage\nFROM gradle:8.11-jdk23 AS builder\nWORKDIR /app\nCOPY . .\nRUN gradle :app:installDist --no-daemon\n\n# Runtime stage\nFROM eclipse-temurin:23-jre-alpine\nWORKDIR /app\n\n# Copy built application\nCOPY --from=builder /app/app/build/install/app .\n\n# Create non-root user\nRUN addgroup -S queuebox && adduser -S queuebox -G queuebox\nUSER queuebox\n\nEXPOSE 8080\n\nHEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \\\n  CMD wget --no-verbose --tries=1 --spider http://localhost:8080/health || exit 1\n\nENTRYPOINT [\"./bin/app\"]\n```\n\n2. **docker-compose.yml**:\n```yaml\nversion: '3.8'\n\nservices:\n  queuebox:\n    build: .\n    ports:\n      - \"8080:8080\"\n    environment:\n      - DATABASE_URL=jdbc:postgresql://postgres:5432/queuebox\n      - DATABASE_USERNAME=queuebox\n      - DATABASE_PASSWORD=queuebox\n    depends_on:\n      postgres:\n        condition: service_healthy\n    healthcheck:\n      test: [\"CMD\", \"wget\", \"--spider\", \"-q\", \"http://localhost:8080/health\"]\n      interval: 10s\n      timeout: 5s\n      retries: 5\n\n  postgres:\n    image: postgres:16-alpine\n    environment:\n      POSTGRES_DB: queuebox\n      POSTGRES_USER: queuebox\n      POSTGRES_PASSWORD: queuebox\n    ports:\n      - \"5432:5432\"\n    volumes:\n      - postgres_data:/var/lib/postgresql/data\n      - ./postgres/src/main/resources/db/migration:/docker-entrypoint-initdb.d\n    healthcheck:\n      test: [\"CMD-SHELL\", \"pg_isready -U queuebox\"]\n      interval: 5s\n      timeout: 5s\n      retries: 5\n\n  # Optional: for testing RabbitMQ integration\n  rabbitmq:\n    image: rabbitmq:3.13-management-alpine\n    ports:\n      - \"5672:5672\"\n      - \"15672:15672\"\n    healthcheck:\n      test: rabbitmq-diagnostics check_port_connectivity\n      interval: 10s\n      timeout: 5s\n      retries: 5\n    profiles:\n      - rabbitmq\n\nvolumes:\n  postgres_data:\n```\n\n3. **docker-compose.override.yml** for local dev:\n```yaml\nversion: '3.8'\n\nservices:\n  queuebox:\n    build:\n      context: .\n      target: builder\n    volumes:\n      - ./app/src:/app/app/src\n    command: gradle :app:run --continuous\n```\n\n4. **.dockerignore**:\n```\n.git\n.gradle\n**/build\n*.md\n.taskmaster\n.claude\n.cursor\n```\n\n5. **Update queuebox.yml** for Docker environment:\n```yaml\nserver:\n  httpPort: 8080\n\ndatabase:\n  url: ${DATABASE_URL}\n  username: ${DATABASE_USERNAME}\n  password: ${DATABASE_PASSWORD}\n  poolSize: 10\n```",
+        "testStrategy": "Manual and automated tests:\n1. `docker build .` succeeds and produces image under 200MB\n2. `docker-compose up` starts all services, health checks pass\n3. `curl localhost:8080/health` returns healthy status\n4. `docker-compose down` stops cleanly\n5. Test with `--profile rabbitmq` to include RabbitMQ\n6. CI test: Build Docker image in GitHub Actions, run integration tests against containerized app",
+        "priority": "medium",
+        "dependencies": [
+          7
+        ],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Create Multi-Stage Dockerfile with Non-Root User",
+            "description": "Build a multi-stage Dockerfile using gradle:8.11-jdk23 for the build stage and eclipse-temurin:23-jre-alpine for the minimal runtime image with security hardening.",
+            "dependencies": [],
+            "details": "Create `Dockerfile` in project root with:\n\n1. **Build stage** (AS builder):\n   - Base: `gradle:8.11-jdk23`\n   - WORKDIR `/app`\n   - COPY entire project\n   - RUN `gradle :app:installDist --no-daemon` to create distribution\n\n2. **Runtime stage**:\n   - Base: `eclipse-temurin:23-jre-alpine` (minimal JRE image)\n   - WORKDIR `/app`\n   - COPY `--from=builder /app/app/build/install/app .` (distribution output)\n   - Create non-root user with `addgroup -S queuebox && adduser -S queuebox -G queuebox`\n   - Switch to non-root user with `USER queuebox`\n   - EXPOSE 8080\n   - Add HEALTHCHECK with wget to `/health` endpoint (interval=30s, timeout=3s, start-period=5s, retries=3)\n   - ENTRYPOINT `[\"./bin/app\"]` matching Gradle installDist output structure",
+            "status": "pending",
+            "testStrategy": "1. Run `docker build -t queuebox:test .` and verify build succeeds\n2. Check final image size is under 200MB with `docker images queuebox:test`\n3. Verify non-root user with `docker run --rm queuebox:test whoami` (should output 'queuebox')\n4. Inspect image layers with `docker history queuebox:test` to confirm multi-stage build"
+          },
+          {
+            "id": 2,
+            "title": "Create docker-compose.yml with Service Orchestration",
+            "description": "Create docker-compose.yml defining queuebox, postgres, and optional rabbitmq services with proper health checks, dependencies, volumes, and networking.",
+            "dependencies": [
+              1
+            ],
+            "details": "Create `docker-compose.yml` in project root:\n\n1. **queuebox service**:\n   - Build from current context\n   - Ports: 8080:8080\n   - Environment variables: DATABASE_URL, DATABASE_USERNAME, DATABASE_PASSWORD pointing to postgres service\n   - depends_on postgres with `condition: service_healthy`\n   - Health check using wget to /health endpoint\n\n2. **postgres service**:\n   - Image: `postgres:16-alpine`\n   - Environment: POSTGRES_DB, POSTGRES_USER, POSTGRES_PASSWORD all set to 'queuebox'\n   - Ports: 5432:5432\n   - Volumes: named volume for data persistence, mount `./postgres/src/main/resources/db/migration` to `/docker-entrypoint-initdb.d` for auto-migration\n   - Health check using `pg_isready -U queuebox`\n\n3. **rabbitmq service** (optional profile):\n   - Image: `rabbitmq:3.13-management-alpine`\n   - Ports: 5672:5672, 15672:15672 (management UI)\n   - Health check using `rabbitmq-diagnostics check_port_connectivity`\n   - profiles: ['rabbitmq'] to make it opt-in\n\n4. **volumes section**: Define `postgres_data` named volume",
+            "status": "pending",
+            "testStrategy": "1. Run `docker-compose config` to validate YAML syntax\n2. Run `docker-compose up -d postgres` and verify postgres health check passes\n3. Run `docker-compose up -d` and verify all services start with healthy status\n4. Test optional profile with `docker-compose --profile rabbitmq up -d` includes RabbitMQ\n5. Verify `docker-compose down` stops all services cleanly"
+          },
+          {
+            "id": 3,
+            "title": "Create docker-compose.override.yml for Local Development",
+            "description": "Create docker-compose.override.yml that enables live-reload development by mounting source code and using Gradle continuous build mode.",
+            "dependencies": [
+              2
+            ],
+            "details": "Create `docker-compose.override.yml` in project root for local development workflow:\n\n1. **Override queuebox service**:\n   - Build with `target: builder` to use the build stage directly (has Gradle installed)\n   - Mount source volume: `./app/src:/app/app/src` for live source code changes\n   - Override command to `gradle :app:run --continuous` for automatic recompilation on file changes\n\n2. This file is automatically picked up by docker-compose when present, enabling:\n   - Hot-reload during development\n   - No need to rebuild image for code changes\n   - Access to full Gradle tooling in container\n\nNote: Production deployments should use `docker-compose -f docker-compose.yml up` to skip the override file.",
+            "status": "pending",
+            "testStrategy": "1. Run `docker-compose up queuebox` and verify it uses the override configuration\n2. Modify a source file in `./app/src` and verify Gradle detects and recompiles\n3. Verify production mode with `docker-compose -f docker-compose.yml up` ignores override\n4. Test that the builder stage has necessary tools (Gradle, JDK) available"
+          },
+          {
+            "id": 4,
+            "title": "Create .dockerignore and Update Configuration for Container Deployment",
+            "description": "Create .dockerignore to optimize Docker build context and update queuebox.yml to use environment variable placeholders for containerized deployment.",
+            "dependencies": [
+              1
+            ],
+            "details": "1. **Create `.dockerignore`** in project root to exclude unnecessary files from build context:\n   ```\n   .git\n   .gradle\n   **/build\n   *.md\n   .taskmaster\n   .claude\n   .cursor\n   ```\n   This reduces build context size and speeds up builds by excluding version control, build artifacts, documentation, and IDE configuration.\n\n2. **Update `app/src/main/resources/queuebox.yml`** (or create if doesn't exist) with environment variable placeholders:\n   ```yaml\n   server:\n     httpPort: 8080\n\n   database:\n     url: ${DATABASE_URL}\n     username: ${DATABASE_USERNAME}\n     password: ${DATABASE_PASSWORD}\n     poolSize: 10\n   ```\n   This enables the same configuration file to work across environments by injecting values via environment variables at runtime.\n\n3. Ensure the configuration loader (from Task 2) supports `${VAR}` syntax for environment variable substitution.",
+            "status": "pending",
+            "testStrategy": "1. Verify .dockerignore exists and `docker build .` completes faster (smaller context)\n2. Check build context size with `docker build . 2>&1 | grep 'Sending build context'`\n3. Run container with custom DATABASE_URL and verify config picks up the value\n4. Test missing required env var produces clear error message\n5. Verify local development still works with .env file or explicit env vars"
+          }
+        ]
+      },
+      {
+        "id": 9,
+        "title": "Implement RabbitMQ Publisher with Connection Management",
+        "description": "Create the RabbitMQ module with connection management, automatic reconnection, exchange declaration, and publisher with confirms for outbox delivery.",
+        "details": "Implementation in `rabbitmq/src/main/kotlin/`:\n\n1. **Update build.gradle.kts**:\n```kotlin\ndependencies {\n    implementation(project(\":core\"))\n    implementation(project(\":config\"))\n    implementation(\"com.rabbitmq:amqp-client:5.22.0\")\n    implementation(libs.bundles.kotlinxEcosystem)\n    testImplementation(\"org.testcontainers:rabbitmq:1.20.4\")\n}\n```\n\n2. **RabbitConnection.kt** - Connection with auto-reconnect:\n```kotlin\nclass RabbitConnection(private val url: String) {\n    private val factory = ConnectionFactory().apply {\n        setUri(url)\n        isAutomaticRecoveryEnabled = true\n        networkRecoveryInterval = 5000 // 5 seconds\n    }\n    \n    private var connection: Connection? = null\n    private val connectionLock = Mutex()\n    \n    suspend fun getChannel(): Channel = connectionLock.withLock {\n        if (connection == null || !connection!!.isOpen) {\n            connection = withContext(Dispatchers.IO) {\n                factory.newConnection()\n            }\n        }\n        connection!!.createChannel()\n    }\n    \n    suspend fun close() {\n        connectionLock.withLock {\n            connection?.close()\n            connection = null\n        }\n    }\n}\n```\n\n3. **RabbitPublisher.kt**:\n```kotlin\nclass RabbitPublisher(private val connections: ConcurrentHashMap<String, RabbitConnection> = ConcurrentHashMap()) : Publisher {\n    \n    override fun supports(destination: Destination): Boolean = destination is Destination.RabbitMQ\n    \n    override suspend fun publish(message: OutboxMessage): Result<Unit> {\n        val dest = message.destination as? Destination.RabbitMQ\n            ?: return Result.failure(IllegalArgumentException(\"Not a RabbitMQ destination\"))\n        \n        return try {\n            val connection = connections.getOrPut(dest.name) { RabbitConnection(dest.url) }\n            \n            withContext(Dispatchers.IO) {\n                val channel = connection.getChannel()\n                try {\n                    // Enable publisher confirms\n                    channel.confirmSelect()\n                    \n                    // Declare exchange idempotently\n                    channel.exchangeDeclare(dest.exchange, dest.exchangeType, true)\n                    \n                    // Render routing key from template\n                    val routingKey = dest.routingKeyTemplate\n                        .replace(\"{{ topic }}\", message.topic)\n                        .replace(\"{{topic}}\", message.topic)\n                    \n                    // Build message properties\n                    val props = AMQP.BasicProperties.Builder()\n                        .messageId(message.id.toString())\n                        .contentType(\"application/json\")\n                        .headers(mapOf(\n                            \"x-topic\" to message.topic,\n                            \"x-attempt\" to message.attempt\n                        ))\n                        .build()\n                    \n                    // Publish with mandatory flag\n                    val payload = Json.encodeToString(message.payload).toByteArray(Charsets.UTF_8)\n                    channel.basicPublish(dest.exchange, routingKey, true, props, payload)\n                    \n                    // Wait for confirm\n                    if (!channel.waitForConfirms(5000)) {\n                        return@withContext Result.failure(RabbitPublishException(\"Publish not confirmed\"))\n                    }\n                    \n                    Result.success(Unit)\n                } finally {\n                    channel.close()\n                }\n            }\n        } catch (e: Exception) {\n            Result.failure(RabbitPublishException(\"RabbitMQ publish failed: ${e.message}\", e))\n        }\n    }\n    \n    suspend fun close() {\n        connections.values.forEach { it.close() }\n        connections.clear()\n    }\n}\n\nclass RabbitPublishException(message: String, cause: Throwable? = null) : Exception(message, cause)\n```\n\n4. **Integrate with OutboxPoller** - Update app wiring to include RabbitPublisher in publishers list",
+        "testStrategy": "Integration tests with TestContainers RabbitMQ:\n1. **Connection management** - Test connection establishment, verify auto-reconnect after container restart\n2. **Exchange declaration** - Verify exchange created with correct type\n3. **Message publishing** - Publish message, consume from queue, verify payload and headers\n4. **Publisher confirms** - Test confirm timeout handling\n5. **Routing key templating** - Verify `{{ topic }}` replacement works\n\nUnit tests: Test routing key rendering, message properties building",
+        "priority": "medium",
+        "dependencies": [
+          1,
+          4
+        ],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Update rabbitmq/build.gradle.kts with RabbitMQ and coroutines dependencies",
+            "description": "Configure the RabbitMQ module's build file with amqp-client library, kotlinx coroutines ecosystem, project dependencies for core and config modules, and TestContainers RabbitMQ for integration testing.",
+            "dependencies": [],
+            "details": "Update rabbitmq/build.gradle.kts to add: 1) implementation(project(':core')) and implementation(project(':config')) for shared types, 2) implementation('com.rabbitmq:amqp-client:5.22.0') for RabbitMQ Java client, 3) implementation(libs.bundles.kotlinxEcosystem) for kotlinx-coroutines-core (needed for Dispatchers.IO, Mutex, withContext), kotlinx-serialization-json, and kotlinx-datetime, 4) testImplementation('org.testcontainers:rabbitmq:1.20.4') for integration tests, 5) testImplementation(kotlin('test')) for test support. The kotlinxEcosystem bundle is already defined in gradle/libs.versions.toml with coroutines version 1.9.0.",
+            "status": "pending",
+            "testStrategy": "Verify build compiles successfully with './gradlew :rabbitmq:build' and that all dependencies resolve. Check that the amqp-client classes are accessible from Kotlin source files."
+          },
+          {
+            "id": 2,
+            "title": "Implement RabbitConnection.kt with auto-recovery and Mutex-protected channel creation",
+            "description": "Create RabbitConnection class that wraps RabbitMQ ConnectionFactory with automatic recovery configuration, provides thread-safe channel creation using Kotlin Mutex, and handles connection lifecycle.",
+            "dependencies": [
+              1
+            ],
+            "details": "Create rabbitmq/src/main/kotlin/org/nxtspec/rabbitmq/RabbitConnection.kt with: 1) ConnectionFactory configured with setUri(url), isAutomaticRecoveryEnabled=true, networkRecoveryInterval=5000ms for 5-second reconnect attempts, 2) Private connection field protected by kotlinx.coroutines.sync.Mutex for thread-safe access, 3) suspend fun getChannel() that uses connectionLock.withLock{} to lazily create connection if null or closed, then creates a new Channel - wrap blocking newConnection() call with withContext(Dispatchers.IO), 4) suspend fun close() that safely closes connection within mutex lock and nullifies reference. The class should be designed to be used as a long-lived connection pool entry keyed by destination name.",
+            "status": "pending",
+            "testStrategy": "Unit test that getChannel() returns valid channel, test that close() properly cleans up resources, test thread-safety by calling getChannel() from multiple coroutines concurrently."
+          },
+          {
+            "id": 3,
+            "title": "Implement RabbitPublisher.kt with connection pooling, exchange declaration, and publisher confirms",
+            "description": "Create RabbitPublisher implementing the Publisher interface with connection pooling via ConcurrentHashMap, idempotent exchange declaration, routing key template rendering, and publisher confirms for delivery guarantees.",
+            "dependencies": [
+              1,
+              2
+            ],
+            "details": "Create rabbitmq/src/main/kotlin/org/nxtspec/rabbitmq/RabbitPublisher.kt implementing Publisher interface: 1) ConcurrentHashMap<String, RabbitConnection> for connection pooling keyed by destination name, 2) supports() returns true for Destination.RabbitMQ, 3) publish() extracts RabbitMQ destination, gets/creates connection from pool using getOrPut, 4) Within withContext(Dispatchers.IO): get channel, call channel.confirmSelect() to enable confirms, channel.exchangeDeclare(exchange, exchangeType, durable=true) idempotently, 5) Render routingKey by replacing '{{ topic }}' and '{{topic}}' in template with message.topic, 6) Build AMQP.BasicProperties with messageId, contentType='application/json', headers for x-topic and x-attempt, 7) Serialize payload with Json.encodeToString and publish with basicPublish(exchange, routingKey, mandatory=true, props, payload), 8) waitForConfirms(5000) and return failure if not confirmed, 9) Close channel in finally block, 10) suspend fun close() to cleanup all connections.",
+            "status": "pending",
+            "testStrategy": "Test supports() correctly identifies RabbitMQ destinations. Test routing key template rendering with various patterns. Test that connection pooling reuses connections for same destination."
+          },
+          {
+            "id": 4,
+            "title": "Create RabbitPublishException for detailed error reporting",
+            "description": "Implement a custom exception class for RabbitMQ publishing failures that preserves the original cause and provides meaningful error messages for debugging.",
+            "dependencies": [
+              1
+            ],
+            "details": "Create rabbitmq/src/main/kotlin/org/nxtspec/rabbitmq/RabbitPublishException.kt: 1) Define class RabbitPublishException(message: String, cause: Throwable? = null) : Exception(message, cause), 2) This exception should be thrown when: publisher confirms timeout/fail, connection errors occur during publish, channel operations fail. The exception wraps underlying RabbitMQ client exceptions to provide consistent error handling across the application. Consider adding convenience factory methods like forConfirmTimeout() or forConnectionFailure(cause) if patterns emerge, but keep it simple initially.",
+            "status": "pending",
+            "testStrategy": "Unit test that exception properly stores message and cause, test that cause chain is preserved when wrapping underlying exceptions, verify toString() output is meaningful for logging."
+          },
+          {
+            "id": 5,
+            "title": "Write integration tests with TestContainers RabbitMQ for publishing and reconnection",
+            "description": "Create comprehensive integration tests using TestContainers RabbitMQ to verify connection management, message publishing with confirms, exchange declaration, and automatic reconnection after container restart.",
+            "dependencies": [
+              1,
+              2,
+              3,
+              4
+            ],
+            "details": "Create rabbitmq/src/test/kotlin/org/nxtspec/rabbitmq/RabbitPublisherIntegrationTest.kt: 1) Use @Testcontainers and RabbitMQContainer('rabbitmq:3.12-management') with mapped ports, 2) Test connection establishment - create RabbitConnection, getChannel(), verify channel.isOpen, 3) Test exchange declaration - publish triggers exchangeDeclare, verify exchange exists via management API or consume attempt, 4) Test message publishing with confirms - create queue bound to exchange, publish OutboxMessage, consume and verify headers (x-topic, x-attempt), verify messageId matches, verify payload JSON, 5) Test routing key rendering - publish with topic='orders.created', verify routed correctly based on template, 6) Test auto-reconnection (may be flaky) - get channel, restart container with container.stop()/start(), wait for recovery, publish again should succeed after recovery interval. Use runBlocking for test coroutines. Consider @RepeatedTest for flaky reconnection test.",
+            "status": "pending",
+            "testStrategy": "Run tests with './gradlew :rabbitmq:test'. Verify all tests pass reliably. For reconnection test, use appropriate timeouts and retry logic to handle CI variability. Consider marking reconnection test as @Tag('slow') for optional exclusion."
+          }
+        ]
+      },
+      {
+        "id": 10,
+        "title": "Implement RabbitMQ Consumer for Inbox Ingestion",
+        "description": "Create RabbitMQ consumer that subscribes to queues, extracts idempotency keys from message headers or payload, and stores messages in the inbox table.",
+        "details": "Implementation in `rabbitmq/src/main/kotlin/`:\n\n1. **RabbitConsumer.kt**:\n```kotlin\nclass RabbitConsumer(\n    private val connection: RabbitConnection,\n    private val inboxRepository: InboxRepository,\n    private val extractor: IdempotencyExtractor,\n    private val config: RabbitConsumerConfig\n) {\n    private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())\n    private var running = true\n    private var channel: Channel? = null\n    \n    suspend fun start() {\n        channel = connection.getChannel().apply {\n            basicQos(config.prefetchCount)\n        }\n        \n        val consumer = object : DefaultConsumer(channel) {\n            override fun handleDelivery(\n                consumerTag: String,\n                envelope: Envelope,\n                properties: AMQP.BasicProperties,\n                body: ByteArray\n            ) {\n                scope.launch {\n                    try {\n                        val payload = Json.parseToJsonElement(body.toString(Charsets.UTF_8))\n                        \n                        // Extract idempotency key from header or payload\n                        val idempotencyKey = properties.headers?.get(\"x-idempotency-key\")?.toString()\n                            ?: extractor.extract(payload, config.idempotencyKeyPath).getOrNull()\n                            ?: properties.messageId\n                            ?: UUID.randomUUID().toString()\n                        \n                        val message = InboxMessage(\n                            source = config.sourceName,\n                            idempotencyKey = idempotencyKey,\n                            eventType = properties.headers?.get(\"x-event-type\")?.toString(),\n                            payload = payload\n                        )\n                        \n                        when (inboxRepository.store(message)) {\n                            is InboxResult.Stored, is InboxResult.Duplicate -> {\n                                // Ack after successful store or duplicate detection\n                                channel?.basicAck(envelope.deliveryTag, false)\n                            }\n                            is InboxResult.Error -> {\n                                // Nack and requeue on storage failure\n                                channel?.basicNack(envelope.deliveryTag, false, true)\n                            }\n                        }\n                    } catch (e: Exception) {\n                        logger.error(\"Failed to process message\", e)\n                        channel?.basicNack(envelope.deliveryTag, false, true)\n                    }\n                }\n            }\n        }\n        \n        channel?.basicConsume(config.queueName, false, consumer)\n    }\n    \n    suspend fun stop() {\n        running = false\n        scope.cancel()\n        channel?.close()\n    }\n}\n\n@Serializable\ndata class RabbitConsumerConfig(\n    val queueName: String,\n    val sourceName: String,\n    val prefetchCount: Int = 10,\n    val idempotencyKeyPath: String = \"$.id\"\n)\n```\n\n2. **Update config schema** to support RabbitMQ inbox sources:\n```kotlin\n@Serializable\nsealed class SourceConfig {\n    @Serializable\n    @SerialName(\"http\")\n    data class Http(\n        val path: String,\n        val idempotencyKeyPath: String,\n        val eventTypePath: String? = null\n    ) : SourceConfig()\n    \n    @Serializable\n    @SerialName(\"rabbitmq\")\n    data class RabbitMQ(\n        val queueName: String,\n        val connectionUrl: String,\n        val idempotencyKeyPath: String = \"$.id\",\n        val prefetchCount: Int = 10\n    ) : SourceConfig()\n}\n```\n\n3. **Update Application.kt** to start RabbitMQ consumers for configured sources",
+        "testStrategy": "Integration tests with TestContainers RabbitMQ:\n1. **Message consumption** - Publish to queue, verify message stored in inbox\n2. **Deduplication** - Publish same message ID twice, verify only one inbox entry\n3. **Idempotency key extraction** - Test header extraction, payload JSONPath extraction, fallback to messageId\n4. **Manual ack** - Verify ack only after successful storage\n5. **Nack and requeue** - Simulate storage failure, verify message requeued\n6. **Prefetch** - Verify only prefetchCount messages in flight at once",
+        "priority": "low",
+        "dependencies": [
+          3,
+          6,
+          9
+        ],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Implement RabbitConsumer with DefaultConsumer and Coroutine Bridge",
+            "description": "Create RabbitConsumer.kt with DefaultConsumer callback that bridges RabbitMQ's dispatcher thread to Kotlin coroutines, including prefetch configuration and proper lifecycle management.",
+            "dependencies": [],
+            "details": "Implement RabbitConsumer class in `rabbitmq/src/main/kotlin/` with: 1) Constructor accepting RabbitConnection, InboxRepository, IdempotencyExtractor, and RabbitConsumerConfig, 2) CoroutineScope with Dispatchers.IO and SupervisorJob for non-blocking message processing, 3) start() suspend function that creates channel with basicQos(prefetchCount), 4) DefaultConsumer subclass with handleDelivery override that launches coroutines for each message - critical to bridge from RabbitMQ's internal thread to coroutine context, 5) stop() suspend function that cancels scope and closes channel, 6) RabbitConsumerConfig data class with queueName, sourceName, prefetchCount (default 10), and idempotencyKeyPath (default $.id). Note: DefaultConsumer callbacks run on RabbitMQ's connection thread, so must dispatch to coroutine scope immediately to avoid blocking.",
+            "status": "pending",
+            "testStrategy": "Unit test consumer lifecycle (start/stop), verify channel configuration with prefetch count, test that handleDelivery dispatches to coroutine scope without blocking RabbitMQ thread."
+          },
+          {
+            "id": 2,
+            "title": "Implement Idempotency Key Extraction with Header and Payload Fallback",
+            "description": "Implement idempotency key extraction logic with priority: x-idempotency-key header, JSONPath from payload, messageId property, then UUID fallback.",
+            "dependencies": [
+              1
+            ],
+            "details": "Within handleDelivery in RabbitConsumer: 1) Parse message body as JsonElement using kotlinx.serialization Json.parseToJsonElement(), 2) Extract idempotency key with fallback chain: first check properties.headers for 'x-idempotency-key', then use IdempotencyExtractor.extract() with configured jsonPath from payload, then fall back to properties.messageId, finally generate UUID.randomUUID().toString() as last resort, 3) Also extract optional event type from 'x-event-type' header, 4) Construct InboxMessage with source from config, extracted idempotencyKey, eventType, and parsed payload. Reuse IdempotencyExtractor from Task 6 (inbox-service) - may need to move to core module or create shared dependency.",
+            "status": "pending",
+            "testStrategy": "Unit tests for each extraction path: message with x-idempotency-key header, message with JSONPath-extractable ID, message with only messageId, message with none (UUID generated). Verify correct priority order."
+          },
+          {
+            "id": 3,
+            "title": "Implement Ack/Nack Handling with Requeue Strategy",
+            "description": "Implement proper message acknowledgment and negative acknowledgment handling based on InboxRepository results, with requeue on transient failures.",
+            "dependencies": [
+              1,
+              2
+            ],
+            "details": "After calling inboxRepository.store(message), handle each InboxResult variant: 1) InboxResult.Stored - call channel.basicAck(envelope.deliveryTag, false) to acknowledge single message, 2) InboxResult.Duplicate - also call basicAck since duplicate detection is successful processing, 3) InboxResult.Error - call channel.basicNack(envelope.deliveryTag, false, true) with requeue=true for transient storage failures, 4) Wrap entire processing in try-catch, on any exception log error and call basicNack with requeue=true, 5) Consider adding max retry tracking via message headers to prevent infinite requeue loops (x-death header inspection or custom retry counter). Critical: ack/nack must happen on same channel, use channel?.basicAck pattern for null safety after stop().",
+            "status": "pending",
+            "testStrategy": "Integration tests verifying: successful store results in ack, duplicate results in ack, storage error results in nack with requeue, exception during processing results in nack with requeue. Test message redelivery after nack."
+          },
+          {
+            "id": 4,
+            "title": "Extend SourceConfig with RabbitMQ Sealed Class Variant",
+            "description": "Update SourceConfig sealed class in config module to support RabbitMQ source type with polymorphic kotlinx.serialization.",
+            "dependencies": [],
+            "details": "In config module, extend the existing SourceConfig sealed class: 1) Add @Serializable @SerialName(\"rabbitmq\") data class RabbitMQ variant with properties: queueName (String), connectionUrl (String), idempotencyKeyPath (String, default \"$.id\"), prefetchCount (Int, default 10), 2) Ensure sealed class has @Serializable annotation and proper polymorphic serializer configuration in Json builder with serializersModule containing polymorphic(SourceConfig::class), 3) Update Application.kt startup logic to iterate configured sources, match on SourceConfig type, and start RabbitConsumer instances for RabbitMQ sources alongside existing HTTP handlers, 4) Ensure graceful shutdown stops all RabbitMQ consumers. The sealed class approach enables type-safe pattern matching when processing different source types.",
+            "status": "pending",
+            "testStrategy": "Unit tests for config deserialization: verify RabbitMQ config parses correctly from JSON/YAML, verify polymorphic serialization round-trips correctly, test default values applied. Integration test Application starts consumers for RabbitMQ sources."
+          },
+          {
+            "id": 5,
+            "title": "Write Integration Tests for RabbitMQ Consumer Behavior",
+            "description": "Create comprehensive integration tests using TestContainers RabbitMQ covering message consumption, deduplication, ack/nack behavior, and prefetch limiting.",
+            "dependencies": [
+              1,
+              2,
+              3,
+              4
+            ],
+            "details": "Create RabbitConsumerIntegrationTest in `rabbitmq/src/test/kotlin/` using TestContainers: 1) **Message consumption** - publish message to queue via test producer, verify message appears in inbox table with correct fields, 2) **Deduplication** - publish two messages with same x-idempotency-key header, verify only one inbox entry exists, both messages acked, 3) **Idempotency extraction paths** - test header extraction, JSONPath extraction from payload, messageId fallback, UUID generation, 4) **Ack/nack behavior** - mock InboxRepository to return Error, verify message requeued and redelivered, 5) **Prefetch limiting** - configure prefetchCount=2, publish 10 messages, verify consumer processes at most 2 concurrently (use latches/delays to observe), 6) Setup/teardown: use TestContainers RabbitMQ and PostgreSQL, create queue before test, clean inbox table between tests. Use eventually{} assertions for async verification.",
+            "status": "pending",
+            "testStrategy": "Self-documenting integration test suite. Verify tests run reliably in CI with TestContainers. Consider test isolation - each test should declare its own queue to avoid interference."
+          }
+        ]
+      }
+    ],
+    "metadata": {
+      "created": "2026-01-26T21:10:17.310Z",
+      "updated": "2026-01-26T21:10:17.310Z",
+      "description": "Tasks for master context"
+    }
+  }
+}
