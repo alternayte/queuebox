@@ -1,0 +1,11 @@
+server:
+  httpPort: 8080
+
+outbox:
+  destinations:
+    rabbitmq:
+      url: "amqp://localhost:5672"
+      exchange: "queuebox-events"
+
+inbox:
+  httpPath: "/inbox"
