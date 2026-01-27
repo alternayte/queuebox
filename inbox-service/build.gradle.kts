@@ -1,5 +1,5 @@
 plugins {
-    kotlin("jvm")
+    id("buildsrc.convention.kotlin-jvm")
 }
 
 group = "org.nxtspec"
@@ -20,13 +20,9 @@ dependencies {
     // Kotlinx ecosystem (coroutines, serialization, datetime)
     implementation(libs.bundles.kotlinxEcosystem)
 
-    testImplementation(kotlin("test"))
-}
-
-kotlin {
-    jvmToolchain(23)
-}
-
-tasks.test {
-    useJUnitPlatform()
+    testImplementation(libs.kotlin.test)
+    testImplementation(libs.mockk)
+    testImplementation(libs.kotlinx.coroutines.test)
+    testImplementation(libs.ktor.server.test.host)
+    testImplementation(libs.ktor.client.content.negotiation)
 }

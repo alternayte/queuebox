@@ -1,0 +1,10 @@
+server:
+  httpPort: 8080
+
+outbox:
+  pollIntervalMs: 100
+  batchSize: 100
+  maxAttempts: 5
+
+inbox:
+  basePath: /inbox

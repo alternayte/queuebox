@@ -1,0 +1,21 @@
+{
+	"meta": {
+		"generatedAt": "2026-01-27T21:51:34.419Z",
+		"tasksAnalyzed": 1,
+		"totalTasks": 11,
+		"analysisCount": 1,
+		"thresholdScore": 5,
+		"projectName": "Task Master",
+		"usedResearch": true
+	},
+	"complexityAnalysis": [
+		{
+			"taskId": 11,
+			"taskTitle": "Enforce Testing and Code Coverage Standards",
+			"complexityScore": 4,
+			"recommendedSubtasks": 3,
+			"expansionPrompt": "Break down into: (1) Add jacocoTestCoverageVerification with violation rules to kotlin-jvm.gradle.kts including class-level thresholds and exclusion patterns for MainKt, DI, and Config classes; (2) Add jacocoAggregatedVerification task and checkCoverage convenience task to root build.gradle.kts with proper execution data sources; (3) Create TESTING.md documentation with coverage targets and wire verification into the check task lifecycle. Consider that the project already has JaCoCo plugin configured, aggregated report task, and MainKt exclusion - leverage these existing patterns.",
+			"reasoning": "This task has moderate complexity because: (1) JaCoCo infrastructure already exists - the plugin is applied in kotlin-jvm.gradle.kts and aggregated reporting is configured in root build.gradle.kts, reducing setup work; (2) The task is primarily Gradle configuration with well-documented APIs and clear examples in the task details; (3) Exclusion patterns for MainKt already exist and can be extended; (4) The 8-module structure is straightforward and the convention plugin pattern means changes propagate automatically; (5) Testing the configuration requires running builds with intentionally lowered coverage which adds some verification effort but is not technically complex. The main challenges are ensuring verification works correctly with the existing aggregated report setup and properly configuring execution data sources after projectsEvaluated. This is standard Gradle build configuration work that follows established patterns."
+		}
+	]
+}

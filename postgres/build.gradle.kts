@@ -1,5 +1,5 @@
 plugins {
-    kotlin("jvm")
+    id("buildsrc.convention.kotlin-jvm")
 }
 
 group = "org.nxtspec"
@@ -29,15 +29,9 @@ dependencies {
     implementation(libs.bundles.kotlinxEcosystem)
 
     // Testing
-    testImplementation(kotlin("test"))
-    testImplementation("org.testcontainers:postgresql:1.20.4")
-    testImplementation("org.testcontainers:junit-jupiter:1.20.4")
-}
-
-kotlin {
-    jvmToolchain(23)
-}
-
-tasks.test {
-    useJUnitPlatform()
+    testImplementation(libs.kotlin.test)
+    testImplementation(libs.mockk)
+    testImplementation(libs.kotlinx.coroutines.test)
+    testImplementation(libs.testcontainers.postgresql)
+    testImplementation(libs.testcontainers.junit)
 }

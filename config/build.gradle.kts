@@ -1,5 +1,5 @@
 plugins {
-    kotlin("jvm")
+    id("buildsrc.convention.kotlin-jvm")
 }
 
 group = "org.nxtspec"
@@ -10,16 +10,9 @@ repositories {
 }
 
 dependencies {
-    testImplementation(kotlin("test"))
+    testImplementation(libs.kotlin.test)
+    testImplementation(libs.mockk)
 
     implementation(libs.bundles.hopliteEcosystem)
     implementation(libs.bundles.kotlinxEcosystem)
-}
-
-kotlin {
-    jvmToolchain(23)
-}
-
-tasks.test {
-    useJUnitPlatform()
 }

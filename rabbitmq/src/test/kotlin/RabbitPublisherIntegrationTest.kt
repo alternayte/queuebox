@@ -1,5 +1,6 @@
 package org.nxtspec
 
+import com.rabbitmq.client.ConnectionFactory
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -14,6 +15,8 @@ import org.testcontainers.junit.jupiter.Testcontainers
 import org.testcontainers.utility.DockerImageName
 import java.time.Duration
 import java.util.UUID
+import kotlin.test.assertEquals
+import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 /**
@@ -140,5 +143,89 @@ class RabbitPublisherIntegrationTest {
         val result = publisher.publish(message, destination)
 
         assertTrue(result.isSuccess, "Direct exchange publish should succeed")
+    }
+
+    @Test
+    fun `should includeMessageHeaders when publishing`() = runBlocking {
+        val exchangeName = "headers-test-exchange"
+        val queueName = "headers-test-queue"
+        val routingKey = "test.topic"
+
+        // Set up exchange, queue, and binding to capture the published message
+        val factory = ConnectionFactory().apply { setUri(amqpUrl) }
+        factory.newConnection().use { conn ->
+            conn.createChannel().use { channel ->
+                channel.exchangeDeclare(exchangeName, "topic", true)
+                channel.queueDeclare(queueName, false, false, true, null)
+                channel.queueBind(queueName, exchangeName, routingKey)
+            }
+        }
+
+        // Publish message
+        val destination = Destination.RabbitMQ(
+            name = "headers-test",
+            url = amqpUrl,
+            exchange = exchangeName,
+            exchangeType = "topic",
+            routingKeyTemplate = "{{ topic }}"
+        )
+
+        val message = OutboxMessage(
+            id = UUID.randomUUID(),
+            topic = routingKey,
+            payload = JsonObject(mapOf("data" to JsonPrimitive("test")))
+        )
+
+        val result = publisher.publish(message, destination)
+        assertTrue(result.isSuccess, "Publish should succeed")
+
+        // Consume and verify headers
+        factory.newConnection().use { conn ->
+            conn.createChannel().use { channel ->
+                val response = channel.basicGet(queueName, true)
+                assertNotNull(response, "Should receive the published message")
+
+                val headers = response.props.headers
+                assertNotNull(headers, "Message should have headers")
+                assertEquals(routingKey, headers["x-topic"]?.toString(), "x-topic header should contain the message topic")
+                assertNotNull(headers["x-attempt"], "x-attempt header should be present")
+            }
+        }
+    }
+
+    @Test
+    fun `should autoCreateExchange when exchangeDoesNotExist`() = runBlocking {
+        // Use a unique exchange name that doesn't exist
+        val uniqueExchange = "auto-create-exchange-${UUID.randomUUID()}"
+
+        val destination = Destination.RabbitMQ(
+            name = "auto-create-test",
+            url = amqpUrl,
+            exchange = uniqueExchange,
+            exchangeType = "topic",
+            routingKeyTemplate = "{{ topic }}"
+        )
+
+        val message = OutboxMessage(
+            id = UUID.randomUUID(),
+            topic = "test.topic",
+            payload = JsonObject(mapOf("data" to JsonPrimitive("test")))
+        )
+
+        // This should succeed because RabbitPublisher auto-declares the exchange
+        val result = publisher.publish(message, destination)
+
+        assertTrue(result.isSuccess, "Publish should succeed even when exchange doesn't exist - RabbitPublisher should auto-declare it")
+
+        // Verify the exchange was actually created
+        val factory = ConnectionFactory().apply { setUri(amqpUrl) }
+        factory.newConnection().use { conn ->
+            conn.createChannel().use { channel ->
+                // exchangeDeclarePassive will throw if exchange doesn't exist
+                channel.exchangeDeclarePassive(uniqueExchange)
+                // If we get here without exception, the exchange exists
+                assertTrue(true, "Exchange should exist after publish")
+            }
+        }
     }
 }

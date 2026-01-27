@@ -1,5 +1,5 @@
 plugins {
-    kotlin("jvm")
+    id("buildsrc.convention.kotlin-jvm")
 }
 
 group = "org.nxtspec"
@@ -20,13 +20,8 @@ dependencies {
     // Ktor HTTP client
     implementation(libs.bundles.ktorClientEcosystem)
 
-    testImplementation(kotlin("test"))
-}
-
-kotlin {
-    jvmToolchain(23)
-}
-
-tasks.test {
-    useJUnitPlatform()
+    testImplementation(libs.kotlin.test)
+    testImplementation(libs.mockk)
+    testImplementation(libs.kotlinx.coroutines.test)
+    testImplementation(libs.ktor.client.mock)
 }

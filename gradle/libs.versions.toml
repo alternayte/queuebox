@@ -10,6 +10,10 @@ kotlinxCoroutines = "1.9.0"
 ktor = "3.4.0"
 hoplite = "2.9.0"
 
+# Testing
+testcontainers = "1.20.4"
+mockk = "1.13.13"
+
 [libraries]
 kotlinGradlePlugin = { module = "org.jetbrains.kotlin:kotlin-gradle-plugin", version.ref = "kotlin" }
 kotlinxDatetime = { module = "org.jetbrains.kotlinx:kotlinx-datetime", version.ref = "kotlinxDatetime" }
@@ -31,6 +35,16 @@ ktor-client-content-negotiation = { group = "io.ktor", name = "ktor-client-conte
 hoplite-core = {group = "com.sksamuel.hoplite", name = "hoplite-core", version.ref = "hoplite"}
 hoplite-yaml = {group = "com.sksamuel.hoplite", name = "hoplite-yaml", version.ref = "hoplite"}
 
+# Testing
+kotlin-test = { module = "org.jetbrains.kotlin:kotlin-test" }
+kotlinx-coroutines-test = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-test", version.ref = "kotlinxCoroutines" }
+mockk = { module = "io.mockk:mockk", version.ref = "mockk" }
+ktor-server-test-host = { group = "io.ktor", name = "ktor-server-test-host", version.ref = "ktor" }
+ktor-client-mock = { group = "io.ktor", name = "ktor-client-mock", version.ref = "ktor" }
+testcontainers-core = { module = "org.testcontainers:testcontainers", version.ref = "testcontainers" }
+testcontainers-junit = { module = "org.testcontainers:junit-jupiter", version.ref = "testcontainers" }
+testcontainers-postgresql = { module = "org.testcontainers:postgresql", version.ref = "testcontainers" }
+testcontainers-rabbitmq = { module = "org.testcontainers:rabbitmq", version.ref = "testcontainers" }
 
 # Libraries can be bundled together for easier import
 [bundles]
@@ -38,6 +52,15 @@ kotlinxEcosystem = ["kotlinxDatetime", "kotlinxSerialization", "kotlinxCoroutine
 ktorServerEcosystem = ["ktor-server-core","ktor-server-netty","ktor-serialization-json","ktor-content-negotiation"]
 ktorClientEcosystem = ["ktor-client-core", "ktor-client-cio", "ktor-client-content-negotiation", "ktor-serialization-json"]
 hopliteEcosystem = ["hoplite-core","hoplite-yaml"]
+
+# Test bundles
+testCore = ["kotlin-test", "mockk"]
+testCoroutines = ["kotlinx-coroutines-test"]
+testKtorServer = ["ktor-server-test-host"]
+testKtorClient = ["ktor-client-mock"]
+testContainersCore = ["testcontainers-core", "testcontainers-junit"]
+testContainersPostgresql = ["testcontainers-postgresql", "testcontainers-junit"]
+testContainersRabbitmq = ["testcontainers-rabbitmq", "testcontainers-junit"]
 
 [plugins]
 kotlinPluginSerialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }

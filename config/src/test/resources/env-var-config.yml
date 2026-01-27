@@ -1,0 +1,14 @@
+server:
+  httpPort: 8080
+
+database:
+  url: ${DATABASE_URL}
+  username: ${DATABASE_USER}
+  password: ${DATABASE_PASSWORD}
+  poolSize: 10
+  connectionTimeoutMs: 30000
+
+outbox:
+  pollIntervalMs: 100
+  batchSize: 100
+  maxAttempts: 5

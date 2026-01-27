@@ -1,5 +1,5 @@
 plugins {
-    kotlin("jvm")
+    id("buildsrc.convention.kotlin-jvm")
     alias(libs.plugins.kotlinPluginSerialization)
 }
 
@@ -17,13 +17,6 @@ dependencies {
     // JSONPath for idempotency key extraction
     implementation("com.jayway.jsonpath:json-path:2.9.0")
 
-    testImplementation(kotlin("test"))
-}
-
-kotlin {
-    jvmToolchain(23)
-}
-
-tasks.test {
-    useJUnitPlatform()
+    testImplementation(libs.kotlin.test)
+    testImplementation(libs.mockk)
 }

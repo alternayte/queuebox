@@ -1,0 +1,52 @@
+server:
+  httpPort: 8080
+
+database:
+  url: jdbc:postgresql://localhost:5432/queuebox
+  username: postgres
+  password: secret
+  poolSize: 10
+  connectionTimeoutMs: 30000
+
+outbox:
+  pollIntervalMs: 100
+  batchSize: 100
+  retryBaseDelayMs: 1000
+  maxAttempts: 5
+
+inbox:
+  basePath: /inbox
+
+destinations:
+  webhook-api:
+    type: http
+    baseUrl: https://api.example.com
+    path: /webhooks
+    timeoutMs: 30000
+    headers:
+      Authorization: Bearer token123
+  events-exchange:
+    type: rabbitmq
+    url: amqp://localhost:5672
+    exchange: events
+    exchangeType: topic
+
+routes:
+  - topicPattern: "order.*"
+    destination: webhook-api
+  - topicPattern: "user.*"
+    destination: events-exchange
+    routingKeyTemplate: "user.{{eventType}}"
+
+sources:
+  http-source:
+    type: http
+    path: /events
+    idempotencyKeyPath: $.headers.X-Idempotency-Key
+    eventTypePath: $.body.type
+  rabbit-source:
+    type: rabbitmq
+    queueName: incoming-events
+    connectionUrl: amqp://localhost:5672
+    idempotencyKeyPath: $.id
+    prefetchCount: 10

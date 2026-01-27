@@ -13,10 +13,15 @@ import org.nxtspec.OutboxMessage
 import org.nxtspec.Publisher
 import java.util.concurrent.ConcurrentHashMap
 
-class HttpPublisher : Publisher {
+class HttpPublisher(
+    private val clientFactory: ((Destination.Http) -> HttpClient)? = null
+) : Publisher {
     private val clients = ConcurrentHashMap<String, HttpClient>()
 
     private fun getClient(destination: Destination.Http): HttpClient {
+        // Use injected factory if provided (for testing), otherwise create CIO client
+        clientFactory?.let { return it(destination) }
+
         return clients.getOrPut(destination.name) {
             HttpClient(CIO) {
                 install(ContentNegotiation) {

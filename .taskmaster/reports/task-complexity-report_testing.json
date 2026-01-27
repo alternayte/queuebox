@@ -1,0 +1,93 @@
+{
+	"meta": {
+		"generatedAt": "2026-01-27T08:39:45.849Z",
+		"tasksAnalyzed": 10,
+		"totalTasks": 10,
+		"analysisCount": 10,
+		"thresholdScore": 5,
+		"projectName": "Task Master",
+		"usedResearch": true
+	},
+	"complexityAnalysis": [
+		{
+			"taskId": 1,
+			"taskTitle": "Configure Test Infrastructure and Dependencies",
+			"complexityScore": 4,
+			"recommendedSubtasks": 4,
+			"expansionPrompt": "Break down test infrastructure setup into: 1) Update libs.versions.toml with test dependency versions (testcontainers, mockk, coroutines-test, ktor-test), 2) Add test dependencies to each module's build.gradle.kts (core, config, postgres, outbox-service, inbox-service, rabbitmq, app), 3) Create a shared test-fixtures.gradle.kts convention plugin for common test configuration, 4) Verify test infrastructure by creating simple placeholder tests in each module and running ./gradlew test --dry-run",
+			"reasoning": "Moderate complexity. The codebase already has a well-structured Gradle setup with libs.versions.toml catalog and buildSrc convention plugins. JUnit 5 is already configured in kotlin-jvm.gradle.kts. Some modules (postgres, rabbitmq) already have TestContainers dependencies. Main work is adding missing dependencies (mockk, kotlinx-coroutines-test, ktor-test) to version catalog and propagating to remaining modules. No architectural decisions required."
+		},
+		{
+			"taskId": 2,
+			"taskTitle": "Implement Core Module Unit Tests (MessageState, OutboxMessage, InboxMessage, Destination)",
+			"complexityScore": 3,
+			"recommendedSubtasks": 4,
+			"expansionPrompt": "Break down core module tests into: 1) Create MessageStateTest.kt testing all state transition rules in canTransitionTo() function (Pending→Processing, Processing→Sent/Failed, Failed→Processing/Dead, terminal states), 2) Create OutboxMessageTest.kt testing data class defaults (UUID generation, Pending state, attempt=0, timestamp initialization), 3) Create InboxMessageTest.kt testing data class defaults and source+idempotencyKey combination, 4) Create DestinationTest.kt testing sealed interface discrimination for Http and RabbitMQ variants including SerialName annotations",
+			"reasoning": "Low-moderate complexity. The core models are simple data classes and a sealed class with straightforward state transition logic. MessageState has 33 lines with a clear canTransitionTo() companion function. OutboxMessage/InboxMessage are plain data classes with defaults. No mocking required - pure unit tests. The implementation is already complete and well-structured."
+		},
+		{
+			"taskId": 3,
+			"taskTitle": "Implement Config Module Unit Tests (ConfigLoader, ConfigValidator)",
+			"complexityScore": 5,
+			"recommendedSubtasks": 5,
+			"expansionPrompt": "Break down config module tests into: 1) Create test YAML resources in config/src/test/resources (valid config, missing database, invalid URL, invalid port, etc.), 2) Create ConfigLoaderTest.kt testing YAML parsing with Hoplite, env var substitution, and file-not-found scenarios, 3) Create ConfigValidatorTest.kt testing all validation rules (PostgreSQL URL format, port range 1-65535, pool size > 0, connection timeout > 0), 4) Test outbox config validation (pollIntervalMs, batchSize, maxAttempts > 0), 5) Test route-destination reference validation (route references existing destination name)",
+			"reasoning": "Moderate complexity. ConfigValidator has 9 distinct validation rules to test. ConfigLoader wraps Hoplite which handles YAML parsing. Need to create multiple test resource files. The QueueBoxConfig has nested structures (ServerConfig, DatabaseConfig, OutboxConfig, InboxConfig, destinations map, routes list, sources map) requiring comprehensive test coverage. Some complexity in testing env var substitution."
+		},
+		{
+			"taskId": 4,
+			"taskTitle": "Implement Outbox Service Unit Tests (RetryStrategy, MessageRouter, IdempotencyExtractor)",
+			"complexityScore": 4,
+			"recommendedSubtasks": 4,
+			"expansionPrompt": "Break down outbox service tests into: 1) Create RetryStrategyTest.kt testing exponential backoff calculation (base delay, doubling, jitter 0-25%, MAX_DELAY cap at 60s) and shouldRetry logic, 2) Create MessageRouterTest.kt testing glob pattern matching (exact match, single wildcard *, multi-segment **, first-match priority, no-match returns null), 3) Create IdempotencyExtractorTest.kt in core module testing JSONPath extraction (root field, nested path, array index, path-not-found failure), 4) Test template rendering in MessageRouter ({{ topic }} replacement)",
+			"reasoning": "Moderate complexity. RetryStrategy is simple (18 lines) but jitter adds test complexity - need range assertions. MessageRouter has glob-to-regex conversion logic that needs thorough testing. IdempotencyExtractor uses JsonPath library with Result<String> return type. All components are already implemented and isolated, making tests straightforward. No mocking required for these pure logic tests."
+		},
+		{
+			"taskId": 5,
+			"taskTitle": "Implement Inbox Service Unit Tests (InboxHandler)",
+			"complexityScore": 4,
+			"recommendedSubtasks": 4,
+			"expansionPrompt": "Break down inbox service tests into: 1) Create InboxHandlerTest.kt with MockK setup for InboxRepository, 2) Test successful message storage flow (Accepted result with messageId), 3) Test duplicate detection flow (Duplicate result when repository returns InboxResult.Duplicate), 4) Test error scenarios (ExtractionFailed when idempotencyKeyPath missing, StorageFailed when repository returns Error). Include optional eventType extraction test.",
+			"reasoning": "Moderate complexity. InboxHandler is well-isolated (42 lines) with clear dependencies on InboxRepository and IdempotencyExtractor. Requires MockK for coroutine mocking (coEvery/coVerify). All 4 InboxHandlerResult variants need coverage. The handler logic is straightforward: extract key → optionally extract eventType → build message → store with deduplication."
+		},
+		{
+			"taskId": 6,
+			"taskTitle": "Implement PostgreSQL Integration Tests (DatabaseFactory, OutboxRepository, InboxRepository)",
+			"complexityScore": 6,
+			"recommendedSubtasks": 6,
+			"expansionPrompt": "Break down PostgreSQL integration tests into: 1) Create PostgresTestBase.kt with TestContainers PostgreSQL container and database setup/teardown, 2) Create DatabaseFactoryTest.kt testing HikariCP datasource creation and Exposed database initialization, 3) Create OutboxRepositoryTest.kt testing claimBatch (empty, with messages), state transitions (markSent, markFailed with attempt increment), 4) Test scheduleRetry with delay calculation and markDead for terminal state, 5) Create concurrent claiming test using coroutineScope/async to verify FOR UPDATE SKIP LOCKED behavior, 6) Create InboxRepositoryTest.kt testing store (first message, duplicate detection via insertIgnore), claimPending, and markProcessed",
+			"reasoning": "Higher complexity. Requires TestContainers PostgreSQL setup with proper lifecycle management. OutboxRepository has 6 methods with transaction handling and state machine logic. InboxRepository uses insertIgnore for deduplication which needs specific testing. Concurrent claiming test is complex - need to verify no duplicate messages claimed across parallel workers. Tables use Exposed ORM with jsonb columns requiring proper serialization."
+		},
+		{
+			"taskId": 7,
+			"taskTitle": "Implement HTTP Publisher and Inbox Routes Integration Tests",
+			"complexityScore": 5,
+			"recommendedSubtasks": 5,
+			"expansionPrompt": "Break down HTTP integration tests into: 1) Create HttpPublisherTest.kt with Ktor MockEngine setup, 2) Test successful publish (200 response), header capture (X-Message-Id, X-Topic, X-Attempt, custom headers), and body transmission, 3) Test failure scenarios (5xx response returns HttpPublishException, timeout returns failure), 4) Create InboxRoutesTest.kt with Ktor testApplication for webhook endpoint testing, 5) Test all InboxHandlerResult mappings to HTTP status codes (200 for Accepted/Duplicate, 400 for ExtractionFailed/BadRequest, 500 for StorageFailed, 404 for unknown source)",
+			"reasoning": "Moderate-high complexity. HttpPublisher uses Ktor CIO client with connection pooling per destination - MockEngine allows testing without network. Tests need to capture request headers and verify custom header passthrough. InboxRoutes uses Ktor server with ContentNegotiation - testApplication provides isolated testing. Need to mock InboxHandler with MockK to control responses."
+		},
+		{
+			"taskId": 8,
+			"taskTitle": "Extend RabbitMQ Integration Tests (RabbitConnection, RabbitPublisher, RabbitConsumer)",
+			"complexityScore": 4,
+			"recommendedSubtasks": 4,
+			"expansionPrompt": "Break down RabbitMQ test extensions into: 1) Create RabbitConnectionTest.kt testing connection creation, channel acquisition, and auto-reconnection when connection closed, 2) Add RabbitPublisherIntegrationTest cases for message headers verification (x-topic, x-attempt) and exchange-not-exists handling, 3) Add RabbitConsumerIntegrationTest case for UUID generation fallback when no idempotency key available, 4) Verify existing tests are idempotent by running multiple times and add any missing edge cases",
+			"reasoning": "Lower complexity because substantial test coverage already exists. RabbitPublisherIntegrationTest (144 lines) covers basic publishing, routing key templates, connection reuse, and exchange types. RabbitConsumerIntegrationTest (285 lines) covers message consumption, deduplication, header extraction, nack/requeue, and prefetch limits. Main additions are RabbitConnectionTest and edge cases like UUID fallback."
+		},
+		{
+			"taskId": 9,
+			"taskTitle": "Implement Application Health and Metrics Tests",
+			"complexityScore": 4,
+			"recommendedSubtasks": 4,
+			"expansionPrompt": "Break down health and metrics tests into: 1) Create HealthManagerTest.kt with mocked DataSource testing healthy (connection.isValid=true) and unhealthy (SQLException) scenarios, 2) Create HealthCheckTest.kt using Ktor testApplication testing /health endpoint returns 200 when healthy, 503 when unhealthy, with proper JSON body, 3) Create MetricsCollectorTest.kt testing counter increments (incrementProcessed, incrementFailed, incrementInboxReceived) and Prometheus format output, 4) Create MetricsTest.kt using Ktor testApplication testing /metrics endpoint returns text/plain with proper Prometheus format including concurrent increment thread-safety",
+			"reasoning": "Moderate complexity. HealthManager is simple (35 lines) with straightforward DataSource mocking. MetricsCollector uses AtomicLong for thread-safety which needs concurrent testing. Both routes are simple GET endpoints. Prometheus format has specific requirements (# HELP, # TYPE lines, metric name format) that need validation. Main complexity is proper MockK setup for DataSource/Connection."
+		},
+		{
+			"taskId": 10,
+			"taskTitle": "Implement End-to-End Flow Tests (Outbox→HTTP, Outbox→RabbitMQ, Webhook→Inbox, RabbitMQ→Inbox)",
+			"complexityScore": 8,
+			"recommendedSubtasks": 7,
+			"expansionPrompt": "Break down E2E flow tests into: 1) Create E2E test infrastructure with dual TestContainers (PostgreSQL + RabbitMQ) and mock HTTP server setup, 2) Create E2ETestUtils helper class for config generation, message insertion, and state verification, 3) Implement Outbox→HTTP flow test (insert message, start poller, verify HTTP delivery, verify outbox state=sent), 4) Implement Outbox→RabbitMQ flow test (insert message, start poller, consume from RabbitMQ, verify outbox state), 5) Implement retry and dead-letter flow test (configure failing HTTP endpoint, verify retry scheduling, verify eventual dead state), 6) Implement Webhook→Inbox flow test (POST to /inbox endpoint, verify database storage, test duplicate handling), 7) Implement RabbitMQ→Inbox flow test (publish to queue, start consumer, verify inbox storage)",
+			"reasoning": "High complexity. Requires orchestrating multiple components: PostgreSQL, RabbitMQ containers, mock HTTP server, and application components (OutboxPoller, InboxRoutes, RabbitConsumer). Tests involve asynchronous message flow with timing considerations. Need to verify complete message lifecycle from insertion through processing to final state. Retry/dead-letter scenario requires multiple polling cycles. Configuration must wire routes, destinations, and sources correctly."
+		}
+	]
+}

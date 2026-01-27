@@ -1,5 +1,5 @@
 plugins {
-    kotlin("jvm")
+    id("buildsrc.convention.kotlin-jvm")
     alias(libs.plugins.kotlinPluginSerialization)
 }
 
@@ -21,10 +21,11 @@ dependencies {
     implementation(libs.bundles.kotlinxEcosystem)
 
     // Testing
-    testImplementation(kotlin("test"))
-    testImplementation("org.testcontainers:rabbitmq:1.20.4")
-    testImplementation("org.testcontainers:junit-jupiter:1.20.4")
-    testImplementation("org.testcontainers:postgresql:1.20.4")
+    testImplementation(libs.kotlin.test)
+    testImplementation(libs.mockk)
+    testImplementation(libs.testcontainers.rabbitmq)
+    testImplementation(libs.testcontainers.junit)
+    testImplementation(libs.testcontainers.postgresql)
     testImplementation(project(":postgres"))
     testImplementation("com.zaxxer:HikariCP:6.0.0")
     testImplementation("org.postgresql:postgresql:42.7.4")
@@ -32,12 +33,4 @@ dependencies {
     testImplementation("org.jetbrains.exposed:exposed-jdbc:0.56.0")
     testImplementation("org.jetbrains.exposed:exposed-json:0.56.0")
     testImplementation("org.jetbrains.exposed:exposed-kotlin-datetime:0.56.0")
-}
-
-kotlin {
-    jvmToolchain(23)
-}
-
-tasks.test {
-    useJUnitPlatform()
 }

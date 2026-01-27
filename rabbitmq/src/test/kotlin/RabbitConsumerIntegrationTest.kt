@@ -19,6 +19,7 @@ import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
+import org.junit.jupiter.api.assertDoesNotThrow
 
 @Tag("integration")
 @Testcontainers
@@ -281,5 +282,31 @@ class RabbitConsumerIntegrationTest {
 
         assertEquals(5, processedCount.get(), "All messages should be processed")
         assertTrue(maxConcurrent.get() <= 2, "Max concurrent should not exceed prefetch count of 2, was ${maxConcurrent.get()}")
+    }
+
+    @Test
+    fun `should generateUUID when noIdempotencyKeyAvailable`() = runBlocking {
+        val config = RabbitConsumerConfig(
+            queueName = TEST_QUEUE,
+            sourceName = "test-source",
+            idempotencyKeyPath = "$.nonexistent"
+        )
+        consumer = RabbitConsumer(connection, mockStore, extractor, config)
+        consumer.start()
+
+        // Publish message without id field, no x-idempotency-key header, no messageId
+        publishMessage(
+            """{"data": "test"}""",
+            headers = null,
+            messageId = null
+        )
+
+        delay(500)
+
+        assertEquals(1, storedMessages.size, "Should have stored one message")
+        // Verify it's a valid UUID format - this tests the final fallback in idempotency key extraction
+        assertDoesNotThrow {
+            UUID.fromString(storedMessages[0].idempotencyKey)
+        }
     }
 }

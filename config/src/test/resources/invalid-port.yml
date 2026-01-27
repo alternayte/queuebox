@@ -1,0 +1,14 @@
+server:
+  httpPort: 70000
+
+database:
+  url: jdbc:postgresql://localhost:5432/queuebox
+  username: postgres
+  password: secret
+  poolSize: 10
+  connectionTimeoutMs: 30000
+
+outbox:
+  pollIntervalMs: 100
+  batchSize: 100
+  maxAttempts: 5

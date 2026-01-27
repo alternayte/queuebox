@@ -1,0 +1,14 @@
+server:
+  httpPort: 8080
+
+database:
+  url: mysql://localhost:3306/queuebox
+  username: root
+  password: secret
+  poolSize: 10
+  connectionTimeoutMs: 30000
+
+outbox:
+  pollIntervalMs: 100
+  batchSize: 100
+  maxAttempts: 5
