@@ -8,7 +8,7 @@
 				"task-master-ai"
 			],
 			"env": {
-				"TASK_MASTER_TOOLS": "all"
+				"TASK_MASTER_TOOLS": "standard"
 			}
 		}
 	}

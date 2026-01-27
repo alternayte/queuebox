@@ -10,6 +10,16 @@ repositories {
 }
 
 dependencies {
+    implementation(project(":core"))
+    implementation(project(":config"))
+    implementation(project(":postgres"))
+
+    // Kotlinx ecosystem (coroutines, serialization, datetime)
+    implementation(libs.bundles.kotlinxEcosystem)
+
+    // Ktor HTTP client
+    implementation(libs.bundles.ktorClientEcosystem)
+
     testImplementation(kotlin("test"))
 }
 

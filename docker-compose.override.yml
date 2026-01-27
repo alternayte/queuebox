@@ -1,0 +1,17 @@
+services:
+  queuebox:
+    build:
+      context: .
+      target: builder
+    volumes:
+      - .:/app
+      - gradle_cache:/home/gradle/.gradle
+    command: gradle :app:run --continuous
+    environment:
+      - DB_URL=jdbc:postgresql://postgres:5432/queuebox
+      - DB_USER=queuebox
+      - DB_PASSWORD=queuebox
+      - RABBITMQ_URL=amqp://rabbitmq:5672
+
+volumes:
+  gradle_cache:

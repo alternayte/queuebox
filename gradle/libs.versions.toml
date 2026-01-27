@@ -16,11 +16,16 @@ kotlinxDatetime = { module = "org.jetbrains.kotlinx:kotlinx-datetime", version.r
 kotlinxSerialization = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json", version.ref = "kotlinxSerializationJSON" }
 kotlinxCoroutines = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "kotlinxCoroutines" }
 
-# Ktor
+# Ktor Server
 ktor-server-core = { group = "io.ktor", name = "ktor-server-core", version.ref = "ktor" }
 ktor-server-netty = { group = "io.ktor", name = "ktor-server-netty", version.ref = "ktor" }
 ktor-serialization-json = { group = "io.ktor", name = "ktor-serialization-kotlinx-json", version.ref = "ktor"}
 ktor-content-negotiation = {group = "io.ktor", name = "ktor-server-content-negotiation", version.ref="ktor"}
+
+# Ktor Client
+ktor-client-core = { group = "io.ktor", name = "ktor-client-core", version.ref = "ktor" }
+ktor-client-cio = { group = "io.ktor", name = "ktor-client-cio", version.ref = "ktor" }
+ktor-client-content-negotiation = { group = "io.ktor", name = "ktor-client-content-negotiation", version.ref = "ktor" }
 
 # Hoplite
 hoplite-core = {group = "com.sksamuel.hoplite", name = "hoplite-core", version.ref = "hoplite"}
@@ -30,7 +35,8 @@ hoplite-yaml = {group = "com.sksamuel.hoplite", name = "hoplite-yaml", version.r
 # Libraries can be bundled together for easier import
 [bundles]
 kotlinxEcosystem = ["kotlinxDatetime", "kotlinxSerialization", "kotlinxCoroutines"]
-ktorEcosystem = ["ktor-server-core","ktor-server-netty","ktor-serialization-json","ktor-content-negotiation"]
+ktorServerEcosystem = ["ktor-server-core","ktor-server-netty","ktor-serialization-json","ktor-content-negotiation"]
+ktorClientEcosystem = ["ktor-client-core", "ktor-client-cio", "ktor-client-content-negotiation", "ktor-serialization-json"]
 hopliteEcosystem = ["hoplite-core","hoplite-yaml"]
 
 [plugins]

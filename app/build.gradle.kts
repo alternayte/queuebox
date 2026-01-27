@@ -17,7 +17,11 @@ dependencies {
     implementation(project(":outbox-service"))
     implementation(project(":inbox-service"))
 
-    implementation(libs.bundles.ktorEcosystem)
+    implementation(libs.bundles.ktorServerEcosystem)
+    implementation(libs.bundles.kotlinxEcosystem)
+
+    // HikariCP for database connection pooling
+    implementation("com.zaxxer:HikariCP:6.0.0")
 }
 
 application {

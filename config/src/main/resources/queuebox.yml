@@ -1,11 +1,55 @@
+# QueueBox Configuration
+# Environment variables can be used with ${VAR_NAME} syntax
+
 server:
   httpPort: 8080
 
+database:
+  url: ${DB_URL:-jdbc:postgresql://localhost:5432/queuebox}
+  username: ${DB_USER:-queuebox}
+  password: ${DB_PASSWORD:-queuebox}
+  poolSize: 10
+  connectionTimeoutMs: 30000
+
 outbox:
-  destinations:
-    rabbitmq:
-      url: "amqp://localhost:5672"
-      exchange: "queuebox-events"
+  pollIntervalMs: 100
+  batchSize: 100
+  retryBaseDelayMs: 1000
+  maxAttempts: 5
 
 inbox:
-  httpPath: "/inbox"
+  basePath: /inbox
+
+destinations:
+  webhook-api:
+    type: http
+    baseUrl: https://api.example.com
+    path: /webhook
+    timeoutMs: 30000
+    headers:
+      Authorization: Bearer ${WEBHOOK_API_TOKEN:-}
+
+  events-exchange:
+    type: rabbitmq
+    url: ${RABBITMQ_URL:-amqp://localhost:5672}
+    exchange: queuebox-events
+    exchangeType: topic
+
+routes:
+  - topicPattern: "order.*"
+    destination: webhook-api
+
+  - topicPattern: "event.**"
+    destination: events-exchange
+    routingKeyTemplate: "{{ topic }}"
+
+sources:
+  stripe:
+    path: /stripe
+    idempotencyKeyPath: $.id
+    eventTypePath: $.type
+
+  github:
+    path: /github
+    idempotencyKeyPath: $.delivery
+    eventTypePath: $.action

@@ -1,5 +1,6 @@
 plugins {
     kotlin("jvm")
+    alias(libs.plugins.kotlinPluginSerialization)
 }
 
 group = "org.nxtspec"
@@ -10,6 +11,12 @@ repositories {
 }
 
 dependencies {
+    implementation(libs.kotlinxSerialization)
+    implementation(libs.kotlinxDatetime)
+
+    // JSONPath for idempotency key extraction
+    implementation("com.jayway.jsonpath:json-path:2.9.0")
+
     testImplementation(kotlin("test"))
 }
 

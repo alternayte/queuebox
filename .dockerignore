@@ -1,0 +1,11 @@
+.git
+.gradle
+**/build
+*.md
+.taskmaster
+.claude
+.cursor
+.idea
+.env
+.env.*
+docker-compose.override.yml
