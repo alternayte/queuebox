@@ -336,4 +336,265 @@ class ConfigValidatorTest {
         }
         assertContains(exception.message!!, "any")
     }
+
+    // === Retention Configuration Validation ===
+
+    @Test
+    fun `should pass when retention is disabled`() {
+        val config = createValidConfig().copy(
+            retention = RetentionConfig(enabled = false)
+        )
+        val validated = ConfigValidator.validate(config)
+        assertNotNull(validated)
+    }
+
+    @Test
+    fun `should pass when retention is disabled with any table config`() {
+        val config = createValidConfig().copy(
+            retention = RetentionConfig(
+                enabled = false,
+                outbox = TableRetentionConfig(policy = RetentionPolicy.AGE),
+                inbox = TableRetentionConfig(policy = RetentionPolicy.COUNT)
+            )
+        )
+        val validated = ConfigValidator.validate(config)
+        assertNotNull(validated)
+    }
+
+    @Test
+    fun `should pass when age policy has valid maxAge`() {
+        val config = createValidConfig().copy(
+            retention = RetentionConfig(
+                enabled = true,
+                outbox = TableRetentionConfig(
+                    policy = RetentionPolicy.AGE,
+                    maxAge = "7d",
+                    cleanupInterval = "1h",
+                    batchSize = 1000
+                )
+            )
+        )
+        val validated = ConfigValidator.validate(config)
+        assertNotNull(validated)
+    }
+
+    @Test
+    fun `should fail when age policy has no maxAge`() {
+        val config = createValidConfig().copy(
+            retention = RetentionConfig(
+                enabled = true,
+                outbox = TableRetentionConfig(
+                    policy = RetentionPolicy.AGE,
+                    maxAge = null
+                )
+            )
+        )
+        val exception = assertFailsWith<IllegalArgumentException> {
+            ConfigValidator.validate(config)
+        }
+        assertContains(exception.message!!, "outbox")
+        assertContains(exception.message!!, "maxAge")
+    }
+
+    @Test
+    fun `should fail when age policy has invalid maxAge format`() {
+        val config = createValidConfig().copy(
+            retention = RetentionConfig(
+                enabled = true,
+                outbox = TableRetentionConfig(
+                    policy = RetentionPolicy.AGE,
+                    maxAge = "invalid"
+                )
+            )
+        )
+        val exception = assertFailsWith<IllegalArgumentException> {
+            ConfigValidator.validate(config)
+        }
+        assertContains(exception.message!!, "Invalid duration format")
+    }
+
+    @Test
+    fun `should pass when count policy has valid maxCount`() {
+        val config = createValidConfig().copy(
+            retention = RetentionConfig(
+                enabled = true,
+                inbox = TableRetentionConfig(
+                    policy = RetentionPolicy.COUNT,
+                    maxCount = 100000,
+                    cleanupInterval = "6h",
+                    batchSize = 1000
+                )
+            )
+        )
+        val validated = ConfigValidator.validate(config)
+        assertNotNull(validated)
+    }
+
+    @Test
+    fun `should fail when count policy has no maxCount`() {
+        val config = createValidConfig().copy(
+            retention = RetentionConfig(
+                enabled = true,
+                inbox = TableRetentionConfig(
+                    policy = RetentionPolicy.COUNT,
+                    maxCount = null
+                )
+            )
+        )
+        val exception = assertFailsWith<IllegalArgumentException> {
+            ConfigValidator.validate(config)
+        }
+        assertContains(exception.message!!, "inbox")
+        assertContains(exception.message!!, "maxCount")
+    }
+
+    @Test
+    fun `should fail when count policy has zero maxCount`() {
+        val config = createValidConfig().copy(
+            retention = RetentionConfig(
+                enabled = true,
+                inbox = TableRetentionConfig(
+                    policy = RetentionPolicy.COUNT,
+                    maxCount = 0
+                )
+            )
+        )
+        val exception = assertFailsWith<IllegalArgumentException> {
+            ConfigValidator.validate(config)
+        }
+        assertContains(exception.message!!, "inbox")
+        assertContains(exception.message!!, "positive maxCount")
+    }
+
+    @Test
+    fun `should fail when count policy has negative maxCount`() {
+        val config = createValidConfig().copy(
+            retention = RetentionConfig(
+                enabled = true,
+                inbox = TableRetentionConfig(
+                    policy = RetentionPolicy.COUNT,
+                    maxCount = -1
+                )
+            )
+        )
+        val exception = assertFailsWith<IllegalArgumentException> {
+            ConfigValidator.validate(config)
+        }
+        assertContains(exception.message!!, "inbox")
+        assertContains(exception.message!!, "positive maxCount")
+    }
+
+    @Test
+    fun `should pass when disabled policy has no additional fields`() {
+        val config = createValidConfig().copy(
+            retention = RetentionConfig(
+                enabled = true,
+                outbox = TableRetentionConfig(policy = RetentionPolicy.DISABLED),
+                inbox = TableRetentionConfig(policy = RetentionPolicy.DISABLED)
+            )
+        )
+        val validated = ConfigValidator.validate(config)
+        assertNotNull(validated)
+    }
+
+    @Test
+    fun `should fail when invalid cleanupInterval format`() {
+        val config = createValidConfig().copy(
+            retention = RetentionConfig(
+                enabled = true,
+                outbox = TableRetentionConfig(
+                    policy = RetentionPolicy.AGE,
+                    maxAge = "7d",
+                    cleanupInterval = "invalid"
+                )
+            )
+        )
+        val exception = assertFailsWith<IllegalArgumentException> {
+            ConfigValidator.validate(config)
+        }
+        assertContains(exception.message!!, "Invalid duration format")
+    }
+
+    @Test
+    fun `should fail when batchSize is zero`() {
+        val config = createValidConfig().copy(
+            retention = RetentionConfig(
+                enabled = true,
+                outbox = TableRetentionConfig(
+                    policy = RetentionPolicy.AGE,
+                    maxAge = "7d",
+                    batchSize = 0
+                )
+            )
+        )
+        val exception = assertFailsWith<IllegalArgumentException> {
+            ConfigValidator.validate(config)
+        }
+        assertContains(exception.message!!, "outbox")
+        assertContains(exception.message!!, "batchSize")
+    }
+
+    @Test
+    fun `should fail when batchSize is negative`() {
+        val config = createValidConfig().copy(
+            retention = RetentionConfig(
+                enabled = true,
+                inbox = TableRetentionConfig(
+                    policy = RetentionPolicy.COUNT,
+                    maxCount = 1000,
+                    batchSize = -1
+                )
+            )
+        )
+        val exception = assertFailsWith<IllegalArgumentException> {
+            ConfigValidator.validate(config)
+        }
+        assertContains(exception.message!!, "inbox")
+        assertContains(exception.message!!, "batchSize")
+    }
+
+    @Test
+    fun `should validate both outbox and inbox independently`() {
+        val config = createValidConfig().copy(
+            retention = RetentionConfig(
+                enabled = true,
+                outbox = TableRetentionConfig(
+                    policy = RetentionPolicy.AGE,
+                    maxAge = "7d"
+                ),
+                inbox = TableRetentionConfig(
+                    policy = RetentionPolicy.COUNT,
+                    maxCount = null
+                )
+            )
+        )
+        val exception = assertFailsWith<IllegalArgumentException> {
+            ConfigValidator.validate(config)
+        }
+        assertContains(exception.message!!, "inbox")
+        assertContains(exception.message!!, "maxCount")
+    }
+
+    @Test
+    fun `should pass when both outbox and inbox have valid configs`() {
+        val config = createValidConfig().copy(
+            retention = RetentionConfig(
+                enabled = true,
+                outbox = TableRetentionConfig(
+                    policy = RetentionPolicy.AGE,
+                    maxAge = "7d",
+                    cleanupInterval = "1h",
+                    batchSize = 1000
+                ),
+                inbox = TableRetentionConfig(
+                    policy = RetentionPolicy.COUNT,
+                    maxCount = 100000,
+                    cleanupInterval = "6h",
+                    batchSize = 500
+                )
+            )
+        )
+        val validated = ConfigValidator.validate(config)
+        assertNotNull(validated)
+    }
 }

@@ -82,6 +82,12 @@ object ConfigValidator {
             }
         }
 
+        // Validate retention configuration
+        if (config.retention.enabled) {
+            validateTableRetention("outbox", config.retention.outbox)
+            validateTableRetention("inbox", config.retention.inbox)
+        }
+
         return config
     }
 
@@ -104,4 +110,43 @@ object ConfigValidator {
         val envVar: String,
         val description: String
     )
+
+    /**
+     * Validates table-specific retention configuration.
+     *
+     * @param table The table name (outbox or inbox) for error messages
+     * @param config The table retention configuration to validate
+     * @throws IllegalArgumentException if validation fails
+     */
+    private fun validateTableRetention(table: String, config: TableRetentionConfig) {
+        when (config.policy) {
+            RetentionPolicy.AGE -> {
+                require(config.maxAge != null) {
+                    "$table retention policy 'age' requires maxAge. " +
+                        "Set via 'retention.$table.maxAge' in YAML or ${EnvConfigLoader.yamlPathToEnvKey("retention.$table.maxAge")} env var."
+                }
+                // Validate maxAge format
+                DurationParser.parse(config.maxAge)
+            }
+            RetentionPolicy.COUNT -> {
+                require(config.maxCount != null && config.maxCount > 0) {
+                    "$table retention policy 'count' requires positive maxCount. " +
+                        "Set via 'retention.$table.maxCount' in YAML or ${EnvConfigLoader.yamlPathToEnvKey("retention.$table.maxCount")} env var."
+                }
+            }
+            RetentionPolicy.DISABLED -> {
+                // No validation needed for disabled policy
+            }
+        }
+
+        // Validate cleanupInterval format when policy is not disabled
+        if (config.policy != RetentionPolicy.DISABLED) {
+            DurationParser.parse(config.cleanupInterval)
+
+            require(config.batchSize > 0) {
+                "$table retention batchSize must be greater than 0. " +
+                    "Set via 'retention.$table.batchSize' in YAML or ${EnvConfigLoader.yamlPathToEnvKey("retention.$table.batchSize")} env var."
+            }
+        }
+    }
 }
