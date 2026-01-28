@@ -2106,7 +2106,7 @@
         "dependencies": [
           "1"
         ],
-        "status": "pending",
+        "status": "done",
         "subtasks": [
           {
             "id": 1,
@@ -2143,7 +2143,8 @@
             "testStrategy": "1. Test YAML parsing of transform expressions (including multiline JSONata)\n2. Test transform config defaults (100ms timeout, 100 maxDepth, FAIL on error)\n3. Test validation rejects blank expressions with clear error message\n4. Test validation rejects non-positive timeout with clear error message\n5. Test validation rejects non-positive maxDepth with clear error message\n6. Test route-level and destination-level transforms parse independently\n7. Test that null/missing transform passes validation (optional field)",
             "parentId": "undefined"
           }
-        ]
+        ],
+        "updatedAt": "2026-01-28T22:23:30.070Z"
       },
       {
         "id": "8",
@@ -2387,13 +2388,92 @@
         "complexity": 4,
         "recommendedSubtasks": 3,
         "expansionPrompt": "Break down into: (1) Add jacocoTestCoverageVerification with violation rules to kotlin-jvm.gradle.kts including class-level thresholds and exclusion patterns for MainKt, DI, and Config classes; (2) Add jacocoAggregatedVerification task and checkCoverage convenience task to root build.gradle.kts with proper execution data sources; (3) Create TESTING.md documentation with coverage targets and wire verification into the check task lifecycle. Consider that the project already has JaCoCo plugin configured, aggregated report task, and MainKt exclusion - leverage these existing patterns."
+      },
+      {
+        "id": "12",
+        "title": "Wire up MetricsCollector to application components",
+        "description": "The MetricsCollector is instantiated in App.kt but never used. Integrate it with OutboxPoller, publishers, InboxHandler, and RabbitConsumer to actually record metrics.",
+        "details": "Currently MetricsCollector is created but sits unused. Wire it up to:\n1. OutboxPoller - call recordMessageSent(), recordMessageFailed(), recordMessageDead(), recordProcessingDuration(), updatePendingCount()\n2. Publishers (HttpPublisher, etc.) - call recordPublishDuration()\n3. InboxHandler/RabbitConsumer - call recordInboxReceived(), recordInboxDuplicate()\n\nPass MetricsCollector as a dependency to these components and invoke the appropriate methods at the right points.",
+        "testStrategy": "1. Verify metrics endpoint returns non-zero counters after processing messages\n2. Unit tests for each component verifying metric methods are called\n3. Integration test that sends a message and verifies metrics are recorded",
+        "status": "done",
+        "dependencies": [
+          "2"
+        ],
+        "priority": "medium",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Add MetricsCollector dependency to OutboxPoller constructor and record metrics",
+            "description": "Modify OutboxPoller to accept MetricsCollector as a constructor parameter and invoke metric recording methods at appropriate points during message processing.",
+            "dependencies": [],
+            "details": "Update OutboxPoller constructor in outbox-service/src/main/kotlin/OutboxPoller.kt to include MetricsCollector parameter. In processMessage(), measure processing duration with System.currentTimeMillis() before/after processing, call recordProcessingDuration(). On successful publish (markSent), call recordMessageSent(). In handlePublishFailure(), call recordMessageFailed() when scheduling retry or recordMessageDead() when marking dead. In processBatch(), after claiming messages, call updatePendingCount() with repository.countByState('pending'). Update App.kt to pass metricsCollector to OutboxPoller constructor.",
+            "status": "done",
+            "testStrategy": "Unit test OutboxPoller with mocked MetricsCollector to verify recordMessageSent() called on success, recordMessageFailed() called on retry, recordMessageDead() called when max retries exceeded, and recordProcessingDuration() called with valid duration value.",
+            "parentId": "undefined",
+            "updatedAt": "2026-01-28T21:59:58.041Z"
+          },
+          {
+            "id": 2,
+            "title": "Add MetricsCollector dependency to HttpPublisher and record publish duration",
+            "description": "Modify HttpPublisher to accept optional MetricsCollector and record publish duration metrics for HTTP destination calls.",
+            "dependencies": [
+              1
+            ],
+            "details": "Update HttpPublisher class in outbox-service/src/main/kotlin/http/HttpPublisher.kt to accept optional MetricsCollector in constructor (default null for backward compatibility). In publish() method, record start time before HTTP call using System.currentTimeMillis(), calculate duration after response received, call metricsCollector?.recordPublishDuration(durationMs, \"http\"). Update HttpPublisherFactory.create() to accept optional MetricsCollector parameter. Update App.kt to create HttpPublisher with metricsCollector parameter.",
+            "status": "done",
+            "testStrategy": "Unit test HttpPublisher with mocked MetricsCollector to verify recordPublishDuration() is called with correct duration and 'http' destination type. Test that null metricsCollector doesn't cause NPE.",
+            "parentId": "undefined",
+            "updatedAt": "2026-01-28T21:59:58.071Z"
+          },
+          {
+            "id": 3,
+            "title": "Add MetricsCollector dependency to RabbitPublisher and record publish duration",
+            "description": "Modify RabbitPublisher to accept optional MetricsCollector and record publish duration metrics for RabbitMQ destination calls.",
+            "dependencies": [
+              1
+            ],
+            "details": "Update RabbitPublisher class in rabbitmq/src/main/kotlin/RabbitPublisher.kt to accept optional MetricsCollector in constructor (default null for backward compatibility). In publish() method, record start time before channel operations, calculate duration after waitForConfirms(), call metricsCollector?.recordPublishDuration(durationMs, \"rabbitmq\"). If RabbitPublisher is used in App.kt, update instantiation to include metricsCollector.",
+            "status": "done",
+            "testStrategy": "Unit test RabbitPublisher with mocked MetricsCollector to verify recordPublishDuration() is called with correct duration and 'rabbitmq' destination type. Test that null metricsCollector doesn't cause NPE.",
+            "parentId": "undefined",
+            "updatedAt": "2026-01-28T21:59:58.086Z"
+          },
+          {
+            "id": 4,
+            "title": "Add MetricsCollector dependency to InboxHandler and RabbitConsumer for inbox metrics",
+            "description": "Modify InboxHandler and RabbitConsumer to accept MetricsCollector and record inbox received and duplicate metrics.",
+            "dependencies": [],
+            "details": "Update InboxHandler class in inbox-service/src/main/kotlin/InboxHandler.kt to accept optional MetricsCollector in constructor. In handle() method, call recordInboxReceived() when InboxResult.Stored is returned, call recordInboxDuplicate() when InboxResult.Duplicate is returned. Update RabbitConsumer class in rabbitmq/src/main/kotlin/RabbitConsumer.kt to accept optional MetricsCollector in constructor. In processMessage(), call recordInboxReceived() when InboxResult.Stored, call recordInboxDuplicate() when InboxResult.Duplicate. Update App.kt to pass metricsCollector to InboxHandler and RabbitConsumer constructors.",
+            "status": "done",
+            "testStrategy": "Unit test InboxHandler with mocked MetricsCollector to verify recordInboxReceived() called on Stored result, recordInboxDuplicate() called on Duplicate result. Same tests for RabbitConsumer. Test null metricsCollector handling.",
+            "parentId": "undefined",
+            "updatedAt": "2026-01-28T21:59:58.094Z"
+          },
+          {
+            "id": 5,
+            "title": "Create integration test verifying metrics are recorded end-to-end",
+            "description": "Add integration test that processes messages through the system and verifies the Prometheus metrics endpoint returns non-zero counters for all wired-up metrics.",
+            "dependencies": [
+              1,
+              2,
+              3,
+              4
+            ],
+            "details": "Create new test class in app/src/test/kotlin/ (e.g., MetricsIntegrationTest.kt) that sets up full application context with PrometheusMeterRegistry. Insert test outbox message, trigger processing through OutboxPoller, verify /metrics endpoint contains non-zero values for queuebox_outbox_messages_total{status='sent'}, queuebox_outbox_processing_duration_seconds, queuebox_outbox_publish_duration_seconds. Send test inbox message, verify queuebox_inbox_messages_total{status='new'}. Send duplicate inbox message, verify queuebox_inbox_messages_total{status='duplicate'} incremented.",
+            "status": "done",
+            "testStrategy": "This subtask IS the integration test. Verify test passes with actual Prometheus registry scrape output containing expected metric values > 0 after processing real messages through wired components.",
+            "parentId": "undefined",
+            "updatedAt": "2026-01-28T21:59:58.103Z"
+          }
+        ],
+        "updatedAt": "2026-01-28T21:59:58.103Z"
       }
     ],
     "metadata": {
       "version": "1.0.0",
-      "lastModified": "2026-01-28T06:39:40.108Z",
-      "taskCount": 11,
-      "completedCount": 4,
+      "lastModified": "2026-01-28T22:23:30.070Z",
+      "taskCount": 12,
+      "completedCount": 7,
       "tags": [
         "features"
       ]
