@@ -146,7 +146,7 @@ class RabbitPublisherIntegrationTest {
     }
 
     @Test
-    fun `should includeMessageHeaders when publishing`() = runBlocking {
+    fun `should includeMessageHeaders when publishing`(): Unit = runBlocking {
         val exchangeName = "headers-test-exchange"
         val queueName = "headers-test-queue"
         val routingKey = "test.topic"
