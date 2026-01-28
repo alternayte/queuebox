@@ -50,3 +50,17 @@ sources:
     connectionUrl: amqp://localhost:5672
     idempotencyKeyPath: $.id
     prefetchCount: 10
+
+# Retention policy configuration for automatic cleanup of processed messages
+retention:
+  enabled: true
+  outbox:
+    policy: AGE
+    maxAge: 7d
+    cleanupInterval: 1h
+    batchSize: 1000
+  inbox:
+    policy: COUNT
+    maxCount: 100000
+    cleanupInterval: 6h
+    batchSize: 1000

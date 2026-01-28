@@ -116,4 +116,26 @@ class ConfigLoaderTest {
         assertEquals("$.id", rabbit.idempotencyKeyPath)
         assertEquals(10, rabbit.prefetchCount)
     }
+
+    @Test
+    fun `should load retention config correctly`() {
+        val config = ConfigLoader.load("test-config.yml")
+
+        assert(config.retention.enabled)
+
+        // Verify outbox retention config
+        val outbox = config.retention.outbox
+        assertEquals(RetentionPolicy.AGE, outbox.policy)
+        assertEquals("7d", outbox.maxAge)
+        assertEquals("1h", outbox.cleanupInterval)
+        assertEquals(1000, outbox.batchSize)
+
+        // Verify inbox retention config
+        val inbox = config.retention.inbox
+        assertEquals(RetentionPolicy.COUNT, inbox.policy)
+        assertEquals(100000, inbox.maxCount)
+        assertEquals("6h", inbox.cleanupInterval)
+        assertEquals(1000, inbox.batchSize)
+    }
+
 }

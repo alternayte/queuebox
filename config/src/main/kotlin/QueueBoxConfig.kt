@@ -11,7 +11,8 @@ data class QueueBoxConfig(
     val inbox: InboxConfig = InboxConfig(),
     val destinations: Map<String, DestinationConfig> = emptyMap(),
     val routes: List<RouteConfig> = emptyList(),
-    val sources: Map<String, SourceConfig> = emptyMap()
+    val sources: Map<String, SourceConfig> = emptyMap(),
+    val retention: RetentionConfig = RetentionConfig()
 )
 
 @Serializable

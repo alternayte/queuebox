@@ -1983,7 +1983,7 @@
         "dependencies": [
           "1"
         ],
-        "status": "pending",
+        "status": "done",
         "subtasks": [
           {
             "id": 1,
@@ -2020,7 +2020,8 @@
             "testStrategy": "Run full test suite with `./gradlew :config:test`. Verify all new tests pass. Test YAML parsing by adding a test that loads config with retention section and verifies all retention fields are correctly deserialized.",
             "parentId": "undefined"
           }
-        ]
+        ],
+        "updatedAt": "2026-01-28T21:50:09.915Z"
       },
       {
         "id": "6",
@@ -2391,9 +2392,9 @@
     ],
     "metadata": {
       "version": "1.0.0",
-      "lastModified": "2026-01-28T06:39:40.108Z",
+      "lastModified": "2026-01-28T21:50:09.915Z",
       "taskCount": 11,
-      "completedCount": 4,
+      "completedCount": 5,
       "tags": [
         "features"
       ]
