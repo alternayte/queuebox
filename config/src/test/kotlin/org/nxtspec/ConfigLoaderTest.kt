@@ -5,6 +5,8 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertNotNull
+import kotlin.test.assertNull
+import kotlin.test.assertContains
 
 class ConfigLoaderTest {
 
@@ -138,4 +140,60 @@ class ConfigLoaderTest {
         assertEquals(1000, inbox.batchSize)
     }
 
+
+    // === Transform Configuration Tests ===
+
+    @Test
+    fun `should load route transform with multiline expression`() {
+        val config = ConfigLoader.load("test-config.yml")
+
+        val orderRoute = config.routes[0]
+        val transform = assertNotNull(orderRoute.transform)
+        assertContains(transform.expression, "orderId")
+        assertContains(transform.expression, "customer.name")
+        assertContains(transform.expression, "\$sum()")
+        assertEquals(150, transform.timeoutMs)
+        assertEquals(100, transform.maxDepth) // default
+        assertEquals(TransformErrorStrategy.Fail, transform.onError)
+    }
+
+    @Test
+    fun `should load route without transform`() {
+        val config = ConfigLoader.load("test-config.yml")
+
+        val userRoute = config.routes[1]
+        assertNull(userRoute.transform)
+    }
+
+    @Test
+    fun `should load destination transform with inline expression`() {
+        val config = ConfigLoader.load("test-config.yml")
+
+        val httpDestination = config.destinations["webhook-api"] as DestinationConfig.Http
+        val transform = assertNotNull(httpDestination.transform)
+        assertEquals("{ \"payload\": \$, \"source\": \"queuebox\" }", transform.expression)
+        assertEquals(100, transform.timeoutMs) // default
+        assertEquals(100, transform.maxDepth) // default
+        assertEquals(TransformErrorStrategy.Fail, transform.onError) // default
+    }
+
+    @Test
+    fun `should load destination without transform`() {
+        val config = ConfigLoader.load("test-config.yml")
+
+        val rabbitDestination = config.destinations["events-exchange"] as DestinationConfig.RabbitMQ
+        assertNull(rabbitDestination.transform)
+    }
+
+    @Test
+    fun `should apply default values for transform config`() {
+        val config = ConfigLoader.load("test-config.yml")
+
+        val httpDestination = config.destinations["webhook-api"] as DestinationConfig.Http
+        val transform = assertNotNull(httpDestination.transform)
+        // Only expression is provided, others should use defaults
+        assertEquals(100, transform.timeoutMs)
+        assertEquals(100, transform.maxDepth)
+        assertEquals(TransformErrorStrategy.Fail, transform.onError)
+    }
 }

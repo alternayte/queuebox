@@ -80,6 +80,12 @@ object ConfigValidator {
                 "Route[$index] must have a non-empty destination. " +
                     "Set via 'routes[$index].destination' in YAML or QUEUEBOX_ROUTES_${index}_DESTINATION env var."
             }
+            validateTransform(route.transform, "Route[$index]", "routes[$index].transform")
+        }
+
+        // Validate destination transforms
+        config.destinations.forEach { (name, dest) ->
+            validateTransform(dest.transform, "Destination '$name'", "destinations.$name.transform")
         }
 
         // Validate retention configuration
@@ -89,6 +95,26 @@ object ConfigValidator {
         }
 
         return config
+    }
+
+    /**
+     * Validates a TransformConfig if present.
+     */
+    private fun validateTransform(transform: TransformConfig?, context: String, yamlPath: String) {
+        transform?.let {
+            require(it.expression.isNotBlank()) {
+                "$context transform expression cannot be blank. " +
+                    "Set via '$yamlPath.expression' in YAML or ${EnvConfigLoader.yamlPathToEnvKey("$yamlPath.expression")} env var."
+            }
+            require(it.timeoutMs > 0) {
+                "$context transform timeoutMs must be positive. " +
+                    "Set via '$yamlPath.timeoutMs' in YAML or ${EnvConfigLoader.yamlPathToEnvKey("$yamlPath.timeoutMs")} env var."
+            }
+            require(it.maxDepth > 0) {
+                "$context transform maxDepth must be positive. " +
+                    "Set via '$yamlPath.maxDepth' in YAML or ${EnvConfigLoader.yamlPathToEnvKey("$yamlPath.maxDepth")} env var."
+            }
+        }
     }
 
     /**

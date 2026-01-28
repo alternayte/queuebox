@@ -597,4 +597,285 @@ class ConfigValidatorTest {
         val validated = ConfigValidator.validate(config)
         assertNotNull(validated)
     }
+
+    // === Transform Configuration Validation ===
+
+    @Test
+    fun `should pass when route has valid transform`() {
+        val config = createValidConfig().copy(
+            routes = listOf(
+                RouteConfig(
+                    topicPattern = "order.*",
+                    destination = "webhook-api",
+                    transform = TransformConfig(
+                        expression = "{ \"id\": id }",
+                        timeoutMs = 100,
+                        maxDepth = 50
+                    )
+                )
+            )
+        )
+        val validated = ConfigValidator.validate(config)
+        assertNotNull(validated)
+    }
+
+    @Test
+    fun `should pass when route transform is null`() {
+        val config = createValidConfig().copy(
+            routes = listOf(
+                RouteConfig(
+                    topicPattern = "order.*",
+                    destination = "webhook-api",
+                    transform = null
+                )
+            )
+        )
+        val validated = ConfigValidator.validate(config)
+        assertNotNull(validated)
+    }
+
+    @Test
+    fun `should fail when route transform expression is blank`() {
+        val config = createValidConfig().copy(
+            routes = listOf(
+                RouteConfig(
+                    topicPattern = "order.*",
+                    destination = "webhook-api",
+                    transform = TransformConfig(expression = "")
+                )
+            )
+        )
+        val exception = assertFailsWith<IllegalArgumentException> {
+            ConfigValidator.validate(config)
+        }
+        assertContains(exception.message!!, "transform expression cannot be blank")
+    }
+
+    @Test
+    fun `should fail when route transform expression is whitespace only`() {
+        val config = createValidConfig().copy(
+            routes = listOf(
+                RouteConfig(
+                    topicPattern = "order.*",
+                    destination = "webhook-api",
+                    transform = TransformConfig(expression = "   ")
+                )
+            )
+        )
+        val exception = assertFailsWith<IllegalArgumentException> {
+            ConfigValidator.validate(config)
+        }
+        assertContains(exception.message!!, "transform expression cannot be blank")
+    }
+
+    @Test
+    fun `should fail when route transform timeoutMs is zero`() {
+        val config = createValidConfig().copy(
+            routes = listOf(
+                RouteConfig(
+                    topicPattern = "order.*",
+                    destination = "webhook-api",
+                    transform = TransformConfig(expression = "{ \"id\": id }", timeoutMs = 0)
+                )
+            )
+        )
+        val exception = assertFailsWith<IllegalArgumentException> {
+            ConfigValidator.validate(config)
+        }
+        assertContains(exception.message!!, "timeoutMs must be positive")
+    }
+
+    @Test
+    fun `should fail when route transform timeoutMs is negative`() {
+        val config = createValidConfig().copy(
+            routes = listOf(
+                RouteConfig(
+                    topicPattern = "order.*",
+                    destination = "webhook-api",
+                    transform = TransformConfig(expression = "{ \"id\": id }", timeoutMs = -100)
+                )
+            )
+        )
+        val exception = assertFailsWith<IllegalArgumentException> {
+            ConfigValidator.validate(config)
+        }
+        assertContains(exception.message!!, "timeoutMs must be positive")
+    }
+
+    @Test
+    fun `should fail when route transform maxDepth is zero`() {
+        val config = createValidConfig().copy(
+            routes = listOf(
+                RouteConfig(
+                    topicPattern = "order.*",
+                    destination = "webhook-api",
+                    transform = TransformConfig(expression = "{ \"id\": id }", maxDepth = 0)
+                )
+            )
+        )
+        val exception = assertFailsWith<IllegalArgumentException> {
+            ConfigValidator.validate(config)
+        }
+        assertContains(exception.message!!, "maxDepth must be positive")
+    }
+
+    @Test
+    fun `should fail when route transform maxDepth is negative`() {
+        val config = createValidConfig().copy(
+            routes = listOf(
+                RouteConfig(
+                    topicPattern = "order.*",
+                    destination = "webhook-api",
+                    transform = TransformConfig(expression = "{ \"id\": id }", maxDepth = -10)
+                )
+            )
+        )
+        val exception = assertFailsWith<IllegalArgumentException> {
+            ConfigValidator.validate(config)
+        }
+        assertContains(exception.message!!, "maxDepth must be positive")
+    }
+
+    @Test
+    fun `should pass when destination has valid transform`() {
+        val config = createValidConfig().copy(
+            destinations = mapOf(
+                "webhook-api" to DestinationConfig.Http(
+                    baseUrl = "https://api.example.com",
+                    path = "/webhooks",
+                    transform = TransformConfig(expression = "{ \"wrapped\": $ }")
+                )
+            ),
+            routes = emptyList()
+        )
+        val validated = ConfigValidator.validate(config)
+        assertNotNull(validated)
+    }
+
+    @Test
+    fun `should fail when destination transform expression is blank`() {
+        val config = createValidConfig().copy(
+            destinations = mapOf(
+                "webhook-api" to DestinationConfig.Http(
+                    baseUrl = "https://api.example.com",
+                    path = "/webhooks",
+                    transform = TransformConfig(expression = "")
+                )
+            ),
+            routes = emptyList()
+        )
+        val exception = assertFailsWith<IllegalArgumentException> {
+            ConfigValidator.validate(config)
+        }
+        assertContains(exception.message!!, "Destination 'webhook-api'")
+        assertContains(exception.message!!, "transform expression cannot be blank")
+    }
+
+    @Test
+    fun `should fail when destination transform timeoutMs is zero`() {
+        val config = createValidConfig().copy(
+            destinations = mapOf(
+                "webhook-api" to DestinationConfig.Http(
+                    baseUrl = "https://api.example.com",
+                    path = "/webhooks",
+                    transform = TransformConfig(expression = "{ \"id\": id }", timeoutMs = 0)
+                )
+            ),
+            routes = emptyList()
+        )
+        val exception = assertFailsWith<IllegalArgumentException> {
+            ConfigValidator.validate(config)
+        }
+        assertContains(exception.message!!, "Destination 'webhook-api'")
+        assertContains(exception.message!!, "timeoutMs must be positive")
+    }
+
+    @Test
+    fun `should fail when destination transform maxDepth is zero`() {
+        val config = createValidConfig().copy(
+            destinations = mapOf(
+                "webhook-api" to DestinationConfig.Http(
+                    baseUrl = "https://api.example.com",
+                    path = "/webhooks",
+                    transform = TransformConfig(expression = "{ \"id\": id }", maxDepth = 0)
+                )
+            ),
+            routes = emptyList()
+        )
+        val exception = assertFailsWith<IllegalArgumentException> {
+            ConfigValidator.validate(config)
+        }
+        assertContains(exception.message!!, "Destination 'webhook-api'")
+        assertContains(exception.message!!, "maxDepth must be positive")
+    }
+
+    @Test
+    fun `should pass when both route and destination have transforms`() {
+        val config = createValidConfig().copy(
+            destinations = mapOf(
+                "webhook-api" to DestinationConfig.Http(
+                    baseUrl = "https://api.example.com",
+                    path = "/webhooks",
+                    transform = TransformConfig(expression = "{ \"wrapped\": $ }")
+                )
+            ),
+            routes = listOf(
+                RouteConfig(
+                    topicPattern = "order.*",
+                    destination = "webhook-api",
+                    transform = TransformConfig(expression = "{ \"orderId\": id }")
+                )
+            )
+        )
+        val validated = ConfigValidator.validate(config)
+        assertNotNull(validated)
+    }
+
+    @Test
+    fun `should pass when transform uses all error strategies`() {
+        // Test FAIL (default)
+        var config = createValidConfig().copy(
+            routes = listOf(
+                RouteConfig(
+                    topicPattern = "order.*",
+                    destination = "webhook-api",
+                    transform = TransformConfig(
+                        expression = "{ \"id\": id }",
+                        onError = TransformErrorStrategy.Fail
+                    )
+                )
+            )
+        )
+        assertNotNull(ConfigValidator.validate(config))
+
+        // Test SKIP
+        config = createValidConfig().copy(
+            routes = listOf(
+                RouteConfig(
+                    topicPattern = "order.*",
+                    destination = "webhook-api",
+                    transform = TransformConfig(
+                        expression = "{ \"id\": id }",
+                        onError = TransformErrorStrategy.Skip
+                    )
+                )
+            )
+        )
+        assertNotNull(ConfigValidator.validate(config))
+
+        // Test DEAD
+        config = createValidConfig().copy(
+            routes = listOf(
+                RouteConfig(
+                    topicPattern = "order.*",
+                    destination = "webhook-api",
+                    transform = TransformConfig(
+                        expression = "{ \"id\": id }",
+                        onError = TransformErrorStrategy.Dead
+                    )
+                )
+            )
+        )
+        assertNotNull(ConfigValidator.validate(config))
+    }
 }
