@@ -11,10 +11,12 @@ import io.ktor.serialization.kotlinx.json.*
 import org.nxtspec.Destination
 import org.nxtspec.OutboxMessage
 import org.nxtspec.Publisher
+import org.nxtspec.metrics.MetricsCollectorInterface
 import java.util.concurrent.ConcurrentHashMap
 
 class HttpPublisher(
-    private val clientFactory: ((Destination.Http) -> HttpClient)? = null
+    private val clientFactory: ((Destination.Http) -> HttpClient)? = null,
+    private val metricsCollector: MetricsCollectorInterface? = null
 ) : Publisher {
     private val clients = ConcurrentHashMap<String, HttpClient>()
 
@@ -42,6 +44,7 @@ class HttpPublisher(
         val httpDest = destination as? Destination.Http
             ?: return Result.failure(IllegalArgumentException("HttpPublisher only supports HTTP destinations"))
 
+        val startTime = System.currentTimeMillis()
         return try {
             val client = getClient(httpDest)
             val response = client.post(httpDest.baseUrl + httpDest.path) {
@@ -56,6 +59,8 @@ class HttpPublisher(
                 setBody(message.payload)
             }
 
+            recordPublishDuration(startTime)
+
             if (response.status.isSuccess()) {
                 Result.success(Unit)
             } else {
@@ -68,10 +73,17 @@ class HttpPublisher(
                 )
             }
         } catch (e: HttpRequestTimeoutException) {
+            recordPublishDuration(startTime)
             Result.failure(HttpPublishException("Request timeout after ${httpDest.timeoutMs}ms", cause = e))
         } catch (e: Exception) {
+            recordPublishDuration(startTime)
             Result.failure(HttpPublishException("Publish failed: ${e.message}", cause = e))
         }
+    }
+
+    private fun recordPublishDuration(startTime: Long) {
+        val duration = System.currentTimeMillis() - startTime
+        metricsCollector?.recordPublishDuration(duration, "http")
     }
 
     fun close() {
@@ -81,5 +93,5 @@ class HttpPublisher(
 }
 
 object HttpPublisherFactory {
-    fun create(): HttpPublisher = HttpPublisher()
+    fun create(metricsCollector: MetricsCollectorInterface? = null): HttpPublisher = HttpPublisher(metricsCollector = metricsCollector)
 }

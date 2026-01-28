@@ -1,67 +1,68 @@
 package org.nxtspec.app
 
 import io.micrometer.core.instrument.MeterRegistry
+import org.nxtspec.metrics.MetricsCollectorInterface
 import org.nxtspec.metrics.QueueBoxMetrics
 
 /**
  * Metrics collector that wraps QueueBoxMetrics for convenient metric recording.
  */
-class MetricsCollector(registry: MeterRegistry) {
+class MetricsCollector(registry: MeterRegistry) : MetricsCollectorInterface {
     private val metrics = QueueBoxMetrics(registry)
 
     /**
      * Record a successfully sent outbox message.
      */
-    fun recordMessageSent() {
+    override fun recordMessageSent() {
         metrics.outboxMessagesSent.increment()
     }
 
     /**
      * Record a failed outbox message.
      */
-    fun recordMessageFailed() {
+    override fun recordMessageFailed() {
         metrics.outboxMessagesFailed.increment()
     }
 
     /**
      * Record a dead letter outbox message (max retries exceeded).
      */
-    fun recordMessageDead() {
+    override fun recordMessageDead() {
         metrics.outboxMessagesDead.increment()
     }
 
     /**
      * Record processing duration in milliseconds.
      */
-    fun recordProcessingDuration(durationMs: Long) {
+    override fun recordProcessingDuration(durationMs: Long) {
         metrics.recordProcessingDuration(durationMs)
     }
 
     /**
      * Record publish duration in milliseconds for a specific destination type.
      */
-    fun recordPublishDuration(durationMs: Long, destinationType: String) {
+    override fun recordPublishDuration(durationMs: Long, destinationType: String) {
         metrics.recordPublishDuration(durationMs, destinationType)
     }
 
     /**
      * Record a new inbox message received.
      */
-    fun recordInboxReceived() {
+    override fun recordInboxReceived() {
         metrics.inboxMessagesNew.increment()
     }
 
     /**
      * Record a duplicate inbox message detected.
      */
-    fun recordInboxDuplicate() {
+    override fun recordInboxDuplicate() {
         metrics.inboxMessagesDuplicate.increment()
     }
 
     /**
      * Update the pending message count.
      */
-    fun updatePendingCount(count: Long) {
+    override fun updatePendingCount(count: Long) {
         metrics.setPendingMessageCount(count)
     }
 }

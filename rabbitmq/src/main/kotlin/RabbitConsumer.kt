@@ -11,6 +11,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import org.nxtspec.metrics.MetricsCollectorInterface
 import java.util.UUID
 
 @Serializable
@@ -25,7 +26,8 @@ class RabbitConsumer(
     private val connection: RabbitConnection,
     private val storeMessage: suspend (InboxMessage) -> InboxResult,
     private val extractor: IdempotencyExtractor,
-    private val config: RabbitConsumerConfig
+    private val config: RabbitConsumerConfig,
+    private val metricsCollector: MetricsCollectorInterface? = null
 ) {
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private var channel: Channel? = null
@@ -78,8 +80,12 @@ class RabbitConsumer(
             )
 
             when (val result = storeMessage(message)) {
-                is InboxResult.Stored, is InboxResult.Duplicate -> {
-                    // Ack after successful store or duplicate detection
+                is InboxResult.Stored -> {
+                    metricsCollector?.recordInboxReceived()
+                    channel?.basicAck(envelope.deliveryTag, false)
+                }
+                is InboxResult.Duplicate -> {
+                    metricsCollector?.recordInboxDuplicate()
                     channel?.basicAck(envelope.deliveryTag, false)
                 }
                 is InboxResult.Error -> {

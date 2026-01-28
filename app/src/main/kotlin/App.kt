@@ -52,18 +52,21 @@ fun main() {
         }
     }
 
+    // Metrics
+    val metricsCollector = MetricsCollector(prometheusRegistry)
+
     // Publishers
-    val httpPublisher = HttpPublisher()
+    val httpPublisher = HttpPublisher(metricsCollector = metricsCollector)
     val publishers = listOf(httpPublisher)
 
     // Outbox service
     val router = MessageRouter(config.routes, destinations)
     val retryStrategy = RetryStrategy(config.outbox)
-    val outboxPoller = OutboxPoller(config.outbox, outboxRepository, router, publishers, retryStrategy)
+    val outboxPoller = OutboxPoller(config.outbox, outboxRepository, router, publishers, retryStrategy, metricsCollector)
 
     // Inbox service
     val extractor = IdempotencyExtractor()
-    val inboxHandler = InboxHandler(inboxRepository, extractor)
+    val inboxHandler = InboxHandler(inboxRepository, extractor, metricsCollector)
 
     // RabbitMQ consumers for inbox sources
     val rabbitConsumers = config.sources
@@ -80,15 +83,13 @@ fun main() {
                     sourceName = sourceName,
                     prefetchCount = rabbitConfig.prefetchCount,
                     idempotencyKeyPath = rabbitConfig.idempotencyKeyPath
-                )
+                ),
+                metricsCollector = metricsCollector
             ) to connection
         }
 
     // Health manager
     val healthManager = HealthManager(dataSource)
-
-    // Metrics
-    val metricsCollector = MetricsCollector(prometheusRegistry)
 
     // Start poller
     outboxPoller.start()

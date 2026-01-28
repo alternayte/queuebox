@@ -1,6 +1,7 @@
 package org.nxtspec
 
 import kotlinx.serialization.json.JsonElement
+import org.nxtspec.metrics.MetricsCollectorInterface
 import org.nxtspec.repository.InboxRepositoryInterface
 import java.util.UUID
 
@@ -13,7 +14,8 @@ sealed class InboxHandlerResult {
 
 class InboxHandler(
     private val repository: InboxRepositoryInterface,
-    private val extractor: IdempotencyExtractor
+    private val extractor: IdempotencyExtractor,
+    private val metricsCollector: MetricsCollectorInterface? = null
 ) {
     suspend fun handle(source: String, sourceConfig: SourceConfig.Http, payload: JsonElement): InboxHandlerResult {
         // Extract idempotency key
@@ -35,8 +37,14 @@ class InboxHandler(
 
         // Store with deduplication
         return when (val result = repository.store(message)) {
-            is InboxResult.Stored -> InboxHandlerResult.Accepted(message.id)
-            is InboxResult.Duplicate -> InboxHandlerResult.Duplicate
+            is InboxResult.Stored -> {
+                metricsCollector?.recordInboxReceived()
+                InboxHandlerResult.Accepted(message.id)
+            }
+            is InboxResult.Duplicate -> {
+                metricsCollector?.recordInboxDuplicate()
+                InboxHandlerResult.Duplicate
+            }
             is InboxResult.Error -> InboxHandlerResult.StorageFailed(result.message)
         }
     }

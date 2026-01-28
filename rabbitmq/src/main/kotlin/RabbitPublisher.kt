@@ -3,10 +3,12 @@ package org.nxtspec
 import com.rabbitmq.client.AMQP
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import org.nxtspec.metrics.MetricsCollectorInterface
 import java.util.concurrent.ConcurrentHashMap
 
 class RabbitPublisher(
-    private val connections: ConcurrentHashMap<String, RabbitConnection> = ConcurrentHashMap()
+    private val connections: ConcurrentHashMap<String, RabbitConnection> = ConcurrentHashMap(),
+    private val metricsCollector: MetricsCollectorInterface? = null
 ) : Publisher {
 
     override fun supports(destination: Destination): Boolean = destination is Destination.RabbitMQ
@@ -15,6 +17,7 @@ class RabbitPublisher(
         val dest = destination as? Destination.RabbitMQ
             ?: return Result.failure(IllegalArgumentException("Not a RabbitMQ destination"))
 
+        val startTime = System.currentTimeMillis()
         return try {
             val connection = connections.getOrPut(dest.name) { RabbitConnection(dest.url) }
 
@@ -50,17 +53,25 @@ class RabbitPublisher(
 
                     // Wait for confirm
                     if (!channel.waitForConfirms(5000)) {
+                        recordPublishDuration(startTime)
                         return@withContext Result.failure(RabbitPublishException("Publish not confirmed"))
                     }
 
+                    recordPublishDuration(startTime)
                     Result.success(Unit)
                 } finally {
                     channel.close()
                 }
             }
         } catch (e: Exception) {
+            recordPublishDuration(startTime)
             Result.failure(RabbitPublishException("RabbitMQ publish failed: ${e.message}", e))
         }
+    }
+
+    private fun recordPublishDuration(startTime: Long) {
+        val duration = System.currentTimeMillis() - startTime
+        metricsCollector?.recordPublishDuration(duration, "rabbitmq")
     }
 
     suspend fun close() {
