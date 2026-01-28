@@ -1,35 +1,67 @@
 package org.nxtspec.app
 
-import java.util.concurrent.atomic.AtomicLong
+import io.micrometer.core.instrument.MeterRegistry
+import org.nxtspec.metrics.QueueBoxMetrics
 
-class MetricsCollector {
-    private val messagesProcessed = AtomicLong(0)
-    private val messagesFailed = AtomicLong(0)
-    private val inboxReceived = AtomicLong(0)
+/**
+ * Metrics collector that wraps QueueBoxMetrics for convenient metric recording.
+ */
+class MetricsCollector(registry: MeterRegistry) {
+    private val metrics = QueueBoxMetrics(registry)
 
-    fun incrementProcessed() {
-        messagesProcessed.incrementAndGet()
+    /**
+     * Record a successfully sent outbox message.
+     */
+    fun recordMessageSent() {
+        metrics.outboxMessagesSent.increment()
     }
 
-    fun incrementFailed() {
-        messagesFailed.incrementAndGet()
+    /**
+     * Record a failed outbox message.
+     */
+    fun recordMessageFailed() {
+        metrics.outboxMessagesFailed.increment()
     }
 
-    fun incrementInboxReceived() {
-        inboxReceived.incrementAndGet()
+    /**
+     * Record a dead letter outbox message (max retries exceeded).
+     */
+    fun recordMessageDead() {
+        metrics.outboxMessagesDead.increment()
     }
 
-    fun toPrometheusFormat(): String = buildString {
-        appendLine("# HELP queuebox_messages_processed_total Total messages processed")
-        appendLine("# TYPE queuebox_messages_processed_total counter")
-        appendLine("queuebox_messages_processed_total ${messagesProcessed.get()}")
-        appendLine()
-        appendLine("# HELP queuebox_messages_failed_total Total messages failed")
-        appendLine("# TYPE queuebox_messages_failed_total counter")
-        appendLine("queuebox_messages_failed_total ${messagesFailed.get()}")
-        appendLine()
-        appendLine("# HELP queuebox_inbox_received_total Total inbox messages received")
-        appendLine("# TYPE queuebox_inbox_received_total counter")
-        appendLine("queuebox_inbox_received_total ${inboxReceived.get()}")
+    /**
+     * Record processing duration in milliseconds.
+     */
+    fun recordProcessingDuration(durationMs: Long) {
+        metrics.recordProcessingDuration(durationMs)
+    }
+
+    /**
+     * Record publish duration in milliseconds for a specific destination type.
+     */
+    fun recordPublishDuration(durationMs: Long, destinationType: String) {
+        metrics.recordPublishDuration(durationMs, destinationType)
+    }
+
+    /**
+     * Record a new inbox message received.
+     */
+    fun recordInboxReceived() {
+        metrics.inboxMessagesNew.increment()
+    }
+
+    /**
+     * Record a duplicate inbox message detected.
+     */
+    fun recordInboxDuplicate() {
+        metrics.inboxMessagesDuplicate.increment()
+    }
+
+    /**
+     * Update the pending message count.
+     */
+    fun updatePendingCount(count: Long) {
+        metrics.setPendingMessageCount(count)
     }
 }

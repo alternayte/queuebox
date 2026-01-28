@@ -20,6 +20,10 @@ dependencies {
     implementation(libs.bundles.ktorServerEcosystem)
     implementation(libs.bundles.kotlinxEcosystem)
 
+    // Micrometer metrics
+    implementation(libs.micrometer.core)
+    implementation(libs.micrometer.prometheus)
+
     // HikariCP for database connection pooling
     implementation("com.zaxxer:HikariCP:6.0.0")
 

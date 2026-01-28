@@ -21,6 +21,7 @@ data class ServerConfig(
 
 @Serializable
 data class DatabaseConfig(
+    val type: String = "postgresql",
     val url: String,
     val username: String,
     val password: String,

@@ -91,7 +91,7 @@ class ConfigValidatorTest {
         val exception = assertFailsWith<IllegalArgumentException> {
             ConfigValidator.validate(config)
         }
-        assertContains(exception.message!!, "PostgreSQL")
+        assertContains(exception.message!!, "jdbc:postgresql://")
     }
 
     @Test
@@ -102,7 +102,7 @@ class ConfigValidatorTest {
         val exception = assertFailsWith<IllegalArgumentException> {
             ConfigValidator.validate(config)
         }
-        assertContains(exception.message!!, "PostgreSQL")
+        assertContains(exception.message!!, "jdbc:postgresql://")
     }
 
     @Test
@@ -113,7 +113,7 @@ class ConfigValidatorTest {
         val exception = assertFailsWith<IllegalArgumentException> {
             ConfigValidator.validate(config)
         }
-        assertContains(exception.message!!, "PostgreSQL")
+        assertContains(exception.message!!, "jdbc:postgresql://")
     }
 
     // === Port Validation ===

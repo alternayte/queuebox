@@ -16,11 +16,8 @@ dependencies {
     // Connection pooling
     implementation("com.zaxxer:HikariCP:6.0.0")
 
-    // Micrometer for HikariCP metrics
-    implementation(libs.micrometer.core)
-
-    // PostgreSQL driver
-    implementation("org.postgresql:postgresql:42.7.4")
+    // SQL Server JDBC driver
+    implementation("com.microsoft.sqlserver:mssql-jdbc:12.8.1.jre11")
 
     // Exposed ORM
     implementation("org.jetbrains.exposed:exposed-core:0.56.0")
@@ -35,6 +32,5 @@ dependencies {
     testImplementation(libs.kotlin.test)
     testImplementation(libs.mockk)
     testImplementation(libs.kotlinx.coroutines.test)
-    testImplementation(libs.testcontainers.postgresql)
-    testImplementation(libs.testcontainers.junit)
+    testImplementation(libs.bundles.testContainersMssqlserver)
 }

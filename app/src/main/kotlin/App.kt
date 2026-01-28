@@ -8,21 +8,30 @@ import io.ktor.server.netty.*
 import io.ktor.server.plugins.contentnegotiation.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
+import io.micrometer.prometheusmetrics.PrometheusConfig
+import io.micrometer.prometheusmetrics.PrometheusMeterRegistry
 import kotlinx.coroutines.runBlocking
 import org.nxtspec.*
 import org.nxtspec.http.HttpPublisher
+import org.nxtspec.repository.DatabaseProviderFactory
+import org.nxtspec.repository.DatabaseType
 
 fun main() {
     // Load configuration
     val config = ConfigLoader.load()
 
-    // Database setup
-    val dataSource = DatabaseFactory.create(config.database)
+    // Create Prometheus registry for metrics
+    val prometheusRegistry = PrometheusMeterRegistry(PrometheusConfig.DEFAULT)
+
+    // Database setup with metrics integration
+    val dataSource = DatabaseFactory.create(config.database, prometheusRegistry)
     DatabaseFactory.init(dataSource)
 
-    // Repositories
-    val outboxRepository = OutboxRepository()
-    val inboxRepository = InboxRepository()
+    // Repositories via factory pattern
+    val dbType = DatabaseType.valueOf(config.database.type.uppercase())
+    val repositoryFactory = DatabaseProviderFactory.create(dbType, dataSource)
+    val outboxRepository = repositoryFactory.createOutboxRepository()
+    val inboxRepository = repositoryFactory.createInboxRepository()
 
     // Convert config destinations to domain Destinations
     val destinations = config.destinations.mapValues { (name, destConfig) ->
@@ -79,7 +88,7 @@ fun main() {
     val healthManager = HealthManager(dataSource)
 
     // Metrics
-    val metricsCollector = MetricsCollector()
+    val metricsCollector = MetricsCollector(prometheusRegistry)
 
     // Start poller
     outboxPoller.start()
@@ -109,7 +118,7 @@ fun main() {
         configureRouting()
         configureInboxRoutes(config.inbox, config.sources, inboxHandler)
         configureHealthRoutes(healthManager)
-        configureMetricsRoutes(metricsCollector)
+        configureMetricsRoutes(prometheusRegistry)
     }.start(wait = true)
 }
 

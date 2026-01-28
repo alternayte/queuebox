@@ -1,5 +1,7 @@
 package org.nxtspec.app
 
+import io.micrometer.prometheusmetrics.PrometheusConfig
+import io.micrometer.prometheusmetrics.PrometheusMeterRegistry
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
@@ -11,89 +13,126 @@ class MetricsCollectorTest {
 
     @Test
     fun `should start at zero when new collector`() {
-        val collector = MetricsCollector()
-        val output = collector.toPrometheusFormat()
+        val registry = PrometheusMeterRegistry(PrometheusConfig.DEFAULT)
+        val collector = MetricsCollector(registry)
+        val output = registry.scrape()
 
-        assertTrue(output.contains("queuebox_messages_processed_total 0"))
-        assertTrue(output.contains("queuebox_messages_failed_total 0"))
-        assertTrue(output.contains("queuebox_inbox_received_total 0"))
+        // New metrics use tagged counters, so we check for the metric name with tags
+        assertTrue(output.contains("queuebox_outbox_messages_total"))
+        assertTrue(output.contains("queuebox_inbox_messages_total"))
     }
 
     @Test
     fun `should increment counters when metrics updated`() {
-        val collector = MetricsCollector()
+        val registry = PrometheusMeterRegistry(PrometheusConfig.DEFAULT)
+        val collector = MetricsCollector(registry)
 
-        collector.incrementProcessed()
-        collector.incrementProcessed()
-        collector.incrementFailed()
-        collector.incrementInboxReceived()
-        collector.incrementInboxReceived()
-        collector.incrementInboxReceived()
+        collector.recordMessageSent()
+        collector.recordMessageSent()
+        collector.recordMessageFailed()
+        collector.recordInboxReceived()
+        collector.recordInboxReceived()
+        collector.recordInboxReceived()
 
-        val output = collector.toPrometheusFormat()
+        val output = registry.scrape()
 
-        assertTrue(output.contains("queuebox_messages_processed_total 2"))
-        assertTrue(output.contains("queuebox_messages_failed_total 1"))
-        assertTrue(output.contains("queuebox_inbox_received_total 3"))
+        assertTrue(output.contains("queuebox_outbox_messages_total{status=\"sent\""))
+        assertTrue(output.contains("queuebox_outbox_messages_total{status=\"failed\""))
+        assertTrue(output.contains("queuebox_inbox_messages_total{status=\"new\""))
     }
 
     @Test
     fun `should output valid Prometheus format`() {
-        val collector = MetricsCollector()
-        val output = collector.toPrometheusFormat()
+        val registry = PrometheusMeterRegistry(PrometheusConfig.DEFAULT)
+        val collector = MetricsCollector(registry)
+        val output = registry.scrape()
 
-        // Verify HELP comments
-        assertTrue(output.contains("# HELP queuebox_messages_processed_total"))
-        assertTrue(output.contains("# HELP queuebox_messages_failed_total"))
-        assertTrue(output.contains("# HELP queuebox_inbox_received_total"))
+        // Verify HELP comments are present
+        assertTrue(output.contains("# HELP queuebox_outbox_messages_total"))
+        assertTrue(output.contains("# HELP queuebox_inbox_messages_total"))
 
-        // Verify TYPE comments
-        assertTrue(output.contains("# TYPE queuebox_messages_processed_total counter"))
-        assertTrue(output.contains("# TYPE queuebox_messages_failed_total counter"))
-        assertTrue(output.contains("# TYPE queuebox_inbox_received_total counter"))
+        // Verify TYPE comments are present
+        assertTrue(output.contains("# TYPE queuebox_outbox_messages_total counter"))
+        assertTrue(output.contains("# TYPE queuebox_inbox_messages_total counter"))
     }
 
     @Test
     fun `should be thread safe when concurrent increments`() = runBlocking {
-        val collector = MetricsCollector()
+        val registry = PrometheusMeterRegistry(PrometheusConfig.DEFAULT)
+        val collector = MetricsCollector(registry)
 
         coroutineScope {
             repeat(1000) {
                 launch(Dispatchers.Default) {
-                    collector.incrementProcessed()
+                    collector.recordMessageSent()
                 }
             }
         }
 
-        val output = collector.toPrometheusFormat()
-        assertTrue(output.contains("queuebox_messages_processed_total 1000"))
+        val output = registry.scrape()
+        assertTrue(output.contains("queuebox_outbox_messages_total{status=\"sent\""))
+        // Verify the count is 1000
+        assertTrue(output.contains("1000.0"))
     }
 
     @Test
     fun `should be thread safe when concurrent mixed increments`() = runBlocking {
-        val collector = MetricsCollector()
+        val registry = PrometheusMeterRegistry(PrometheusConfig.DEFAULT)
+        val collector = MetricsCollector(registry)
 
         coroutineScope {
             repeat(500) {
                 launch(Dispatchers.Default) {
-                    collector.incrementProcessed()
+                    collector.recordMessageSent()
                 }
             }
             repeat(300) {
                 launch(Dispatchers.Default) {
-                    collector.incrementFailed()
+                    collector.recordMessageFailed()
                 }
             }
             repeat(200) {
                 launch(Dispatchers.Default) {
-                    collector.incrementInboxReceived()
+                    collector.recordInboxReceived()
                 }
             }
         }
 
-        val output = collector.toPrometheusFormat()
-        assertTrue(output.contains("queuebox_messages_processed_total 500"))
-        assertTrue(output.contains("queuebox_messages_failed_total 300"))
-        assertTrue(output.contains("queuebox_inbox_received_total 200"))
+        val output = registry.scrape()
+        // Verify all counters have correct values
+        assertTrue(output.contains("queuebox_outbox_messages_total{status=\"sent\""))
+        assertTrue(output.contains("queuebox_outbox_messages_total{status=\"failed\""))
+        assertTrue(output.contains("queuebox_inbox_messages_total{status=\"new\""))
+    }
+
+    @Test
+    fun `should record timers when durations recorded`() {
+        val registry = PrometheusMeterRegistry(PrometheusConfig.DEFAULT)
+        val collector = MetricsCollector(registry)
+
+        collector.recordProcessingDuration(100)
+        collector.recordProcessingDuration(200)
+        collector.recordPublishDuration(50, "http")
+        collector.recordPublishDuration(75, "rabbitmq")
+
+        val output = registry.scrape()
+
+        // Verify timers are present with percentiles
+        assertTrue(output.contains("queuebox_outbox_processing_duration_seconds"))
+        assertTrue(output.contains("queuebox_outbox_publish_duration_seconds"))
+        assertTrue(output.contains("destination_type=\"http\""))
+        assertTrue(output.contains("destination_type=\"rabbitmq\""))
+    }
+
+    @Test
+    fun `should update pending count gauge`() {
+        val registry = PrometheusMeterRegistry(PrometheusConfig.DEFAULT)
+        val collector = MetricsCollector(registry)
+
+        collector.updatePendingCount(42)
+
+        val output = registry.scrape()
+        assertTrue(output.contains("queuebox_outbox_messages_pending"))
+        assertTrue(output.contains("42.0"))
     }
 }

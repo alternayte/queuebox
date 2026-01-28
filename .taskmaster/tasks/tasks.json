@@ -1676,14 +1676,14 @@
   "features": {
     "tasks": [
       {
-        "id": 1,
+        "id": "1",
         "title": "Implement Environment Variable Configuration System",
         "description": "Add Debezium-style environment variable support for container deployments, enabling both env-only mode and env override mode for YAML configuration.",
         "details": "Create EnvConfigLoader.kt in the config module that implements the QUEUEBOX_* naming convention:\n\n1. **Naming Convention Implementation**:\n   - Replace dots with underscores, hyphens with underscores, uppercase all\n   - Example: `database.pool-size` → `QUEUEBOX_DATABASE_POOL_SIZE`\n\n2. **EnvConfigLoader.kt**:\n```kotlin\nobject EnvConfigLoader {\n    private const val PREFIX = \"QUEUEBOX_\"\n    \n    fun loadFromEnv(): Map<String, String> {\n        return System.getenv()\n            .filterKeys { it.startsWith(PREFIX) }\n            .mapKeys { envKeyToYamlPath(it.key) }\n    }\n    \n    private fun envKeyToYamlPath(envKey: String): String {\n        return envKey.removePrefix(PREFIX)\n            .lowercase()\n            .replace(\"_\", \".\")\n    }\n}\n```\n\n3. **Update ConfigLoader.kt**:\n   - First attempt to load YAML from resource or file\n   - If YAML found, merge with env overrides\n   - If no YAML, build config entirely from env vars\n   - Use Hoplite's `addEnvironmentSource()` with custom prefix\n\n4. **Complex Type Handling**:\n   - Arrays: `QUEUEBOX_ROUTES_0_TOPIC`, `QUEUEBOX_ROUTES_1_DESTINATION`\n   - Objects: `QUEUEBOX_DESTINATIONS_HTTP1_BASEURL`\n   - JSON strings: `QUEUEBOX_DESTINATIONS='[{\"name\":\"http1\",...}]'` for complex structures\n\n5. **Hoplite Integration** (version 2.9.0 already in project):\n```kotlin\nConfigLoaderBuilder.default()\n    .addResourceOrFileSource(\"queuebox.yml\", optional = true)\n    .addEnvironmentSource(prefix = \"QUEUEBOX_\")\n    .build()\n```\n\n6. **Files to modify**:\n   - `config/src/main/kotlin/EnvConfigLoader.kt` (new)\n   - `config/src/main/kotlin/ConfigLoader.kt` (update)\n   - `config/src/main/kotlin/ConfigValidator.kt` (update for env-only validation)",
         "testStrategy": "1. Unit test env variable parsing with mock environment\n2. Test precedence: env vars override YAML values\n3. Test env-only mode: run without queuebox.yml file\n4. Test complex types: arrays via indexed naming, JSON string parsing\n5. Integration test: start QueueBox with only env vars set\n6. Test clear error messages for missing required properties\n7. Verify all existing YAML properties map correctly to env vars",
         "priority": "high",
         "dependencies": [],
-        "status": "pending",
+        "status": "done",
         "subtasks": [
           {
             "id": 1,
@@ -1691,8 +1691,10 @@
             "description": "Implement the EnvConfigLoader object that handles QUEUEBOX_* environment variable prefix parsing and transforms env keys to YAML-compatible paths using the naming convention (uppercase with underscores to lowercase with dots).",
             "dependencies": [],
             "details": "Create config/src/main/kotlin/EnvConfigLoader.kt with:\n1. PREFIX constant set to 'QUEUEBOX_'\n2. loadFromEnv() function that filters System.getenv() for QUEUEBOX_* keys\n3. envKeyToYamlPath() private function implementing the transformation: remove prefix, lowercase, replace single underscores with dots\n4. Handle double underscore convention for literal underscores in property names (e.g., QUEUEBOX_DATABASE__POOL_SIZE for database_pool-size)\n5. yamlPathToEnvKey() reverse transformation for documentation/debugging purposes\n6. Unit tests in config/src/test/kotlin/EnvConfigLoaderTest.kt covering: basic prefix filtering, key transformation (dots/hyphens), edge cases like empty values and special characters",
-            "status": "pending",
-            "testStrategy": "Unit tests verifying: 1) QUEUEBOX_DATABASE_URL transforms to database.url, 2) QUEUEBOX_SERVER_HTTP_PORT transforms to server.http.port (handle camelCase mapping), 3) Non-QUEUEBOX_ env vars are filtered out, 4) Empty string values are preserved, 5) Keys with double underscores handle literal underscores correctly"
+            "status": "done",
+            "testStrategy": "Unit tests verifying: 1) QUEUEBOX_DATABASE_URL transforms to database.url, 2) QUEUEBOX_SERVER_HTTP_PORT transforms to server.http.port (handle camelCase mapping), 3) Non-QUEUEBOX_ env vars are filtered out, 4) Empty string values are preserved, 5) Keys with double underscores handle literal underscores correctly",
+            "parentId": "undefined",
+            "updatedAt": "2026-01-27T21:54:47.193Z"
           },
           {
             "id": 2,
@@ -1702,8 +1704,10 @@
               1
             ],
             "details": "Update config/src/main/kotlin/ConfigLoader.kt to:\n1. Use ConfigLoaderBuilder.default() with addResourceOrFileSource() for optional YAML loading\n2. Chain addEnvironmentSource() with 'QUEUEBOX_' prefix using Hoplite's built-in PropertySourceParser\n3. Implement load() overload that accepts optional YAML path parameter (default 'queuebox.yml')\n4. Add loadFromEnvOnly() function for container deployments without YAML files\n5. Configure Hoplite's property source order so env vars take precedence over YAML values\n6. Handle ConfigLoaderBuilder exceptions gracefully with clear error messages for missing required values\n7. Ensure backward compatibility - existing YAML-only configurations continue to work without changes",
-            "status": "pending",
-            "testStrategy": "Integration tests verifying: 1) YAML-only loading works as before, 2) Env vars override YAML values when both present, 3) Env-only mode works without queuebox.yml, 4) Required fields without defaults fail with clear errors in env-only mode, 5) Hoplite's built-in array indexing (QUEUEBOX_ROUTES_0_TOPIC) works correctly"
+            "status": "done",
+            "testStrategy": "Integration tests verifying: 1) YAML-only loading works as before, 2) Env vars override YAML values when both present, 3) Env-only mode works without queuebox.yml, 4) Required fields without defaults fail with clear errors in env-only mode, 5) Hoplite's built-in array indexing (QUEUEBOX_ROUTES_0_TOPIC) works correctly",
+            "parentId": "undefined",
+            "updatedAt": "2026-01-27T22:07:16.896Z"
           },
           {
             "id": 3,
@@ -1714,8 +1718,10 @@
               2
             ],
             "details": "Extend environment variable handling to support:\n1. Array indexing: QUEUEBOX_ROUTES_0_TOPIC_PATTERN, QUEUEBOX_ROUTES_0_DESTINATION, QUEUEBOX_ROUTES_1_* - leveraging Hoplite's built-in array index parsing\n2. Map/object keys: QUEUEBOX_DESTINATIONS_HTTP1_BASE_URL for destinations['http1'].baseUrl\n3. JSON string parsing for complex structures: QUEUEBOX_DESTINATIONS='[{\"name\":\"http1\",\"type\":\"http\",\"baseUrl\":\"...\"}]'\n4. Add JsonEnvParser utility in EnvConfigLoader to detect and parse JSON-formatted env var values\n5. Handle sealed class discriminators (type field) for DestinationConfig.Http vs DestinationConfig.RabbitMQ in JSON format\n6. Document the supported formats in code comments with examples",
-            "status": "pending",
-            "testStrategy": "Unit and integration tests for: 1) Array indexing creates proper List<RouteConfig> with multiple routes, 2) Map keys populate destinations Map correctly, 3) JSON string parsing deserializes complex DestinationConfig objects, 4) Mixed mode: some destinations from YAML, others from env JSON, 5) Sealed class type discriminator works for both Http and RabbitMQ destination types"
+            "status": "done",
+            "testStrategy": "Unit and integration tests for: 1) Array indexing creates proper List<RouteConfig> with multiple routes, 2) Map keys populate destinations Map correctly, 3) JSON string parsing deserializes complex DestinationConfig objects, 4) Mixed mode: some destinations from YAML, others from env JSON, 5) Sealed class type discriminator works for both Http and RabbitMQ destination types",
+            "parentId": "undefined",
+            "updatedAt": "2026-01-27T22:07:51.846Z"
           },
           {
             "id": 4,
@@ -1727,22 +1733,25 @@
               3
             ],
             "details": "Update config/src/main/kotlin/ConfigValidator.kt to:\n1. Add validation for env-only mode: check all required fields have values (database.url, database.username, database.password are required)\n2. Add validateEnvConfig() function that validates a QueueBoxConfig was properly constructed from environment variables\n3. Improve error messages to indicate whether a missing field should be set via YAML or env var (e.g., 'Set QUEUEBOX_DATABASE_URL or database.url in queuebox.yml')\n4. Add validation for array completeness - if QUEUEBOX_ROUTES_0_* exists, ensure all required route fields are present\n5. Create comprehensive integration tests in config/src/test/kotlin/ConfigLoaderIntegrationTest.kt testing: full env-only startup, precedence (env overrides YAML), partial overrides, error cases",
-            "status": "pending",
-            "testStrategy": "Integration tests: 1) Start with only QUEUEBOX_* env vars set (no YAML) - verify config loads correctly, 2) Test precedence: YAML has database.url=X, env has QUEUEBOX_DATABASE_URL=Y - verify Y wins, 3) Test partial override: YAML provides most config, env overrides just password, 4) Test missing required field error messages reference both env and YAML options, 5) Test invalid env var values produce clear validation errors"
+            "status": "done",
+            "testStrategy": "Integration tests: 1) Start with only QUEUEBOX_* env vars set (no YAML) - verify config loads correctly, 2) Test precedence: YAML has database.url=X, env has QUEUEBOX_DATABASE_URL=Y - verify Y wins, 3) Test partial override: YAML provides most config, env overrides just password, 4) Test missing required field error messages reference both env and YAML options, 5) Test invalid env var values produce clear validation errors",
+            "parentId": "undefined",
+            "updatedAt": "2026-01-27T22:08:25.851Z"
           }
-        ]
+        ],
+        "updatedAt": "2026-01-27T22:08:25.851Z"
       },
       {
-        "id": 2,
+        "id": "2",
         "title": "Implement Micrometer-based Observability Metrics",
         "description": "Replace the basic MetricsCollector with Micrometer for proper Prometheus-compatible metrics including counters, gauges, and histograms with latency percentiles.",
         "details": "1. **Add Micrometer dependency** to gradle/libs.versions.toml:\n```toml\n[versions]\nmicrometer = \"1.14.3\"\n\n[libraries]\nmicrometer-core = { group = \"io.micrometer\", name = \"micrometer-core\", version.ref = \"micrometer\" }\nmicrometer-prometheus = { group = \"io.micrometer\", name = \"micrometer-registry-prometheus\", version.ref = \"micrometer\" }\n```\n\n2. **Create core/src/main/kotlin/metrics/Metrics.kt**:\n```kotlin\nobject QueueBoxMetrics {\n    // Outbox metrics\n    val outboxMessagesTotal = Counter.builder(\"queuebox_outbox_messages_total\")\n        .description(\"Total outbox messages by status\")\n        .tag(\"status\", \"sent|failed|dead\")\n    \n    val outboxMessagesPending = Gauge.builder(\"queuebox_outbox_messages_pending\", ...)\n    \n    val outboxProcessingDuration = Timer.builder(\"queuebox_outbox_processing_duration_seconds\")\n        .publishPercentiles(0.5, 0.95, 0.99)\n    \n    val outboxPublishDuration = Timer.builder(\"queuebox_outbox_publish_duration_seconds\")\n        .tag(\"destination_type\", \"http|rabbitmq\")\n        .publishPercentiles(0.5, 0.95, 0.99)\n    \n    // Inbox metrics\n    val inboxMessagesTotal = Counter.builder(\"queuebox_inbox_messages_total\")\n        .tag(\"status\", \"new|duplicate\")\n    \n    // Database metrics (from HikariCP)\n    val dbConnectionsActive = Gauge.builder(\"queuebox_db_connections_active\", ...)\n    val dbConnectionsIdle = Gauge.builder(\"queuebox_db_connections_idle\", ...)\n    \n    // Application metrics\n    val uptime = Gauge.builder(\"queuebox_uptime_seconds\", ...)\n    val info = Gauge.builder(\"queuebox_info\")\n        .tag(\"version\", BuildInfo.version)\n}\n```\n\n3. **Replace MetricsCollector.kt**:\n```kotlin\nclass MetricsCollector(registry: MeterRegistry) {\n    private val outboxSent = registry.counter(\"queuebox_outbox_messages_total\", \"status\", \"sent\")\n    private val outboxFailed = registry.counter(\"queuebox_outbox_messages_total\", \"status\", \"failed\")\n    private val processingTimer = registry.timer(\"queuebox_outbox_processing_duration_seconds\")\n    \n    fun recordMessageSent() = outboxSent.increment()\n    fun recordProcessingDuration(durationMs: Long) = processingTimer.record(durationMs, TimeUnit.MILLISECONDS)\n}\n```\n\n4. **HikariCP Metrics** - HikariCP has built-in Micrometer support:\n```kotlin\nfun create(config: DatabaseConfig, registry: MeterRegistry): HikariDataSource {\n    val hikariConfig = HikariConfig().apply {\n        metricsTrackerFactory = MicrometerMetricsTrackerFactory(registry)\n    }\n}\n```\n\n5. **Update /metrics endpoint** to use PrometheusMeterRegistry.scrape()\n\n6. **Files to modify**:\n   - `gradle/libs.versions.toml` (add micrometer)\n   - `app/build.gradle.kts` (add micrometer deps)\n   - `core/src/main/kotlin/metrics/Metrics.kt` (new)\n   - `app/src/main/kotlin/MetricsCollector.kt` (rewrite)\n   - `app/src/main/kotlin/MetricsRoutes.kt` (update for Prometheus scrape)\n   - `postgres/src/main/kotlin/DatabaseFactory.kt` (add metrics registration)",
         "testStrategy": "1. Verify /metrics endpoint returns valid Prometheus exposition format\n2. Test all metric types: counters increment, gauges update, histograms record durations\n3. Validate histogram buckets produce p50/p95/p99 percentiles\n4. Test HikariCP pool metrics appear in output\n5. Integration test: scrape /metrics with Prometheus client\n6. Verify metric labels (status, destination_type) are correctly applied\n7. Test uptime gauge increases over time",
         "priority": "high",
         "dependencies": [
-          1
+          "1"
         ],
-        "status": "pending",
+        "status": "done",
         "subtasks": [
           {
             "id": 1,
@@ -1750,8 +1759,10 @@
             "description": "Add Micrometer core and Prometheus registry dependencies to gradle/libs.versions.toml and relevant build.gradle.kts files (app, core).",
             "dependencies": [],
             "details": "1. Add to gradle/libs.versions.toml under [versions]: micrometer = \"1.14.3\"\n2. Add to [libraries]: micrometer-core = { group = \"io.micrometer\", name = \"micrometer-core\", version.ref = \"micrometer\" } and micrometer-prometheus = { group = \"io.micrometer\", name = \"micrometer-registry-prometheus\", version.ref = \"micrometer\" }\n3. Add to app/build.gradle.kts: implementation(libs.micrometer.core), implementation(libs.micrometer.prometheus)\n4. Add to core/build.gradle.kts: implementation(libs.micrometer.core) for the Metrics.kt definitions\n5. Run gradle sync to verify dependencies resolve correctly",
-            "status": "pending",
-            "testStrategy": "Run ./gradlew dependencies on app and core modules to verify micrometer-core and micrometer-registry-prometheus are resolved. Ensure no version conflicts with existing dependencies."
+            "status": "done",
+            "testStrategy": "Run ./gradlew dependencies on app and core modules to verify micrometer-core and micrometer-registry-prometheus are resolved. Ensure no version conflicts with existing dependencies.",
+            "parentId": "undefined",
+            "updatedAt": "2026-01-28T06:22:09.705Z"
           },
           {
             "id": 2,
@@ -1761,8 +1772,10 @@
               1
             ],
             "details": "1. Create new file core/src/main/kotlin/metrics/Metrics.kt\n2. Define object QueueBoxMetrics with metric builders:\n   - outboxMessagesTotal: Counter with 'status' tag (sent|failed|dead)\n   - outboxMessagesPending: Gauge for pending message count\n   - outboxProcessingDuration: Timer with publishPercentiles(0.5, 0.95, 0.99)\n   - outboxPublishDuration: Timer with 'destination_type' tag (http|rabbitmq) and percentiles\n   - inboxMessagesTotal: Counter with 'status' tag (new|duplicate)\n   - dbConnectionsActive/dbConnectionsIdle: Gauges for HikariCP\n   - uptime: Gauge for application uptime\n   - info: Gauge with 'version' tag for build info\n3. All metric names should follow Prometheus naming conventions with queuebox_ prefix",
-            "status": "pending",
-            "testStrategy": "Unit test that metric builders can be registered to a SimpleMeterRegistry without errors. Verify metric names match the specified naming convention. Test that tags are correctly applied."
+            "status": "done",
+            "testStrategy": "Unit test that metric builders can be registered to a SimpleMeterRegistry without errors. Verify metric names match the specified naming convention. Test that tags are correctly applied.",
+            "parentId": "undefined",
+            "updatedAt": "2026-01-28T06:22:47.407Z"
           },
           {
             "id": 3,
@@ -1772,8 +1785,10 @@
               2
             ],
             "details": "1. Rewrite app/src/main/kotlin/MetricsCollector.kt to accept MeterRegistry in constructor\n2. Create counters from registry: outboxSent = registry.counter(\"queuebox_outbox_messages_total\", \"status\", \"sent\")\n3. Create outboxFailed counter with status=failed tag\n4. Create processingTimer = registry.timer(\"queuebox_outbox_processing_duration_seconds\")\n5. Create publishTimer with destination_type tag for HTTP vs RabbitMQ differentiation\n6. Add methods: recordMessageSent(), recordMessageFailed(), recordProcessingDuration(durationMs: Long), recordPublishDuration(durationMs: Long, destinationType: String)\n7. Add inbox counter: inboxReceived = registry.counter(\"queuebox_inbox_messages_total\", \"status\", \"new\")\n8. Remove the manual toPrometheusFormat() method as PrometheusMeterRegistry will handle this",
-            "status": "pending",
-            "testStrategy": "Unit test MetricsCollector with SimpleMeterRegistry: verify counters increment correctly, timers record durations, and tags are properly applied. Test that recordPublishDuration correctly tags by destination_type."
+            "status": "done",
+            "testStrategy": "Unit test MetricsCollector with SimpleMeterRegistry: verify counters increment correctly, timers record durations, and tags are properly applied. Test that recordPublishDuration correctly tags by destination_type.",
+            "parentId": "undefined",
+            "updatedAt": "2026-01-28T06:23:06.863Z"
           },
           {
             "id": 4,
@@ -1783,8 +1798,10 @@
               3
             ],
             "details": "1. Update app/src/main/kotlin/MetricsRoutes.kt function signature to accept PrometheusMeterRegistry instead of MetricsCollector\n2. Replace collector.toPrometheusFormat() with registry.scrape()\n3. Ensure ContentType is text/plain with version=0.0.4 for Prometheus format\n4. Update Application entrypoint (App.kt) to:\n   - Create PrometheusMeterRegistry(PrometheusConfig.DEFAULT)\n   - Pass registry to MetricsCollector constructor\n   - Pass registry to configureMetricsRoutes()\n5. Ensure the registry instance is shared across all components that need to record metrics",
-            "status": "pending",
-            "testStrategy": "Integration test: start Ktor test server, hit /metrics endpoint, verify response is valid Prometheus exposition format. Verify all registered metrics appear in the scrape output. Test that the content type is correct (text/plain; version=0.0.4)."
+            "status": "done",
+            "testStrategy": "Integration test: start Ktor test server, hit /metrics endpoint, verify response is valid Prometheus exposition format. Verify all registered metrics appear in the scrape output. Test that the content type is correct (text/plain; version=0.0.4).",
+            "parentId": "undefined",
+            "updatedAt": "2026-01-28T06:23:50.454Z"
           },
           {
             "id": 5,
@@ -1794,20 +1811,23 @@
               1
             ],
             "details": "1. Modify DatabaseFactory.kt create() function to accept optional MeterRegistry parameter\n2. Add to HikariConfig: metricsTrackerFactory = MicrometerMetricsTrackerFactory(registry) when registry is provided\n3. HikariCP will automatically expose metrics:\n   - hikaricp_connections_active: active connections\n   - hikaricp_connections_idle: idle connections\n   - hikaricp_connections_pending: threads awaiting connection\n   - hikaricp_connections_timeout_total: connection timeout count\n   - hikaricp_connections_acquire_seconds: connection acquisition time histogram\n4. Update all callers of DatabaseFactory.create() to pass the MeterRegistry\n5. Configure percentile histograms for connection acquisition timing\n6. Add import for com.zaxxer.hikari.metrics.micrometer.MicrometerMetricsTrackerFactory",
-            "status": "pending",
-            "testStrategy": "Integration test with testcontainers PostgreSQL: create HikariDataSource with metrics enabled, perform some database operations, verify hikaricp_* metrics appear in PrometheusMeterRegistry.scrape() output. Test that active/idle connection counts are accurate."
+            "status": "done",
+            "testStrategy": "Integration test with testcontainers PostgreSQL: create HikariDataSource with metrics enabled, perform some database operations, verify hikaricp_* metrics appear in PrometheusMeterRegistry.scrape() output. Test that active/idle connection counts are accurate.",
+            "parentId": "undefined",
+            "updatedAt": "2026-01-28T06:24:26.549Z"
           }
-        ]
+        ],
+        "updatedAt": "2026-01-28T06:24:26.549Z"
       },
       {
-        "id": 3,
+        "id": "3",
         "title": "Implement Database Repository Interface Abstraction",
         "description": "Create abstract repository interfaces to enable multi-database support, preparing for SQL Server implementation while maintaining PostgreSQL functionality.",
         "details": "1. **Create Repository Interfaces** in core module:\n\n```kotlin\n// core/src/main/kotlin/repository/OutboxRepositoryInterface.kt\ninterface OutboxRepositoryInterface {\n    suspend fun claimBatch(batchSize: Int): List<OutboxMessage>\n    suspend fun markSent(id: UUID)\n    suspend fun markFailed(id: UUID, error: String)\n    suspend fun scheduleRetry(id: UUID, delayMs: Long)\n    suspend fun markDead(id: UUID)\n    suspend fun countByState(state: String): Long\n    suspend fun deleteOlderThan(state: String, cutoff: Instant): Int\n    suspend fun deleteExceptMostRecent(state: String, keepCount: Int): Int\n}\n\n// core/src/main/kotlin/repository/InboxRepositoryInterface.kt\ninterface InboxRepositoryInterface {\n    suspend fun store(message: InboxMessage): InboxResult\n    suspend fun claimPending(batchSize: Int): List<InboxMessage>\n    suspend fun markProcessed(id: UUID)\n    suspend fun countByState(state: String): Long\n    suspend fun deleteOlderThan(state: String, cutoff: Instant): Int\n}\n```\n\n2. **Create DatabaseProviderFactory**:\n```kotlin\n// core/src/main/kotlin/repository/DatabaseProviderFactory.kt\nenum class DatabaseType { POSTGRESQL, SQLSERVER }\n\ninterface RepositoryFactory {\n    fun createOutboxRepository(): OutboxRepositoryInterface\n    fun createInboxRepository(): InboxRepositoryInterface\n}\n\nobject DatabaseProviderFactory {\n    fun create(type: DatabaseType, dataSource: DataSource): RepositoryFactory = when(type) {\n        DatabaseType.POSTGRESQL -> PostgresRepositoryFactory(dataSource)\n        DatabaseType.SQLSERVER -> SqlServerRepositoryFactory(dataSource)\n    }\n}\n```\n\n3. **Update existing PostgreSQL repositories** to implement interfaces:\n```kotlin\nclass OutboxRepository : OutboxRepositoryInterface {\n    // Existing implementation unchanged\n}\n```\n\n4. **Update DatabaseConfig** to include database type:\n```kotlin\ndata class DatabaseConfig(\n    val type: String = \"postgresql\",  // postgresql | sqlserver\n    val url: String,\n    // ...\n)\n```\n\n5. **Update App.kt** to use factory pattern:\n```kotlin\nval dbType = DatabaseType.valueOf(config.database.type.uppercase())\nval repositoryFactory = DatabaseProviderFactory.create(dbType, dataSource)\nval outboxRepository = repositoryFactory.createOutboxRepository()\n```\n\n6. **Files to create/modify**:\n   - `core/src/main/kotlin/repository/OutboxRepositoryInterface.kt` (new)\n   - `core/src/main/kotlin/repository/InboxRepositoryInterface.kt` (new)\n   - `core/src/main/kotlin/repository/DatabaseProviderFactory.kt` (new)\n   - `postgres/src/main/kotlin/PostgresRepositoryFactory.kt` (new)\n   - `postgres/src/main/kotlin/OutboxRepository.kt` (implement interface)\n   - `postgres/src/main/kotlin/InboxRepository.kt` (implement interface)\n   - `config/src/main/kotlin/QueueBoxConfig.kt` (add type field)\n   - `app/src/main/kotlin/App.kt` (use factory)",
         "testStrategy": "1. Verify existing PostgreSQL tests still pass with interface implementation\n2. Test factory creates correct repository type based on config\n3. Test DatabaseType enum parsing from config strings\n4. Verify all interface methods are implemented in PostgreSQL repositories\n5. Test error handling when unknown database type is configured\n6. Integration test: full message flow with repository abstraction layer",
         "priority": "high",
         "dependencies": [],
-        "status": "pending",
+        "status": "done",
         "subtasks": [
           {
             "id": 1,
@@ -1815,8 +1835,10 @@
             "description": "Create OutboxRepositoryInterface.kt and InboxRepositoryInterface.kt in core/src/main/kotlin/repository/ with all method signatures from existing implementations plus cleanup methods (deleteOlderThan, deleteExceptMostRecent, countByState).",
             "dependencies": [],
             "details": "Create two interface files in core module:\n\n1. OutboxRepositoryInterface.kt with methods:\n   - suspend fun claimBatch(batchSize: Int): List<OutboxMessage>\n   - suspend fun markSent(id: UUID)\n   - suspend fun markFailed(id: UUID, error: String)\n   - suspend fun scheduleRetry(id: UUID, delayMs: Long)\n   - suspend fun markDead(id: UUID)\n   - suspend fun countByState(state: String): Long\n   - suspend fun deleteOlderThan(state: String, cutoff: Instant): Int\n   - suspend fun deleteExceptMostRecent(state: String, keepCount: Int): Int\n\n2. InboxRepositoryInterface.kt with methods:\n   - suspend fun store(message: InboxMessage): InboxResult\n   - suspend fun claimPending(batchSize: Int): List<InboxMessage>\n   - suspend fun markProcessed(id: UUID)\n   - suspend fun countByState(state: String): Long\n   - suspend fun deleteOlderThan(state: String, cutoff: Instant): Int\n\nUse kotlinx.datetime.Instant for cutoff parameters. These interfaces enable Task 6 (Retention) by including cleanup methods upfront.",
-            "status": "pending",
-            "testStrategy": "Verify interfaces compile without errors. Ensure all method signatures match existing OutboxRepository and InboxRepository implementations (except new cleanup methods). Create a mock implementation test to verify interface contracts are complete."
+            "status": "done",
+            "testStrategy": "Verify interfaces compile without errors. Ensure all method signatures match existing OutboxRepository and InboxRepository implementations (except new cleanup methods). Create a mock implementation test to verify interface contracts are complete.",
+            "parentId": "undefined",
+            "updatedAt": "2026-01-27T22:16:45.942Z"
           },
           {
             "id": 2,
@@ -1826,8 +1848,10 @@
               1
             ],
             "details": "Create DatabaseProviderFactory.kt containing:\n\n1. DatabaseType enum:\n   enum class DatabaseType { POSTGRESQL, SQLSERVER }\n\n2. RepositoryFactory interface:\n   interface RepositoryFactory {\n       fun createOutboxRepository(): OutboxRepositoryInterface\n       fun createInboxRepository(): InboxRepositoryInterface\n   }\n\n3. DatabaseProviderFactory object:\n   object DatabaseProviderFactory {\n       fun create(type: DatabaseType, dataSource: DataSource): RepositoryFactory = when(type) {\n           DatabaseType.POSTGRESQL -> PostgresRepositoryFactory(dataSource)\n           DatabaseType.SQLSERVER -> throw NotImplementedError(\"SQL Server support coming soon\")\n       }\n   }\n\nImport javax.sql.DataSource. PostgresRepositoryFactory will be created in subtask 3. SQLSERVER case can throw NotImplementedError until implementation.",
-            "status": "pending",
-            "testStrategy": "Test DatabaseType.valueOf() parsing works for 'POSTGRESQL' and 'SQLSERVER' strings. Test factory throws appropriate error for unsupported database types. Verify factory returns correct RepositoryFactory implementation for POSTGRESQL type."
+            "status": "done",
+            "testStrategy": "Test DatabaseType.valueOf() parsing works for 'POSTGRESQL' and 'SQLSERVER' strings. Test factory throws appropriate error for unsupported database types. Verify factory returns correct RepositoryFactory implementation for POSTGRESQL type.",
+            "parentId": "undefined",
+            "updatedAt": "2026-01-27T22:16:45.970Z"
           },
           {
             "id": 3,
@@ -1838,8 +1862,10 @@
               2
             ],
             "details": "Modifications needed:\n\n1. Update OutboxRepository to implement OutboxRepositoryInterface:\n   class OutboxRepository(private val dataSource: DataSource) : OutboxRepositoryInterface {\n   Add new methods:\n   - countByState: SELECT COUNT(*) FROM outbox WHERE state = ?\n   - deleteOlderThan: DELETE FROM outbox WHERE state = ? AND updated_at < ?\n   - deleteExceptMostRecent: DELETE using subquery to keep only most recent N rows by state\n\n2. Update InboxRepository to implement InboxRepositoryInterface:\n   class InboxRepository(private val dataSource: DataSource) : InboxRepositoryInterface {\n   Add new methods:\n   - countByState: SELECT COUNT(*) FROM inbox WHERE state = ?\n   - deleteOlderThan: DELETE FROM inbox WHERE state = ? AND created_at < ?\n\n3. Create PostgresRepositoryFactory.kt:\n   class PostgresRepositoryFactory(private val dataSource: DataSource) : RepositoryFactory {\n       override fun createOutboxRepository(): OutboxRepositoryInterface = OutboxRepository(dataSource)\n       override fun createInboxRepository(): InboxRepositoryInterface = InboxRepository(dataSource)\n   }\n\nEnsure all existing tests pass after modifications.",
-            "status": "pending",
-            "testStrategy": "Run existing PostgreSQL repository tests to verify no regression. Write new tests for countByState, deleteOlderThan, and deleteExceptMostRecent methods. Test PostgresRepositoryFactory creates working repository instances. Integration test: verify cleanup methods delete correct records."
+            "status": "done",
+            "testStrategy": "Run existing PostgreSQL repository tests to verify no regression. Write new tests for countByState, deleteOlderThan, and deleteExceptMostRecent methods. Test PostgresRepositoryFactory creates working repository instances. Integration test: verify cleanup methods delete correct records.",
+            "parentId": "undefined",
+            "updatedAt": "2026-01-27T22:16:45.978Z"
           },
           {
             "id": 4,
@@ -1850,22 +1876,25 @@
               3
             ],
             "details": "Changes required:\n\n1. Update DatabaseConfig in QueueBoxConfig.kt:\n   @Serializable\n   data class DatabaseConfig(\n       val type: String = \"postgresql\",  // \"postgresql\" or \"sqlserver\"\n       val url: String,\n       val username: String,\n       val password: String,\n       val poolSize: Int = 10,\n       val connectionTimeoutMs: Long = 30000\n   )\n\n2. Update App.kt:\n   - Import DatabaseType and DatabaseProviderFactory from core module\n   - Replace direct repository instantiation:\n     FROM:\n       val outboxRepository = OutboxRepository()\n       val inboxRepository = InboxRepository()\n     TO:\n       val dbType = DatabaseType.valueOf(config.database.type.uppercase())\n       val repositoryFactory = DatabaseProviderFactory.create(dbType, dataSource)\n       val outboxRepository = repositoryFactory.createOutboxRepository()\n       val inboxRepository = repositoryFactory.createInboxRepository()\n   - Update dataSource parameter passing to factory\n\n3. Update example config files if they exist to include type: \"postgresql\" field",
-            "status": "pending",
-            "testStrategy": "Test config parsing with type field present and absent (should default to postgresql). Test invalid type value produces clear error message. Integration test: verify app starts successfully with factory-created repositories. Test both YAML and programmatic config work with new field."
+            "status": "done",
+            "testStrategy": "Test config parsing with type field present and absent (should default to postgresql). Test invalid type value produces clear error message. Integration test: verify app starts successfully with factory-created repositories. Test both YAML and programmatic config work with new field.",
+            "parentId": "undefined",
+            "updatedAt": "2026-01-27T22:16:45.986Z"
           }
-        ]
+        ],
+        "updatedAt": "2026-01-27T22:16:45.986Z"
       },
       {
-        "id": 4,
+        "id": "4",
         "title": "Implement SQL Server Database Module",
         "description": "Create new sqlserver module with full repository implementations using SQL Server-specific syntax (MERGE, UPDLOCK hints, T-SQL data types).",
         "details": "1. **Create new Gradle module** `sqlserver/build.gradle.kts`:\n```kotlin\ndependencies {\n    implementation(project(\":core\"))\n    implementation(project(\":config\"))\n    implementation(\"com.zaxxer:HikariCP:6.0.0\")\n    implementation(\"com.microsoft.sqlserver:mssql-jdbc:12.8.1.jre11\")\n    implementation(\"org.jetbrains.exposed:exposed-core:0.56.0\")\n    // ...\n    testImplementation(\"org.testcontainers:mssqlserver:1.20.4\")\n}\n```\n\n2. **Add to settings.gradle.kts**: `include(\"sqlserver\")`\n\n3. **Create SqlServerDatabaseFactory.kt**:\n```kotlin\nobject SqlServerDatabaseFactory {\n    fun create(config: DatabaseConfig): HikariDataSource {\n        val hikariConfig = HikariConfig().apply {\n            jdbcUrl = config.url  // jdbc:sqlserver://host:1433;databaseName=queuebox\n            driverClassName = \"com.microsoft.sqlserver.jdbc.SQLServerDriver\"\n            // ...\n        }\n        return HikariDataSource(hikariConfig)\n    }\n}\n```\n\n4. **Create SQL Server migration scripts** `sqlserver/src/main/resources/db/migration/V1__create_tables.sql`:\n```sql\nCREATE TABLE outbox (\n    id UNIQUEIDENTIFIER PRIMARY KEY DEFAULT NEWID(),\n    topic NVARCHAR(255) NOT NULL,\n    [key] NVARCHAR(255),\n    payload NVARCHAR(MAX) NOT NULL,  -- JSON stored as NVARCHAR\n    state NVARCHAR(50) NOT NULL DEFAULT 'pending',\n    attempt INT NOT NULL DEFAULT 0,\n    max_attempts INT NOT NULL DEFAULT 5,\n    scheduled_at DATETIME2 NOT NULL DEFAULT GETUTCDATE(),\n    created_at DATETIME2 NOT NULL DEFAULT GETUTCDATE(),\n    updated_at DATETIME2 NOT NULL DEFAULT GETUTCDATE()\n);\n\nCREATE INDEX idx_outbox_pending_scheduled ON outbox(state, scheduled_at)\n    WHERE state = 'pending';\n```\n\n5. **Create SqlServerOutboxRepository.kt**:\n```kotlin\nclass SqlServerOutboxRepository : OutboxRepositoryInterface {\n    override suspend fun claimBatch(batchSize: Int): List<OutboxMessage> = newSuspendedTransaction {\n        // Use WITH (ROWLOCK, UPDLOCK, READPAST) instead of FOR UPDATE SKIP LOCKED\n        val sql = \"\"\"\n            SELECT TOP (?) * FROM outbox WITH (ROWLOCK, UPDLOCK, READPAST)\n            WHERE state = 'pending' AND scheduled_at <= GETUTCDATE()\n        \"\"\"\n        // Execute and update to 'processing'\n    }\n}\n```\n\n6. **Create SqlServerInboxRepository.kt** with MERGE for upsert:\n```kotlin\noverride suspend fun store(message: InboxMessage): InboxResult {\n    // Use MERGE for insert-if-not-exists\n    val sql = \"\"\"\n        MERGE inbox AS target\n        USING (SELECT ? AS source, ? AS idempotency_key) AS src\n        ON target.source = src.source AND target.idempotency_key = src.idempotency_key\n        WHEN NOT MATCHED THEN INSERT (...) VALUES (...);\n    \"\"\"\n}\n```\n\n7. **Update ConfigValidator** to accept sqlserver URL prefix:\n```kotlin\nwhen (config.database.type) {\n    \"postgresql\" -> require(config.database.url.startsWith(\"jdbc:postgresql://\"))\n    \"sqlserver\" -> require(config.database.url.startsWith(\"jdbc:sqlserver://\"))\n}\n```\n\n8. **Files to create**:\n   - `sqlserver/build.gradle.kts`\n   - `sqlserver/src/main/kotlin/SqlServerDatabaseFactory.kt`\n   - `sqlserver/src/main/kotlin/SqlServerOutboxRepository.kt`\n   - `sqlserver/src/main/kotlin/SqlServerInboxRepository.kt`\n   - `sqlserver/src/main/kotlin/SqlServerRepositoryFactory.kt`\n   - `sqlserver/src/main/resources/db/migration/V1__create_tables.sql`",
         "testStrategy": "1. Integration tests using SQL Server TestContainers (mcr.microsoft.com/mssql/server:2022-latest)\n2. Test claimBatch with concurrent transactions - verify READPAST prevents blocking\n3. Test MERGE upsert for inbox deduplication\n4. Test all CRUD operations match PostgreSQL behavior\n5. Performance comparison: PostgreSQL SKIP LOCKED vs SQL Server READPAST\n6. Test datetime2 timezone handling matches PostgreSQL timestamptz\n7. Run full message flow end-to-end with SQL Server backend",
         "priority": "medium",
         "dependencies": [
-          3
+          "3"
         ],
-        "status": "pending",
+        "status": "done",
         "subtasks": [
           {
             "id": 1,
@@ -1874,7 +1903,8 @@
             "dependencies": [],
             "details": "Create sqlserver/build.gradle.kts following the postgres module pattern. Include: mssql-jdbc:12.8.1.jre11 driver, testcontainers:mssqlserver:1.20.4 for integration tests, Exposed ORM (exposed-core, exposed-jdbc, exposed-json, exposed-kotlin-datetime:0.56.0), HikariCP:6.0.0 for connection pooling, and kotlinx ecosystem bundle. Add 'include(\"sqlserver\")' to settings.gradle.kts. Use the existing libs.versions.toml for shared dependencies (kotlinxEcosystem bundle, testing libraries). Ensure the plugin 'buildsrc.convention.kotlin-jvm' is applied for consistent build configuration.",
             "status": "pending",
-            "testStrategy": "Run './gradlew :sqlserver:dependencies' to verify all dependencies resolve correctly. Run './gradlew :sqlserver:compileKotlin' to ensure the module compiles. Verify TestContainers SQL Server dependency is available for tests."
+            "testStrategy": "Run './gradlew :sqlserver:dependencies' to verify all dependencies resolve correctly. Run './gradlew :sqlserver:compileKotlin' to ensure the module compiles. Verify TestContainers SQL Server dependency is available for tests.",
+            "parentId": "undefined"
           },
           {
             "id": 2,
@@ -1885,7 +1915,8 @@
             ],
             "details": "Create sqlserver/src/main/resources/db/migration/V1__create_tables.sql with both outbox and inbox tables. Use UNIQUEIDENTIFIER with NEWID() default for primary keys instead of UUID. Use NVARCHAR(MAX) for JSON payload storage (SQL Server doesn't have native JSON type). Use DATETIME2 with GETUTCDATE() for timestamps instead of TIMESTAMP WITH TIME ZONE. Use NVARCHAR(255) for string columns (note: 'key' must be escaped as [key] since it's a reserved word). Create filtered indexes using WHERE clause syntax (SQL Server supports this similar to PostgreSQL partial indexes). Add unique constraint on inbox(source, idempotency_key) for deduplication.",
             "status": "pending",
-            "testStrategy": "Integration test should successfully run migrations against TestContainers SQL Server. Verify tables are created with correct column types using sys.columns queries. Verify indexes exist including filtered indexes. Test INSERT operations with default values to confirm NEWID() and GETUTCDATE() work."
+            "testStrategy": "Integration test should successfully run migrations against TestContainers SQL Server. Verify tables are created with correct column types using sys.columns queries. Verify indexes exist including filtered indexes. Test INSERT operations with default values to confirm NEWID() and GETUTCDATE() work.",
+            "parentId": "undefined"
           },
           {
             "id": 3,
@@ -1897,7 +1928,8 @@
             ],
             "details": "Create sqlserver/src/main/kotlin/SqlServerOutboxRepository.kt following the PostgreSQL OutboxRepository interface. The claimBatch method must use raw SQL with 'SELECT TOP (?) * FROM outbox WITH (ROWLOCK, UPDLOCK, READPAST) WHERE state = 'pending' AND scheduled_at <= GETUTCDATE()' - this is the SQL Server equivalent of FOR UPDATE SKIP LOCKED. Create SqlServerOutboxTable.kt extending UUIDTable with column definitions matching the migration. Implement all methods: claimBatch(), markSent(), markFailed(), scheduleRetry(), markDead(). Use newSuspendedTransaction for coroutine support. Handle the datetime conversion between Kotlin Instant and SQL Server DATETIME2.",
             "status": "pending",
-            "testStrategy": "Write SqlServerOutboxRepositoryTest extending SqlServerTestBase. Test claimBatch returns pending messages and updates to processing. Test concurrent claimBatch with multiple coroutines - verify READPAST prevents duplicate claims (critical concurrency test). Test markSent, markFailed, scheduleRetry, markDead state transitions. Use @RepeatedTest for concurrency tests to catch race conditions."
+            "testStrategy": "Write SqlServerOutboxRepositoryTest extending SqlServerTestBase. Test claimBatch returns pending messages and updates to processing. Test concurrent claimBatch with multiple coroutines - verify READPAST prevents duplicate claims (critical concurrency test). Test markSent, markFailed, scheduleRetry, markDead state transitions. Use @RepeatedTest for concurrency tests to catch race conditions.",
+            "parentId": "undefined"
           },
           {
             "id": 4,
@@ -1909,7 +1941,8 @@
             ],
             "details": "Create sqlserver/src/main/kotlin/SqlServerInboxRepository.kt. The store() method must use MERGE statement: 'MERGE inbox AS target USING (SELECT @source AS source, @key AS idempotency_key) AS src ON target.source = src.source AND target.idempotency_key = src.idempotency_key WHEN NOT MATCHED THEN INSERT (...) VALUES (...);' Use @@ROWCOUNT to determine if insert occurred (0 = duplicate, 1 = stored). Create SqlServerInboxTable.kt with column definitions. Implement claimPending() with ROWLOCK/UPDLOCK/READPAST hints similar to outbox. Implement markProcessed() to set state and processedAt timestamp. Return InboxResult.Stored, InboxResult.Duplicate, or InboxResult.Error appropriately.",
             "status": "pending",
-            "testStrategy": "Write SqlServerInboxRepositoryTest extending SqlServerTestBase. Test store() returns Stored for new messages. Test store() returns Duplicate for same source+idempotency_key. Test store() allows same key from different sources. Test claimPending() returns pending messages and transitions to processing. Test markProcessed() sets state and timestamp correctly."
+            "testStrategy": "Write SqlServerInboxRepositoryTest extending SqlServerTestBase. Test store() returns Stored for new messages. Test store() returns Duplicate for same source+idempotency_key. Test store() allows same key from different sources. Test claimPending() returns pending messages and transitions to processing. Test markProcessed() sets state and timestamp correctly.",
+            "parentId": "undefined"
           },
           {
             "id": 5,
@@ -1920,7 +1953,8 @@
             ],
             "details": "Create sqlserver/src/main/kotlin/SqlServerDatabaseFactory.kt following PostgreSQL DatabaseFactory pattern. Configure HikariConfig with: jdbcUrl supporting 'jdbc:sqlserver://host:1433;databaseName=queuebox' format, driverClassName 'com.microsoft.sqlserver.jdbc.SQLServerDriver', connection pooling settings (maximumPoolSize, connectionTimeout), isAutoCommit=false, transactionIsolation='TRANSACTION_READ_COMMITTED'. Create SqlServerRepositoryFactory.kt that instantiates SqlServerOutboxRepository and SqlServerInboxRepository. Add init() method to connect Exposed Database to the DataSource. Add close() method for graceful shutdown.",
             "status": "pending",
-            "testStrategy": "Write SqlServerDatabaseFactoryTest using TestContainers. Test create() returns valid HikariDataSource. Test init() successfully connects Exposed to SQL Server. Test connection pool settings are applied correctly. Test close() properly shuts down the pool. Verify transactions work correctly with the configured isolation level."
+            "testStrategy": "Write SqlServerDatabaseFactoryTest using TestContainers. Test create() returns valid HikariDataSource. Test init() successfully connects Exposed to SQL Server. Test connection pool settings are applied correctly. Test close() properly shuts down the pool. Verify transactions work correctly with the configured isolation level.",
+            "parentId": "undefined"
           },
           {
             "id": 6,
@@ -1933,19 +1967,21 @@
             ],
             "details": "Create sqlserver/src/test/kotlin/org/nxtspec/SqlServerTestBase.kt using TestContainers MSSQLServerContainer with image 'mcr.microsoft.com/mssql/server:2022-latest'. Configure container with ACCEPT_EULA=Y and SA_PASSWORD. Use withTmpFs for faster tests. Implement setupDatabase(), teardownDatabase(), cleanupData() lifecycle methods using SchemaUtils. Create helper methods insertOutboxMessage(), insertInboxMessage(), and state query helpers. Tests must cover: 1) Concurrent claimBatch with 5+ parallel coroutines claiming from pool of 20 messages - verify no duplicates with READPAST, 2) MERGE upsert deduplication under concurrent inserts, 3) All CRUD operations match PostgreSQL repository behavior, 4) Filtered index usage for pending message queries.",
             "status": "pending",
-            "testStrategy": "Run full test suite with './gradlew :sqlserver:test'. Verify all concurrent tests pass consistently with @RepeatedTest(5). Compare behavior against PostgreSQL tests to ensure parity. Test with SQL Server 2022 container image. Measure test execution time to ensure TestContainers startup is acceptable (<60 seconds)."
+            "testStrategy": "Run full test suite with './gradlew :sqlserver:test'. Verify all concurrent tests pass consistently with @RepeatedTest(5). Compare behavior against PostgreSQL tests to ensure parity. Test with SQL Server 2022 container image. Measure test execution time to ensure TestContainers startup is acceptable (<60 seconds).",
+            "parentId": "undefined"
           }
-        ]
+        ],
+        "updatedAt": "2026-01-28T06:39:40.088Z"
       },
       {
-        "id": 5,
+        "id": "5",
         "title": "Implement Retention Configuration Schema",
         "description": "Define retention policy configuration schema supporting age-based and count-based cleanup for both outbox and inbox tables.",
         "details": "1. **Create RetentionConfig.kt** in config module:\n```kotlin\n@Serializable\ndata class RetentionConfig(\n    val enabled: Boolean = false,\n    val outbox: TableRetentionConfig = TableRetentionConfig(),\n    val inbox: TableRetentionConfig = TableRetentionConfig()\n)\n\n@Serializable\ndata class TableRetentionConfig(\n    val policy: RetentionPolicy = RetentionPolicy.DISABLED,\n    val maxAge: String? = null,  // e.g., \"7d\", \"24h\", \"30d\"\n    val maxCount: Int? = null,   // e.g., 100000\n    val cleanupInterval: String = \"1h\",\n    val batchSize: Int = 1000\n)\n\n@Serializable\nenum class RetentionPolicy {\n    @SerialName(\"age\") AGE,\n    @SerialName(\"count\") COUNT,\n    @SerialName(\"disabled\") DISABLED\n}\n```\n\n2. **Duration Parsing Utility**:\n```kotlin\nobject DurationParser {\n    fun parse(duration: String): Duration {\n        val value = duration.dropLast(1).toLong()\n        return when (duration.last()) {\n            's' -> value.seconds\n            'm' -> value.minutes\n            'h' -> value.hours\n            'd' -> value.days\n            else -> throw IllegalArgumentException(\"Invalid duration: $duration\")\n        }\n    }\n}\n```\n\n3. **Update QueueBoxConfig.kt**:\n```kotlin\ndata class QueueBoxConfig(\n    // ... existing fields\n    val retention: RetentionConfig = RetentionConfig()\n)\n```\n\n4. **Sample YAML configuration**:\n```yaml\nretention:\n  enabled: true\n  outbox:\n    policy: age\n    maxAge: 7d\n    cleanupInterval: 1h\n    batchSize: 1000\n  inbox:\n    policy: count\n    maxCount: 100000\n    cleanupInterval: 6h\n    batchSize: 1000\n```\n\n5. **Update ConfigValidator** with retention validation:\n```kotlin\nif (config.retention.enabled) {\n    validateTableRetention(\"outbox\", config.retention.outbox)\n    validateTableRetention(\"inbox\", config.retention.inbox)\n}\n\nprivate fun validateTableRetention(table: String, config: TableRetentionConfig) {\n    when (config.policy) {\n        RetentionPolicy.AGE -> require(config.maxAge != null) {\n            \"$table retention policy 'age' requires maxAge\"\n        }\n        RetentionPolicy.COUNT -> require(config.maxCount != null && config.maxCount > 0) {\n            \"$table retention policy 'count' requires positive maxCount\"\n        }\n        RetentionPolicy.DISABLED -> {} // No validation needed\n    }\n}\n```\n\n6. **Corresponding env vars**:\n   - `QUEUEBOX_RETENTION_ENABLED=true`\n   - `QUEUEBOX_RETENTION_OUTBOX_POLICY=age`\n   - `QUEUEBOX_RETENTION_OUTBOX_MAXAGE=7d`\n\n7. **Files to create/modify**:\n   - `config/src/main/kotlin/RetentionConfig.kt` (new)\n   - `config/src/main/kotlin/DurationParser.kt` (new)\n   - `config/src/main/kotlin/QueueBoxConfig.kt` (add retention field)\n   - `config/src/main/kotlin/ConfigValidator.kt` (add retention validation)\n   - `config/src/main/resources/queuebox.yml` (add retention example)",
         "testStrategy": "1. Test duration parsing: '7d', '24h', '30m', '60s'\n2. Test invalid duration formats throw clear errors\n3. Test config validation: age policy requires maxAge\n4. Test config validation: count policy requires positive maxCount\n5. Test disabled policy requires no additional fields\n6. Verify YAML and env var loading produce identical config\n7. Test default values when retention section omitted",
         "priority": "medium",
         "dependencies": [
-          1
+          "1"
         ],
         "status": "pending",
         "subtasks": [
@@ -1956,7 +1992,8 @@
             "dependencies": [],
             "details": "Create `config/src/main/kotlin/RetentionConfig.kt` with:\n\n1. **RetentionPolicy enum** with @Serializable annotation:\n   - AGE (@SerialName(\"age\")) - cleanup based on message age\n   - COUNT (@SerialName(\"count\")) - cleanup based on max message count\n   - DISABLED (@SerialName(\"disabled\")) - no cleanup (default)\n\n2. **TableRetentionConfig data class** with @Serializable:\n   - policy: RetentionPolicy = RetentionPolicy.DISABLED\n   - maxAge: String? = null (e.g., \"7d\", \"24h\", \"30d\")\n   - maxCount: Int? = null (e.g., 100000)\n   - cleanupInterval: String = \"1h\"\n   - batchSize: Int = 1000\n\n3. **RetentionConfig data class** with @Serializable:\n   - enabled: Boolean = false\n   - outbox: TableRetentionConfig = TableRetentionConfig()\n   - inbox: TableRetentionConfig = TableRetentionConfig()\n\n4. **DurationParser object** with parse(duration: String): Duration function:\n   - Parse format: number followed by unit suffix (s/m/h/d)\n   - Support: 's' for seconds, 'm' for minutes, 'h' for hours, 'd' for days\n   - Use kotlin.time.Duration (seconds, minutes, hours, days properties)\n   - Throw IllegalArgumentException for invalid formats with clear error message\n\nFollow existing serialization patterns from QueueBoxConfig.kt using kotlinx.serialization annotations.",
             "status": "pending",
-            "testStrategy": "Unit tests for DurationParser: test '7d' returns 7 days, '24h' returns 24 hours, '30m' returns 30 minutes, '60s' returns 60 seconds. Test invalid formats throw IllegalArgumentException with descriptive messages (e.g., 'invalid', '7x', '', '7')."
+            "testStrategy": "Unit tests for DurationParser: test '7d' returns 7 days, '24h' returns 24 hours, '30m' returns 30 minutes, '60s' returns 60 seconds. Test invalid formats throw IllegalArgumentException with descriptive messages (e.g., 'invalid', '7x', '', '7').",
+            "parentId": "undefined"
           },
           {
             "id": 2,
@@ -1967,7 +2004,8 @@
             ],
             "details": "1. **Update QueueBoxConfig.kt** (line 14, before closing parenthesis):\n   - Add import for RetentionConfig if needed (same package, may not need)\n   - Add field: `val retention: RetentionConfig = RetentionConfig()`\n   - Place after 'sources' field following existing field order pattern\n\n2. **Update ConfigValidator.kt** - add retention validation after routes validation (line 41):\n   - Add conditional check: `if (config.retention.enabled) { ... }`\n   - Create private helper: `validateTableRetention(table: String, config: TableRetentionConfig)`\n   - Call helper for both: validateTableRetention(\"outbox\", config.retention.outbox)\n                          validateTableRetention(\"inbox\", config.retention.inbox)\n\n3. **validateTableRetention implementation**:\n   - When policy is AGE: require maxAge is not null with message \"$table retention policy 'age' requires maxAge\"\n   - When policy is COUNT: require maxCount is not null AND maxCount > 0 with message \"$table retention policy 'count' requires positive maxCount\"\n   - When policy is DISABLED: no validation needed\n   - Also validate cleanupInterval and batchSize are positive when policy is not DISABLED\n\n4. **Add DurationParser validation** for maxAge and cleanupInterval strings:\n   - Call DurationParser.parse() to validate format when values are provided\n   - Let DurationParser throw on invalid format (will propagate as config error)",
             "status": "pending",
-            "testStrategy": "Unit tests in ConfigValidatorTest.kt: test age policy without maxAge fails, age policy with valid maxAge passes, count policy without maxCount fails, count policy with maxCount=0 fails, count policy with positive maxCount passes, disabled policy requires no additional fields, invalid duration format in maxAge throws error."
+            "testStrategy": "Unit tests in ConfigValidatorTest.kt: test age policy without maxAge fails, age policy with valid maxAge passes, count policy without maxCount fails, count policy with maxCount=0 fails, count policy with positive maxCount passes, disabled policy requires no additional fields, invalid duration format in maxAge throws error.",
+            "parentId": "undefined"
           },
           {
             "id": 3,
@@ -1979,20 +2017,21 @@
             ],
             "details": "1. **Create DurationParserTest.kt** in `config/src/test/kotlin/org/nxtspec/`:\n   - Test valid durations: '7d'->7.days, '24h'->24.hours, '30m'->30.minutes, '60s'->60.seconds\n   - Test large values: '365d', '1000h'\n   - Test invalid formats throw IllegalArgumentException: 'invalid', '7x', '', '7', 'd7', '-5d'\n   - Verify error messages are descriptive\n\n2. **Update ConfigValidatorTest.kt** with retention validation tests:\n   - Test retention disabled passes with any config\n   - Test enabled + age policy without maxAge fails\n   - Test enabled + age policy with maxAge passes\n   - Test enabled + count policy without maxCount fails\n   - Test enabled + count policy with maxCount=0 fails\n   - Test enabled + count policy with maxCount=-1 fails\n   - Test enabled + count policy with positive maxCount passes\n   - Test disabled policy requires no additional fields\n   - Test invalid cleanupInterval format fails\n   - Test both outbox and inbox validated independently\n\n3. **Update sample YAML** (if exists at config/src/main/resources/queuebox.yml or create example):\n   - Add retention section with example for outbox (age-based, 7d, 1h interval)\n   - Add retention section with example for inbox (count-based, 100000 max, 6h interval)\n   - Include comments explaining each field\n\n4. **Update test-config.yml** if needed to include retention section for ConfigLoaderTest.",
             "status": "pending",
-            "testStrategy": "Run full test suite with `./gradlew :config:test`. Verify all new tests pass. Test YAML parsing by adding a test that loads config with retention section and verifies all retention fields are correctly deserialized."
+            "testStrategy": "Run full test suite with `./gradlew :config:test`. Verify all new tests pass. Test YAML parsing by adding a test that loads config with retention section and verifies all retention fields are correctly deserialized.",
+            "parentId": "undefined"
           }
         ]
       },
       {
-        "id": 6,
+        "id": "6",
         "title": "Implement Retention Cleanup Service",
         "description": "Create a coroutine-based cleanup scheduler that executes age-based and count-based retention policies without blocking normal operations.",
         "details": "1. **Add repository cleanup methods** to interfaces (already included in Task 3):\n```kotlin\ninterface OutboxRepositoryInterface {\n    // Add these methods:\n    suspend fun deleteOlderThan(states: List<String>, cutoff: Instant): Int\n    suspend fun deleteExceptMostRecent(states: List<String>, keepCount: Int): Int\n}\n```\n\n2. **Implement in PostgreSQL repository**:\n```kotlin\nsuspend fun deleteOlderThan(states: List<String>, cutoff: Instant): Int = newSuspendedTransaction {\n    OutboxTable.deleteWhere {\n        (state inList states) and (updatedAt less cutoff)\n    }\n}\n\nsuspend fun deleteExceptMostRecent(states: List<String>, keepCount: Int): Int = newSuspendedTransaction {\n    // Use CTE to find IDs to delete\n    val sql = \"\"\"\n        WITH ranked AS (\n            SELECT id, ROW_NUMBER() OVER (ORDER BY updated_at DESC) as rn\n            FROM outbox WHERE state IN (?)\n        )\n        DELETE FROM outbox WHERE id IN (\n            SELECT id FROM ranked WHERE rn > ?\n        )\n    \"\"\"\n    exec(sql) { ... }\n}\n```\n\n3. **Create RetentionService.kt** in outbox-service module:\n```kotlin\nclass RetentionService(\n    private val config: RetentionConfig,\n    private val outboxRepository: OutboxRepositoryInterface,\n    private val inboxRepository: InboxRepositoryInterface,\n    private val metrics: MetricsCollector\n) {\n    private val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())\n    private val running = AtomicBoolean(false)\n    \n    private val completedStates = listOf(\"sent\", \"dead\", \"processed\")\n    \n    fun start() {\n        if (!config.enabled) return\n        running.set(true)\n        \n        if (config.outbox.policy != RetentionPolicy.DISABLED) {\n            scheduleCleanup(\"outbox\", config.outbox) { cleanupOutbox(it) }\n        }\n        if (config.inbox.policy != RetentionPolicy.DISABLED) {\n            scheduleCleanup(\"inbox\", config.inbox) { cleanupInbox(it) }\n        }\n    }\n    \n    private fun scheduleCleanup(table: String, config: TableRetentionConfig, cleanup: suspend (TableRetentionConfig) -> Unit) {\n        val interval = DurationParser.parse(config.cleanupInterval)\n        scope.launch {\n            while (running.get()) {\n                try {\n                    val startTime = System.nanoTime()\n                    cleanup(config)\n                    val duration = System.nanoTime() - startTime\n                    metrics.recordCleanupDuration(table, duration)\n                } catch (e: Exception) {\n                    println(\"Cleanup error for $table: ${e.message}\")\n                }\n                delay(interval.inWholeMilliseconds)\n            }\n        }\n    }\n    \n    private suspend fun cleanupOutbox(config: TableRetentionConfig) {\n        val deleted = when (config.policy) {\n            RetentionPolicy.AGE -> {\n                val cutoff = Clock.System.now() - DurationParser.parse(config.maxAge!!)\n                deleteInBatches(config.batchSize) {\n                    outboxRepository.deleteOlderThan(completedStates, cutoff)\n                }\n            }\n            RetentionPolicy.COUNT -> {\n                outboxRepository.deleteExceptMostRecent(completedStates, config.maxCount!!)\n            }\n            else -> 0\n        }\n        metrics.recordCleanupDeleted(\"outbox\", deleted)\n    }\n    \n    private suspend fun deleteInBatches(batchSize: Int, deleteFn: suspend () -> Int): Int {\n        var totalDeleted = 0\n        var deleted: Int\n        do {\n            deleted = deleteFn()\n            totalDeleted += deleted\n            if (deleted > 0) delay(10) // Small yield to prevent lock contention\n        } while (deleted >= batchSize)\n        return totalDeleted\n    }\n}\n```\n\n4. **Add cleanup metrics** to MetricsCollector:\n```kotlin\nval cleanupDeletedTotal = Counter.builder(\"queuebox_cleanup_messages_deleted_total\")\n    .tag(\"table\", \"outbox|inbox\")\nval cleanupDuration = Timer.builder(\"queuebox_cleanup_duration_seconds\")\n    .tag(\"table\", \"outbox|inbox\")\nval cleanupLastRun = Gauge.builder(\"queuebox_cleanup_last_run_timestamp\")\n    .tag(\"table\", \"outbox|inbox\")\n```\n\n5. **Wire into App.kt**:\n```kotlin\nval retentionService = RetentionService(config.retention, outboxRepository, inboxRepository, metricsCollector)\nretentionService.start()\n```\n\n6. **Files to create/modify**:\n   - `outbox-service/src/main/kotlin/RetentionService.kt` (new)\n   - `postgres/src/main/kotlin/OutboxRepository.kt` (add delete methods)\n   - `postgres/src/main/kotlin/InboxRepository.kt` (add delete methods)\n   - `app/src/main/kotlin/MetricsCollector.kt` (add cleanup metrics)\n   - `app/src/main/kotlin/App.kt` (wire RetentionService)",
         "testStrategy": "1. Test age-based cleanup deletes only messages older than threshold\n2. Test count-based cleanup keeps exactly N most recent messages\n3. Test batched deletion doesn't exceed configured batch size per iteration\n4. Test cleanup runs at configured interval\n5. Test cleanup doesn't affect pending/processing messages\n6. Load test: verify cleanup doesn't block normal message processing\n7. Test metrics are recorded: deleted count, duration, last run timestamp\n8. Test cleanup graceful shutdown during in-flight deletion",
         "priority": "medium",
         "dependencies": [
-          3,
-          5
+          "3",
+          "5"
         ],
         "status": "pending",
         "subtasks": [
@@ -2003,7 +2042,8 @@
             "dependencies": [],
             "details": "Add two new methods to OutboxRepository.kt and InboxRepository.kt:\n\n1. `suspend fun deleteOlderThan(states: List<String>, cutoff: Instant): Int` - Uses Exposed DSL to delete records where state is in the provided list AND updatedAt is less than cutoff. Use `newSuspendedTransaction` wrapper.\n\n2. `suspend fun deleteExceptMostRecent(states: List<String>, keepCount: Int): Int` - Implement using a CTE (Common Table Expression) query that ranks records by updated_at DESC, then deletes all records with rank > keepCount. Use raw SQL with `exec()` since CTEs aren't well-supported in Exposed DSL.\n\nEnsure both methods return the count of deleted records. The interfaces for these methods should already exist from Task 3 - this subtask implements the concrete PostgreSQL versions.",
             "status": "pending",
-            "testStrategy": "Test deleteOlderThan: insert records with various timestamps, verify only records older than cutoff with matching states are deleted. Test deleteExceptMostRecent: insert 20 records, keep 5, verify exactly 15 deleted and the 5 most recent remain. Test edge cases: empty table, no matching states, all records newer than cutoff."
+            "testStrategy": "Test deleteOlderThan: insert records with various timestamps, verify only records older than cutoff with matching states are deleted. Test deleteExceptMostRecent: insert 20 records, keep 5, verify exactly 15 deleted and the 5 most recent remain. Test edge cases: empty table, no matching states, all records newer than cutoff.",
+            "parentId": "undefined"
           },
           {
             "id": 2,
@@ -2014,7 +2054,8 @@
             ],
             "details": "Create `outbox-service/src/main/kotlin/RetentionService.kt` with:\n\n1. Class properties: `CoroutineScope(Dispatchers.Default + SupervisorJob())`, `AtomicBoolean(false)` for running state, and `completedStates = listOf(\"sent\", \"dead\", \"processed\")`.\n\n2. Constructor accepting: RetentionConfig, OutboxRepositoryInterface, InboxRepositoryInterface, MetricsCollector.\n\n3. `fun start()` - Check if enabled, set running flag, launch cleanup coroutines for outbox and inbox based on their policy configurations.\n\n4. `private fun scheduleCleanup(table: String, config: TableRetentionConfig, cleanup: suspend (TableRetentionConfig) -> Unit)` - Launch coroutine that loops while running, executes cleanup, records metrics, handles exceptions, and delays for configured interval using DurationParser.\n\n5. `fun stop()` - Set running to false, cancel scope.\n\n6. Implement deleteInBatches helper that repeatedly calls delete function until fewer than batchSize records deleted, with 10ms yield between batches to prevent lock contention.",
             "status": "pending",
-            "testStrategy": "Test start/stop lifecycle: verify coroutines launch on start and terminate on stop. Test disabled config doesn't launch coroutines. Test scheduler respects cleanup interval timing. Mock repositories and verify cleanup functions are called at expected intervals. Test exception handling doesn't crash the scheduler loop."
+            "testStrategy": "Test start/stop lifecycle: verify coroutines launch on start and terminate on stop. Test disabled config doesn't launch coroutines. Test scheduler respects cleanup interval timing. Mock repositories and verify cleanup functions are called at expected intervals. Test exception handling doesn't crash the scheduler loop.",
+            "parentId": "undefined"
           },
           {
             "id": 3,
@@ -2025,7 +2066,8 @@
             ],
             "details": "Within RetentionService, implement age-based cleanup:\n\n1. `private suspend fun cleanupOutbox(config: TableRetentionConfig)` - For AGE policy: parse maxAge using DurationParser, calculate cutoff as `Clock.System.now() - duration`, call `deleteInBatches` with `outboxRepository.deleteOlderThan(completedStates, cutoff)`.\n\n2. `private suspend fun cleanupInbox(config: TableRetentionConfig)` - Similar implementation for inbox using inboxRepository.\n\n3. The cutoff Instant represents the threshold - all completed messages with updatedAt before this timestamp will be deleted.\n\n4. Ensure DurationParser.parse handles formats like \"7d\", \"24h\", \"30m\", \"60s\" as defined in Task 5.\n\n5. Track and return total deleted count for metrics recording.",
             "status": "pending",
-            "testStrategy": "Test age calculation: with maxAge=\"7d\", verify cutoff is exactly 7 days before current time. Test only completed states (sent, dead, processed) are targeted. Test batched deletion accumulates total count correctly. Integration test: insert messages with timestamps spanning the retention period, verify correct ones deleted."
+            "testStrategy": "Test age calculation: with maxAge=\"7d\", verify cutoff is exactly 7 days before current time. Test only completed states (sent, dead, processed) are targeted. Test batched deletion accumulates total count correctly. Integration test: insert messages with timestamps spanning the retention period, verify correct ones deleted.",
+            "parentId": "undefined"
           },
           {
             "id": 4,
@@ -2036,7 +2078,8 @@
             ],
             "details": "Extend cleanupOutbox and cleanupInbox methods for COUNT policy:\n\n1. For COUNT policy: call `outboxRepository.deleteExceptMostRecent(completedStates, config.maxCount!!)` directly (no batching needed as CTE handles it in single query).\n\n2. The CTE query logic (implemented in subtask 1) uses:\n```sql\nWITH ranked AS (\n    SELECT id, ROW_NUMBER() OVER (ORDER BY updated_at DESC) as rn\n    FROM outbox WHERE state IN (?)\n)\nDELETE FROM outbox WHERE id IN (\n    SELECT id FROM ranked WHERE rn > ?\n)\n```\n\n3. This keeps exactly keepCount most recent records and deletes all older ones.\n\n4. Handle the case where current count <= maxCount (should delete 0).\n\n5. Return deleted count for metrics.",
             "status": "pending",
-            "testStrategy": "Test with maxCount=100, insert 150 messages, verify 50 deleted and 100 most recent remain. Test when current count < maxCount, nothing deleted. Test only completed states are considered in the ranking. Verify ROW_NUMBER ordering is by updated_at DESC (most recent first)."
+            "testStrategy": "Test with maxCount=100, insert 150 messages, verify 50 deleted and 100 most recent remain. Test when current count < maxCount, nothing deleted. Test only completed states are considered in the ranking. Verify ROW_NUMBER ordering is by updated_at DESC (most recent first).",
+            "parentId": "undefined"
           },
           {
             "id": 5,
@@ -2048,19 +2091,20 @@
             ],
             "details": "1. Add to MetricsCollector (app/src/main/kotlin/MetricsCollector.kt):\n   - `cleanupDeletedTotal`: Counter with \"table\" tag (outbox|inbox) tracking total messages deleted\n   - `cleanupDuration`: Timer with \"table\" tag recording cleanup execution time in seconds\n   - `cleanupLastRun`: Gauge with \"table\" tag storing Unix timestamp of last successful cleanup\n   - Add methods: `recordCleanupDeleted(table: String, count: Int)`, `recordCleanupDuration(table: String, nanos: Long)`, `recordCleanupLastRun(table: String)`\n\n2. Update RetentionService to call metrics after each cleanup cycle.\n\n3. Modify App.kt:\n   - Instantiate RetentionService with config.retention, repositories, and metricsCollector\n   - Call `retentionService.start()` after other services initialized\n   - Ensure graceful shutdown calls `retentionService.stop()`\n\n4. Verify metrics appear at /metrics endpoint with correct labels.",
             "status": "pending",
-            "testStrategy": "Test counter increments correctly after cleanup runs. Test timer records accurate duration. Test gauge updates with current timestamp. Integration test: trigger cleanup, scrape /metrics, verify all three metric types present with correct table labels. Test App.kt starts RetentionService only when retention.enabled=true."
+            "testStrategy": "Test counter increments correctly after cleanup runs. Test timer records accurate duration. Test gauge updates with current timestamp. Integration test: trigger cleanup, scrape /metrics, verify all three metric types present with correct table labels. Test App.kt starts RetentionService only when retention.enabled=true.",
+            "parentId": "undefined"
           }
         ]
       },
       {
-        "id": 7,
+        "id": "7",
         "title": "Implement JSONata Transform Configuration",
         "description": "Define transform configuration schema for route and destination-level payload transformations using JSONata expressions.",
         "details": "1. **Create TransformConfig.kt** in config module:\n```kotlin\n@Serializable\ndata class TransformConfig(\n    val expression: String,\n    val timeoutMs: Long = 100,\n    val maxDepth: Int = 100,\n    val onError: TransformErrorStrategy = TransformErrorStrategy.FAIL\n)\n\n@Serializable\nenum class TransformErrorStrategy {\n    @SerialName(\"fail\") FAIL,           // Fail message, goes to retry\n    @SerialName(\"skip\") SKIP,           // Skip transform, use original payload\n    @SerialName(\"dead\") DEAD            // Mark as dead letter immediately\n}\n```\n\n2. **Update RouteConfig** to include optional transform:\n```kotlin\n@Serializable\ndata class RouteConfig(\n    val topicPattern: String,\n    val destination: String,\n    val routingKeyTemplate: String? = null,\n    val transform: TransformConfig? = null  // NEW\n)\n```\n\n3. **Update DestinationConfig** to include optional transform:\n```kotlin\nsealed class DestinationConfig {\n    abstract val transform: TransformConfig?\n    \n    @Serializable\n    @SerialName(\"http\")\n    data class Http(\n        val baseUrl: String,\n        val path: String = \"/\",\n        val timeoutMs: Long = 30000,\n        val headers: Map<String, String> = emptyMap(),\n        override val transform: TransformConfig? = null  // NEW\n    ) : DestinationConfig()\n}\n```\n\n4. **Sample YAML configuration**:\n```yaml\nroutes:\n  - topicPattern: \"order.*\"\n    destination: http-webhook\n    transform:\n      expression: |\n        {\n          \"orderId\": id,\n          \"customer\": customer.name,\n          \"total\": items.(price * quantity) ~> $sum(),\n          \"timestamp\": $now()\n        }\n      timeoutMs: 100\n      onError: fail\n\ndestinations:\n  http-webhook:\n    type: http\n    baseUrl: https://api.example.com\n    path: /webhook\n    transform:\n      expression: '{ \"payload\": $, \"source\": \"queuebox\" }'\n```\n\n5. **Add validation in ConfigValidator**:\n```kotlin\nprivate fun validateTransform(transform: TransformConfig?, context: String) {\n    transform?.let {\n        require(it.expression.isNotBlank()) {\n            \"$context transform expression cannot be blank\"\n        }\n        require(it.timeoutMs > 0) {\n            \"$context transform timeoutMs must be positive\"\n        }\n        require(it.maxDepth > 0) {\n            \"$context transform maxDepth must be positive\"\n        }\n    }\n}\n```\n\n6. **Corresponding env vars**:\n   - `QUEUEBOX_ROUTES_0_TRANSFORM_EXPRESSION='{\"id\": id}'`\n   - `QUEUEBOX_ROUTES_0_TRANSFORM_TIMEOUTMS=100`\n   - `QUEUEBOX_DESTINATIONS_WEBHOOK_TRANSFORM_EXPRESSION=...`\n\n7. **Files to modify**:\n   - `config/src/main/kotlin/TransformConfig.kt` (new)\n   - `config/src/main/kotlin/QueueBoxConfig.kt` (update RouteConfig, DestinationConfig)\n   - `config/src/main/kotlin/ConfigValidator.kt` (add transform validation)\n   - `config/src/main/resources/queuebox.yml` (add transform examples)",
         "testStrategy": "1. Test YAML parsing of transform expressions (including multiline)\n2. Test transform config defaults (100ms timeout, fail on error)\n3. Test validation rejects blank expressions\n4. Test validation rejects non-positive timeout\n5. Test route-level and destination-level transforms parse independently\n6. Test error strategy enum parsing (fail, skip, dead)\n7. Verify env var override of transform expressions works",
         "priority": "medium",
         "dependencies": [
-          1
+          "1"
         ],
         "status": "pending",
         "subtasks": [
@@ -2071,7 +2115,8 @@
             "dependencies": [],
             "details": "Create a new file `config/src/main/kotlin/TransformConfig.kt` containing:\n\n1. **TransformErrorStrategy enum** with @Serializable annotation:\n   - `FAIL` with @SerialName(\"fail\") - Fail message, goes to retry\n   - `SKIP` with @SerialName(\"skip\") - Skip transform, use original payload\n   - `DEAD` with @SerialName(\"dead\") - Mark as dead letter immediately\n\n2. **TransformConfig data class** with @Serializable annotation:\n   - `expression: String` - JSONata expression (required)\n   - `timeoutMs: Long = 100` - Execution timeout with default\n   - `maxDepth: Int = 100` - Maximum recursion depth with default\n   - `onError: TransformErrorStrategy = TransformErrorStrategy.FAIL` - Error handling strategy with default\n\nUse the same kotlinx.serialization patterns as existing config classes in QueueBoxConfig.kt (import SerialName, Serializable from kotlinx.serialization).",
             "status": "pending",
-            "testStrategy": "No dedicated tests for this subtask - TransformConfig parsing will be tested as part of subtask 3 when testing YAML parsing of transform configurations."
+            "testStrategy": "No dedicated tests for this subtask - TransformConfig parsing will be tested as part of subtask 3 when testing YAML parsing of transform configurations.",
+            "parentId": "undefined"
           },
           {
             "id": 2,
@@ -2082,7 +2127,8 @@
             ],
             "details": "Modify `config/src/main/kotlin/QueueBoxConfig.kt`:\n\n1. **Update RouteConfig** (line 65-69):\n   - Add `val transform: TransformConfig? = null` as a new field\n   - This enables route-level payload transformation\n\n2. **Update DestinationConfig sealed class** (line 45-62):\n   - Add `abstract val transform: TransformConfig?` to the sealed class definition\n   - Update Http subclass to include `override val transform: TransformConfig? = null`\n   - Update RabbitMQ subclass to include `override val transform: TransformConfig? = null`\n\n3. **Add import** for TransformConfig at the top of the file (it should be in the same package so no import needed if in same package).\n\nThis follows the existing sealed class pattern used for DestinationConfig and SourceConfig where subclasses override abstract properties.",
             "status": "pending",
-            "testStrategy": "No dedicated tests for this subtask - the config structure changes will be tested as part of subtask 3's YAML parsing tests."
+            "testStrategy": "No dedicated tests for this subtask - the config structure changes will be tested as part of subtask 3's YAML parsing tests.",
+            "parentId": "undefined"
           },
           {
             "id": 3,
@@ -2094,19 +2140,20 @@
             ],
             "details": "**1. Update ConfigValidator.kt:**\n- Add private function `validateTransform(transform: TransformConfig?, context: String)` that:\n  - Validates `expression.isNotBlank()` with clear error message including context\n  - Validates `timeoutMs > 0` with descriptive error\n  - Validates `maxDepth > 0` with descriptive error\n- Call validateTransform for each route's transform: `config.routes.forEach { validateTransform(it.transform, \"Route '${it.topicPattern}'\") }`\n- Call validateTransform for each destination's transform: `config.destinations.forEach { (name, dest) -> validateTransform(dest.transform, \"Destination '$name'\") }`\n\n**2. Create/update test config YAML files** in `config/src/test/resources/`:\n- Add transform examples to `test-config.yml` including multiline JSONata expression\n- Create `transform-validation-blank.yml` with blank expression for negative test\n- Create `transform-validation-timeout.yml` with zero/negative timeout for negative test\n\n**3. Update ConfigLoaderTest.kt:**\n- Test route-level transform parses correctly\n- Test destination-level transform parses correctly\n- Test multiline JSONata expression parsing preserves content\n- Test default values (100ms timeout, FAIL onError) when not specified\n\n**4. Update ConfigValidatorTest.kt:**\n- Test validation rejects blank transform expression\n- Test validation rejects non-positive timeoutMs\n- Test validation rejects non-positive maxDepth\n- Test validation passes when transform is null (optional)\n- Test validation passes with valid transform config",
             "status": "pending",
-            "testStrategy": "1. Test YAML parsing of transform expressions (including multiline JSONata)\n2. Test transform config defaults (100ms timeout, 100 maxDepth, FAIL on error)\n3. Test validation rejects blank expressions with clear error message\n4. Test validation rejects non-positive timeout with clear error message\n5. Test validation rejects non-positive maxDepth with clear error message\n6. Test route-level and destination-level transforms parse independently\n7. Test that null/missing transform passes validation (optional field)"
+            "testStrategy": "1. Test YAML parsing of transform expressions (including multiline JSONata)\n2. Test transform config defaults (100ms timeout, 100 maxDepth, FAIL on error)\n3. Test validation rejects blank expressions with clear error message\n4. Test validation rejects non-positive timeout with clear error message\n5. Test validation rejects non-positive maxDepth with clear error message\n6. Test route-level and destination-level transforms parse independently\n7. Test that null/missing transform passes validation (optional field)",
+            "parentId": "undefined"
           }
         ]
       },
       {
-        "id": 8,
+        "id": "8",
         "title": "Implement JSONata Transform Engine",
         "description": "Create the JSONata expression evaluation engine using Dashjoin jsonata-java library with timeout protection, expression caching, and context variable injection.",
         "details": "1. **Add JSONata dependency** to core/build.gradle.kts:\n```kotlin\nimplementation(\"com.dashjoin:jsonata:0.9.8\")\n```\n\n2. **Create TransformEngine.kt** in outbox-service module:\n```kotlin\nclass TransformEngine {\n    // LRU cache for compiled expressions\n    private val expressionCache = ConcurrentHashMap<String, Jsonata>()\n    private val maxCacheSize = 1000\n    \n    fun evaluate(\n        expression: String,\n        payload: JsonElement,\n        context: TransformContext,\n        timeoutMs: Long = 100\n    ): Result<JsonElement> = runCatching {\n        val jsonata = expressionCache.getOrPut(expression) {\n            Jsonata.jsonata(expression)\n        }\n        \n        // Inject context variables\n        val binding = mapOf(\n            \"messageId\" to context.messageId.toString(),\n            \"topic\" to context.topic,\n            \"attempt\" to context.attempt,\n            \"timestamp\" to context.timestamp.toString(),\n            \"source\" to (context.source ?: \"\")\n        )\n        \n        // Execute with timeout\n        withTimeout(timeoutMs) {\n            val result = jsonata.evaluate(payload.toString(), binding)\n            Json.parseToJsonElement(result.toString())\n        }\n    }\n    \n    fun validateExpression(expression: String): Result<Unit> = runCatching {\n        Jsonata.jsonata(expression)  // Throws if invalid\n    }\n}\n\ndata class TransformContext(\n    val messageId: UUID,\n    val topic: String,\n    val attempt: Int,\n    val timestamp: Instant,\n    val source: String? = null\n)\n```\n\n3. **Implement timeout protection** using coroutines:\n```kotlin\nprivate suspend fun <T> withTimeout(timeoutMs: Long, block: suspend () -> T): T {\n    return kotlinx.coroutines.withTimeout(timeoutMs) {\n        block()\n    }\n}\n```\n\n4. **Add startup validation** in App.kt:\n```kotlin\n// Validate all transform expressions at startup\nconfig.routes.mapNotNull { it.transform }.forEach { transform ->\n    transformEngine.validateExpression(transform.expression).getOrElse {\n        throw IllegalStateException(\"Invalid transform expression: ${it.message}\")\n    }\n}\n```\n\n5. **Expression cache management**:\n```kotlin\n// Evict oldest entries when cache exceeds max size\nfun getOrCompile(expression: String): Jsonata {\n    if (expressionCache.size >= maxCacheSize) {\n        // Remove oldest entry (simple LRU approximation)\n        expressionCache.keys.firstOrNull()?.let { expressionCache.remove(it) }\n    }\n    return expressionCache.getOrPut(expression) { Jsonata.jsonata(expression) }\n}\n```\n\n6. **Files to create**:\n   - `core/build.gradle.kts` (add jsonata dependency)\n   - `outbox-service/src/main/kotlin/transform/TransformEngine.kt` (new)\n   - `outbox-service/src/main/kotlin/transform/TransformContext.kt` (new)\n   - `app/src/main/kotlin/App.kt` (add startup validation)",
         "testStrategy": "1. Test simple field mapping: `{ \"id\": id }`\n2. Test array operations: `items.(price * quantity) ~> $sum()`\n3. Test context variable injection: `$messageId`, `$topic`, `$timestamp`\n4. Test timeout enforcement: long-running expression times out\n5. Test expression caching: same expression reuses compiled instance\n6. Test invalid expression throws at validation time\n7. Test malformed JSON input returns error Result\n8. Performance test: 10k evaluations with cached expression\n9. Test $now() returns current timestamp",
         "priority": "medium",
         "dependencies": [
-          7
+          "7"
         ],
         "status": "pending",
         "subtasks": [
@@ -2117,7 +2164,8 @@
             "dependencies": [],
             "details": "1. Add dependency to core/build.gradle.kts: implementation(\"com.dashjoin:jsonata:0.9.8\")\n2. Run gradle sync to verify the dependency resolves correctly from Maven Central\n3. Verify Kotlin interop by creating a simple test that instantiates Jsonata.jsonata(\"$\") to confirm the Java library works with Kotlin\n4. Check that the dependency doesn't conflict with existing kotlinx-serialization-json since both work with JSON\n5. Consider adding the version to gradle/libs.versions.toml for consistency with other dependencies (optional but recommended)",
             "status": "pending",
-            "testStrategy": "Run './gradlew :core:dependencies' to verify jsonata resolves. Create a simple unit test that calls Jsonata.jsonata(\"$\") and evaluates it against a JSON string to confirm the library loads correctly in the Kotlin/JVM environment."
+            "testStrategy": "Run './gradlew :core:dependencies' to verify jsonata resolves. Create a simple unit test that calls Jsonata.jsonata(\"$\") and evaluates it against a JSON string to confirm the library loads correctly in the Kotlin/JVM environment.",
+            "parentId": "undefined"
           },
           {
             "id": 2,
@@ -2128,7 +2176,8 @@
             ],
             "details": "1. Create new directory: outbox-service/src/main/kotlin/transform/\n2. Create TransformContext.kt with:\n   - data class TransformContext with fields: messageId (UUID), topic (String), attempt (Int), timestamp (Instant), source (String? nullable)\n   - Import kotlinx.datetime.Instant for timestamp type\n   - Import java.util.UUID for messageId\n3. Add KDoc documentation explaining each field's purpose in JSONata context\n4. The context variables will be accessible in JSONata as $messageId, $topic, $attempt, $timestamp, $source\n5. Keep the class simple and focused - it's just a data holder",
             "status": "pending",
-            "testStrategy": "Unit test that TransformContext can be instantiated with all fields populated. Test that nullable source field works with both null and non-null values. Verify timestamp uses Instant correctly."
+            "testStrategy": "Unit test that TransformContext can be instantiated with all fields populated. Test that nullable source field works with both null and non-null values. Verify timestamp uses Instant correctly.",
+            "parentId": "undefined"
           },
           {
             "id": 3,
@@ -2140,7 +2189,8 @@
             ],
             "details": "1. Create outbox-service/src/main/kotlin/transform/TransformEngine.kt\n2. Expression cache: ConcurrentHashMap<String, Jsonata> with maxCacheSize = 1000\n3. getOrCompile(expression: String): Jsonata - compile and cache, with simple LRU eviction (remove first key when cache exceeds max)\n4. evaluate(expression: String, payload: JsonElement, context: TransformContext, timeoutMs: Long = 100): Result<JsonElement>\n   - Get compiled expression from cache\n   - Create binding map from TransformContext fields: mapOf(\"messageId\" to context.messageId.toString(), \"topic\" to context.topic, etc.)\n   - Call jsonata.evaluate(payload.toString(), binding)\n   - Parse result back to JsonElement using kotlinx.serialization.json.Json.parseToJsonElement\n   - Wrap in Result for error handling\n5. validateExpression(expression: String): Result<Unit> - attempt to compile, return failure if invalid\n6. Handle conversion between kotlinx.serialization JsonElement and JSONata's JSON format",
             "status": "pending",
-            "testStrategy": "Test evaluate with simple field mapping: { \"id\": id } against {\"id\": 123} returns {\"id\": 123}. Test array operations: items.(price * quantity) ~> $sum(). Test context variable injection: expression using $messageId returns the UUID. Test expression caching: same expression returns cached instance. Test invalid expression fails validateExpression."
+            "testStrategy": "Test evaluate with simple field mapping: { \"id\": id } against {\"id\": 123} returns {\"id\": 123}. Test array operations: items.(price * quantity) ~> $sum(). Test context variable injection: expression using $messageId returns the UUID. Test expression caching: same expression returns cached instance. Test invalid expression fails validateExpression.",
+            "parentId": "undefined"
           },
           {
             "id": 4,
@@ -2152,19 +2202,20 @@
             ],
             "details": "1. Modify TransformEngine.evaluate to use suspend function with withTimeout:\n   - Make evaluate a suspend function\n   - Wrap jsonata.evaluate call in withTimeout(timeoutMs) { ... }\n   - Handle TimeoutCancellationException by converting to Result.failure with descriptive message\n2. Add coroutines dependency to outbox-service if not already present (already has kotlinxCoroutines)\n3. Create test file: outbox-service/src/test/kotlin/transform/TransformEngineTest.kt\n4. Test cases:\n   - Simple field mapping: { \"name\": name } transforms correctly\n   - Array operations: items[].price ~> $sum() calculates sum\n   - Context variables: $messageId, $topic, $attempt, $timestamp accessible in expressions\n   - Timeout enforcement: create expression that would run long (if possible, or mock the timeout)\n   - Cache hit: verify same expression doesn't recompile\n   - Cache eviction: verify cache doesn't grow beyond maxCacheSize\n   - Invalid expression: validateExpression returns failure\n   - Null/missing fields: handle gracefully\n5. Use kotlinx.coroutines.test for testing suspend functions",
             "status": "pending",
-            "testStrategy": "Use kotlinx-coroutines-test TestScope for testing suspend functions. Test timeout by verifying TimeoutCancellationException is caught and wrapped. Test field mapping transforms {\"user\":{\"name\":\"Alice\"}} with expression user.name returns \"Alice\". Test array sum: {\"items\":[{\"price\":10},{\"price\":20}]} with items.price ~> $sum() returns 30. Test context injection by verifying $topic in expression returns the topic from TransformContext."
+            "testStrategy": "Use kotlinx-coroutines-test TestScope for testing suspend functions. Test timeout by verifying TimeoutCancellationException is caught and wrapped. Test field mapping transforms {\"user\":{\"name\":\"Alice\"}} with expression user.name returns \"Alice\". Test array sum: {\"items\":[{\"price\":10},{\"price\":20}]} with items.price ~> $sum() returns 30. Test context injection by verifying $topic in expression returns the topic from TransformContext.",
+            "parentId": "undefined"
           }
         ]
       },
       {
-        "id": 9,
+        "id": "9",
         "title": "Implement Transform Pipeline and Outbox Integration",
         "description": "Create the transform pipeline that applies route and destination transforms in sequence, and integrate it into the OutboxPoller message processing flow.",
         "details": "1. **Create TransformPipeline.kt**:\n```kotlin\nclass TransformPipeline(\n    private val engine: TransformEngine,\n    private val metrics: MetricsCollector\n) {\n    suspend fun transform(\n        payload: JsonElement,\n        routeTransform: TransformConfig?,\n        destinationTransform: TransformConfig?,\n        context: TransformContext\n    ): TransformResult {\n        var currentPayload = payload\n        \n        // 1. Apply route-level transform (if configured)\n        routeTransform?.let { config ->\n            when (val result = applyTransform(currentPayload, config, context)) {\n                is TransformResult.Success -> currentPayload = result.payload\n                is TransformResult.Error -> {\n                    return handleError(result, config.onError, payload)\n                }\n            }\n        }\n        \n        // 2. Apply destination-level transform (if configured)\n        destinationTransform?.let { config ->\n            when (val result = applyTransform(currentPayload, config, context)) {\n                is TransformResult.Success -> currentPayload = result.payload\n                is TransformResult.Error -> {\n                    return handleError(result, config.onError, currentPayload)\n                }\n            }\n        }\n        \n        return TransformResult.Success(currentPayload)\n    }\n    \n    private suspend fun applyTransform(\n        payload: JsonElement,\n        config: TransformConfig,\n        context: TransformContext\n    ): TransformResult {\n        val startTime = System.nanoTime()\n        return engine.evaluate(config.expression, payload, context, config.timeoutMs)\n            .fold(\n                onSuccess = { \n                    metrics.recordTransformDuration(System.nanoTime() - startTime)\n                    TransformResult.Success(it) \n                },\n                onFailure = { TransformResult.Error(it.message ?: \"Unknown error\") }\n            )\n    }\n    \n    private fun handleError(\n        error: TransformResult.Error,\n        strategy: TransformErrorStrategy,\n        fallbackPayload: JsonElement\n    ): TransformResult = when (strategy) {\n        TransformErrorStrategy.SKIP -> TransformResult.Success(fallbackPayload)\n        TransformErrorStrategy.FAIL -> error\n        TransformErrorStrategy.DEAD -> TransformResult.DeadLetter(error.message)\n    }\n}\n\nsealed class TransformResult {\n    data class Success(val payload: JsonElement) : TransformResult()\n    data class Error(val message: String) : TransformResult()\n    data class DeadLetter(val reason: String) : TransformResult()\n}\n```\n\n2. **Update MessageRouter** to include transforms:\n```kotlin\ndata class RoutingResult(\n    val destination: Destination,\n    val routingKey: String,\n    val routeTransform: TransformConfig?,\n    val destinationTransform: TransformConfig?\n)\n\nfun route(topic: String): RoutingResult? {\n    val matchedRoute = routes.firstOrNull { matchesPattern(topic, it.topicPattern) }\n    return matchedRoute?.let {\n        val destination = destinations[it.destination] ?: return null\n        RoutingResult(\n            destination = destination,\n            routingKey = renderTemplate(it.routingKeyTemplate ?: topic, topic),\n            routeTransform = it.transform,\n            destinationTransform = getDestinationTransform(destination)\n        )\n    }\n}\n```\n\n3. **Update OutboxPoller.processMessage()**:\n```kotlin\nprivate suspend fun processMessage(message: OutboxMessage) {\n    val routingResult = router.route(message.topic) ?: run {\n        repository.markDead(message.id)\n        return\n    }\n    \n    // Build transform context\n    val context = TransformContext(\n        messageId = message.id,\n        topic = message.topic,\n        attempt = message.attempt,\n        timestamp = message.createdAt\n    )\n    \n    // Apply transforms\n    val transformResult = transformPipeline.transform(\n        payload = message.payload,\n        routeTransform = routingResult.routeTransform,\n        destinationTransform = routingResult.destinationTransform,\n        context = context\n    )\n    \n    when (transformResult) {\n        is TransformResult.Success -> {\n            val transformedMessage = message.copy(payload = transformResult.payload)\n            publishMessage(transformedMessage, routingResult)\n        }\n        is TransformResult.Error -> handlePublishFailure(message, Exception(transformResult.message))\n        is TransformResult.DeadLetter -> repository.markDead(message.id)\n    }\n}\n```\n\n4. **Files to create/modify**:\n   - `outbox-service/src/main/kotlin/transform/TransformPipeline.kt` (new)\n   - `outbox-service/src/main/kotlin/transform/TransformResult.kt` (new)\n   - `outbox-service/src/main/kotlin/MessageRouter.kt` (update RoutingResult)\n   - `outbox-service/src/main/kotlin/OutboxPoller.kt` (integrate transforms)\n   - `app/src/main/kotlin/App.kt` (wire TransformPipeline)",
         "testStrategy": "1. Test route-only transform applies correctly\n2. Test destination-only transform applies correctly\n3. Test chained transforms: route then destination\n4. Test SKIP error strategy uses original payload\n5. Test FAIL error strategy triggers retry flow\n6. Test DEAD error strategy marks message dead immediately\n7. Test context variables available in both transform stages\n8. Test no transforms configured = pass-through behavior\n9. Integration test: full message flow with transforms",
         "priority": "medium",
         "dependencies": [
-          8
+          "8"
         ],
         "status": "pending",
         "subtasks": [
@@ -2175,7 +2226,8 @@
             "dependencies": [],
             "details": "Create `outbox-service/src/main/kotlin/transform/TransformResult.kt` with a sealed class containing three data classes: `Success(val payload: JsonElement)`, `Error(val message: String)`, and `DeadLetter(val reason: String)`. This sealed class will be used by TransformPipeline to communicate transform outcomes to OutboxPoller, enabling pattern matching on the result type. Import `kotlinx.serialization.json.JsonElement` for the payload type.",
             "status": "pending",
-            "testStrategy": "Unit test that each variant can be instantiated correctly. Test pattern matching with `when` expression to ensure exhaustive handling. Verify Success holds JsonElement payload, Error holds error message string, DeadLetter holds reason string."
+            "testStrategy": "Unit test that each variant can be instantiated correctly. Test pattern matching with `when` expression to ensure exhaustive handling. Verify Success holds JsonElement payload, Error holds error message string, DeadLetter holds reason string.",
+            "parentId": "undefined"
           },
           {
             "id": 2,
@@ -2186,7 +2238,8 @@
             ],
             "details": "Create `outbox-service/src/main/kotlin/transform/TransformPipeline.kt`. Constructor takes `TransformEngine` and `MetricsCollector`. Implement `suspend fun transform(payload: JsonElement, routeTransform: TransformConfig?, destinationTransform: TransformConfig?, context: TransformContext): TransformResult`. Apply transforms sequentially: route-level first using `engine.evaluate()`, then destination-level. For each transform, handle errors according to the config's `onError` strategy: SKIP returns Success with fallback payload (original for route, post-route for destination), FAIL returns Error result, DEAD returns DeadLetter result. Record transform duration via metrics.",
             "status": "pending",
-            "testStrategy": "Test route-only transform applies correctly and returns Success. Test destination-only transform applies correctly. Test chained transforms apply in correct order (route then destination). Test SKIP error strategy uses original/fallback payload. Test FAIL error strategy returns Error result. Test DEAD error strategy returns DeadLetter result. Test null transforms are skipped gracefully."
+            "testStrategy": "Test route-only transform applies correctly and returns Success. Test destination-only transform applies correctly. Test chained transforms apply in correct order (route then destination). Test SKIP error strategy uses original/fallback payload. Test FAIL error strategy returns Error result. Test DEAD error strategy returns DeadLetter result. Test null transforms are skipped gracefully.",
+            "parentId": "undefined"
           },
           {
             "id": 3,
@@ -2195,7 +2248,8 @@
             "dependencies": [],
             "details": "Update `outbox-service/src/main/kotlin/MessageRouter.kt`. Add two nullable fields to RoutingResult: `routeTransform: TransformConfig?` and `destinationTransform: TransformConfig?`. Modify the `route()` function to: 1) Extract `transform` from the matched RouteConfig (route-level), 2) Extract transform from the destination config (destination-level) via a helper function. This requires RouteConfig and DestinationConfig to have transform fields (from Task 7). Return both transforms in RoutingResult. Add a private helper `getDestinationTransform(destination: Destination): TransformConfig?` to extract destination-level transform.",
             "status": "pending",
-            "testStrategy": "Test route with no transforms returns null for both fields. Test route with route-level transform only returns it correctly. Test route with destination-level transform only returns it correctly. Test route with both transforms returns both correctly. Test existing routing logic (pattern matching, template rendering) still works unchanged."
+            "testStrategy": "Test route with no transforms returns null for both fields. Test route with route-level transform only returns it correctly. Test route with destination-level transform only returns it correctly. Test route with both transforms returns both correctly. Test existing routing logic (pattern matching, template rendering) still works unchanged.",
+            "parentId": "undefined"
           },
           {
             "id": 4,
@@ -2208,7 +2262,8 @@
             ],
             "details": "Update `outbox-service/src/main/kotlin/OutboxPoller.kt`. Add `transformPipeline: TransformPipeline` to constructor parameters. In `processMessage()`: 1) After getting RoutingResult, build `TransformContext(messageId, topic, attempt, createdAt)`, 2) Call `transformPipeline.transform(message.payload, routingResult.routeTransform, routingResult.destinationTransform, context)`, 3) Handle result with `when`: Success -> create transformed message copy and proceed to publish, Error -> call existing `handlePublishFailure()`, DeadLetter -> call `repository.markDead()`. The transformed payload replaces the original in the message before publishing.",
             "status": "pending",
-            "testStrategy": "Test successful transform results in publishing transformed payload. Test Error result triggers retry via handlePublishFailure. Test DeadLetter result marks message dead. Test transform is applied before publisher.publish() is called. Test TransformContext contains correct message metadata. Integration test: full flow from claim to publish with transforms."
+            "testStrategy": "Test successful transform results in publishing transformed payload. Test Error result triggers retry via handlePublishFailure. Test DeadLetter result marks message dead. Test transform is applied before publisher.publish() is called. Test TransformContext contains correct message metadata. Integration test: full flow from claim to publish with transforms.",
+            "parentId": "undefined"
           },
           {
             "id": 5,
@@ -2219,19 +2274,20 @@
             ],
             "details": "Update `app/src/main/kotlin/App.kt`: 1) Create TransformEngine instance, 2) Create TransformPipeline with engine and metricsCollector, 3) Pass transformPipeline to OutboxPoller constructor. Create integration tests in `outbox-service/src/test/kotlin/transform/TransformPipelineIntegrationTest.kt` testing: route-level transform only, destination-level transform only, chained route+destination transforms, error strategy behaviors, and end-to-end message processing with transforms. Verify MetricsCollector receives transform duration recordings.",
             "status": "pending",
-            "testStrategy": "Integration test: message with route transform publishes transformed payload. Integration test: message with both transforms applies them in sequence. Integration test: SKIP strategy uses fallback and publishes successfully. Integration test: FAIL strategy causes retry scheduling. Integration test: DEAD strategy marks message dead. Verify App.kt starts without errors with new wiring."
+            "testStrategy": "Integration test: message with route transform publishes transformed payload. Integration test: message with both transforms applies them in sequence. Integration test: SKIP strategy uses fallback and publishes successfully. Integration test: FAIL strategy causes retry scheduling. Integration test: DEAD strategy marks message dead. Verify App.kt starts without errors with new wiring.",
+            "parentId": "undefined"
           }
         ]
       },
       {
-        "id": 10,
+        "id": "10",
         "title": "Implement Transform Testing Endpoint",
         "description": "Create an admin endpoint for testing JSONata transform expressions against sample payloads without sending actual messages.",
         "details": "1. **Create AdminRoutes.kt** in app module:\n```kotlin\nfun Application.configureAdminRoutes(transformEngine: TransformEngine) {\n    routing {\n        route(\"/admin\") {\n            post(\"/transform/test\") {\n                val request = call.receive<TransformTestRequest>()\n                \n                // Validate expression first\n                transformEngine.validateExpression(request.expression).getOrElse {\n                    call.respond(HttpStatusCode.BadRequest, TransformTestResponse(\n                        success = false,\n                        error = \"Invalid expression: ${it.message}\"\n                    ))\n                    return@post\n                }\n                \n                // Create mock context\n                val context = TransformContext(\n                    messageId = UUID.randomUUID(),\n                    topic = request.mockTopic ?: \"test.topic\",\n                    attempt = 1,\n                    timestamp = Clock.System.now(),\n                    source = request.mockSource\n                )\n                \n                // Evaluate\n                val result = transformEngine.evaluate(\n                    expression = request.expression,\n                    payload = request.payload,\n                    context = context,\n                    timeoutMs = request.timeoutMs ?: 100\n                )\n                \n                result.fold(\n                    onSuccess = { output ->\n                        call.respond(TransformTestResponse(\n                            success = true,\n                            result = output,\n                            context = context\n                        ))\n                    },\n                    onFailure = { error ->\n                        call.respond(HttpStatusCode.BadRequest, TransformTestResponse(\n                            success = false,\n                            error = error.message\n                        ))\n                    }\n                )\n            }\n        }\n    }\n}\n```\n\n2. **Request/Response DTOs**:\n```kotlin\n@Serializable\ndata class TransformTestRequest(\n    val expression: String,\n    val payload: JsonElement,\n    val mockTopic: String? = null,\n    val mockSource: String? = null,\n    val timeoutMs: Long? = null\n)\n\n@Serializable\ndata class TransformTestResponse(\n    val success: Boolean,\n    val result: JsonElement? = null,\n    val error: String? = null,\n    val context: TransformContextDto? = null\n)\n\n@Serializable\ndata class TransformContextDto(\n    val messageId: String,\n    val topic: String,\n    val attempt: Int,\n    val timestamp: String\n)\n```\n\n3. **Example API usage**:\n```bash\ncurl -X POST http://localhost:8080/admin/transform/test \\\n  -H \"Content-Type: application/json\" \\\n  -d '{\n    \"expression\": \"{ \\\"orderId\\\": id, \\\"total\\\": items.(price * qty) ~> $sum() }\",\n    \"payload\": {\"id\": \"123\", \"items\": [{\"price\": 10, \"qty\": 2}]},\n    \"mockTopic\": \"order.created\"\n  }'\n\n# Response:\n{\n  \"success\": true,\n  \"result\": {\"orderId\": \"123\", \"total\": 20},\n  \"context\": {\"messageId\": \"...\", \"topic\": \"order.created\", ...}\n}\n```\n\n4. **Wire into App.kt**:\n```kotlin\nconfigureAdminRoutes(transformEngine)\n```\n\n5. **Files to create/modify**:\n   - `app/src/main/kotlin/AdminRoutes.kt` (new)\n   - `app/src/main/kotlin/dto/TransformTestDto.kt` (new)\n   - `app/src/main/kotlin/App.kt` (add admin routes)",
         "testStrategy": "1. Test valid expression returns transformed result\n2. Test invalid expression returns 400 with clear error message\n3. Test timeout exceeded returns error\n4. Test context variables ($messageId, $topic) available in test\n5. Test mock topic and source override context values\n6. Test complex JSONata expressions (arrays, aggregations)\n7. Test malformed JSON payload returns appropriate error\n8. Test endpoint responds with correct Content-Type: application/json",
         "priority": "low",
         "dependencies": [
-          8
+          "8"
         ],
         "status": "pending",
         "subtasks": [
@@ -2242,7 +2298,8 @@
             "dependencies": [],
             "details": "Create `app/src/main/kotlin/dto/TransformTestDto.kt` with three @Serializable data classes: (1) TransformTestRequest with fields: expression (String), payload (JsonElement), mockTopic (String?, default null), mockSource (String?, default null), timeoutMs (Long?, default null). (2) TransformTestResponse with fields: success (Boolean), result (JsonElement?, default null), error (String?, default null), context (TransformContextDto?, default null). (3) TransformContextDto with fields: messageId (String), topic (String), attempt (Int), timestamp (String). Follow existing patterns from InboxRoutes.kt which uses JsonElement for payload handling. Import kotlinx.serialization.Serializable and kotlinx.serialization.json.JsonElement.",
             "status": "pending",
-            "testStrategy": "Write unit tests verifying JSON serialization/deserialization works correctly for all DTOs, including optional fields defaulting to null and JsonElement payload handling."
+            "testStrategy": "Write unit tests verifying JSON serialization/deserialization works correctly for all DTOs, including optional fields defaulting to null and JsonElement payload handling.",
+            "parentId": "undefined"
           },
           {
             "id": 2,
@@ -2253,7 +2310,8 @@
             ],
             "details": "Create `app/src/main/kotlin/AdminRoutes.kt` with function `Application.configureAdminRoutes(transformEngine: TransformEngine)`. Follow the pattern from HealthRoutes.kt. Inside routing block, create route(\"/admin\") with post(\"/transform/test\"). Steps: (1) receive TransformTestRequest using call.receive<TransformTestRequest>(), (2) validate expression with transformEngine.validateExpression(), returning 400 with error message on failure, (3) build TransformContext with UUID.randomUUID() for messageId, request.mockTopic or \"test.topic\", attempt=1, Clock.System.now() for timestamp, request.mockSource, (4) call transformEngine.evaluate() with expression, payload, context, and timeoutMs (default 100), (5) fold result: on success respond with TransformTestResponse(success=true, result=output, context=contextDto), on failure respond 400 with TransformTestResponse(success=false, error=message).",
             "status": "pending",
-            "testStrategy": "Unit test the endpoint logic mocking TransformEngine to verify: valid expression returns transformed result, invalid expression returns 400 with clear error, timeout exceeded returns error, mock topic/source override context values."
+            "testStrategy": "Unit test the endpoint logic mocking TransformEngine to verify: valid expression returns transformed result, invalid expression returns 400 with clear error, timeout exceeded returns error, mock topic/source override context values.",
+            "parentId": "undefined"
           },
           {
             "id": 3,
@@ -2264,28 +2322,29 @@
             ],
             "details": "Modify `app/src/main/kotlin/App.kt` to: (1) create TransformEngine instance (or inject from Task 8), (2) add configureAdminRoutes(transformEngine) call in the embeddedServer block after configureMetricsRoutes. For integration tests, create `app/src/test/kotlin/AdminRoutesIntegrationTest.kt` extending E2ETestBase or using Ktor test host (ktor-server-test-host). Test cases: (1) valid expression transforms payload correctly, (2) invalid JSONata syntax returns 400 with descriptive error, (3) timeout parameter is respected (use a slow expression), (4) context variables ($messageId, $topic, $timestamp) are available in expression, (5) mockTopic and mockSource override default context values, (6) complex JSONata expressions (array operations, $sum) work correctly.",
             "status": "pending",
-            "testStrategy": "Integration tests using Ktor test host or E2E test infrastructure. Cover: valid transform returns 200 with result, invalid expression returns 400, timeout returns error, context variables accessible, complex JSONata expressions (field mapping, array ops, aggregations) all work correctly."
+            "testStrategy": "Integration tests using Ktor test host or E2E test infrastructure. Cover: valid transform returns 200 with result, invalid expression returns 400, timeout returns error, context variables accessible, complex JSONata expressions (field mapping, array ops, aggregations) all work correctly.",
+            "parentId": "undefined"
           }
         ]
       },
       {
-        "id": 11,
+        "id": "11",
         "title": "Enforce Testing and Code Coverage Standards",
         "description": "Configure JaCoCo coverage thresholds, add coverage verification to the build, and ensure all modules maintain minimum code coverage targets after completing feature work.",
         "details": "1. **Add JaCoCo verification rules** to `buildSrc/src/main/kotlin/kotlin-jvm.gradle.kts`:\n```kotlin\ntasks.jacocoTestCoverageVerification {\n    dependsOn(tasks.jacocoTestReport)\n    \n    violationRules {\n        rule {\n            limit {\n                minimum = \"0.80\".toBigDecimal()\n            }\n        }\n        \n        rule {\n            element = \"CLASS\"\n            excludes = listOf(\n                \"*.MainKt\",\n                \"*.di.*\",\n                \"*.config.*Config\"\n            )\n            limit {\n                counter = \"LINE\"\n                value = \"COVEREDRATIO\"\n                minimum = \"0.75\".toBigDecimal()\n            }\n            limit {\n                counter = \"BRANCH\"\n                value = \"COVEREDRATIO\"\n                minimum = \"0.70\".toBigDecimal()\n            }\n        }\n    }\n}\n\n// Wire verification into check task\ntasks.check {\n    dependsOn(tasks.jacocoTestCoverageVerification)\n}\n```\n\n2. **Add aggregated coverage verification** to root `build.gradle.kts`:\n```kotlin\nval jacocoAggregatedVerification by tasks.registering(JacocoCoverageVerification::class) {\n    group = \"verification\"\n    description = \"Verifies aggregated code coverage meets minimum thresholds\"\n    dependsOn(jacocoAggregatedReport)\n    \n    // Use same source/class/exec configuration as aggregated report\n    violationRules {\n        rule {\n            limit {\n                counter = \"LINE\"\n                value = \"COVEREDRATIO\"\n                minimum = \"0.80\".toBigDecimal()\n            }\n        }\n        rule {\n            limit {\n                counter = \"BRANCH\"\n                value = \"COVEREDRATIO\"\n                minimum = \"0.70\".toBigDecimal()\n            }\n        }\n    }\n}\n\n// Register aggregate check task\nval checkCoverage by tasks.registering {\n    group = \"verification\"\n    description = \"Runs all tests and verifies coverage thresholds\"\n    dependsOn(jacocoAggregatedVerification)\n}\n```\n\n3. **Configure execution data sources** - ensure verification reads from correct `.exec` files after `gradle.projectsEvaluated` block.\n\n4. **Add module-specific exclusions** for generated code, entry points, and configuration classes that don't require high coverage:\n- `**/MainKt.class`\n- `**/di/**` (dependency injection modules)\n- `**/*Config.class` (data classes for configuration)\n- `**/*Table.class` (Exposed table definitions)\n\n5. **Create coverage Gradle tasks** for CI convenience:\n```kotlin\n// Run all tests with coverage report\nval testWithCoverage by tasks.registering {\n    group = \"verification\"\n    description = \"Runs all tests and generates coverage report\"\n    dependsOn(\n        subprojects.map { \"${it.path}:test\" },\n        jacocoAggregatedReport\n    )\n}\n```\n\n6. **Document coverage targets** by adding a `TESTING.md` or section in existing docs:\n- Overall line coverage: ≥80%\n- Overall branch coverage: ≥70%\n- Per-class line coverage: ≥75%\n- Per-class branch coverage: ≥70%\n\n7. **Wire into build lifecycle** - ensure `./gradlew check` fails if coverage drops below thresholds, preventing merges of undertested code.",
         "testStrategy": "1. **Verify coverage verification triggers on threshold violation**: Temporarily lower a module's test coverage (comment out tests), run `./gradlew check`, confirm build fails with clear coverage violation message\n\n2. **Verify coverage passes with current tests**: Run `./gradlew check` with all existing tests enabled - should pass assuming current coverage meets 80% line / 70% branch thresholds\n\n3. **Check aggregated report generation**: Run `./gradlew jacocoAggregatedReport` and verify `build/reports/jacoco/aggregated/html/index.html` shows all modules\n\n4. **Validate per-module coverage**: Run `./gradlew jacocoTestReport` in individual modules and verify HTML reports in `<module>/build/reports/jacoco/test/html/`\n\n5. **Test exclusion patterns work**: Verify MainKt, *Config, and *Table classes are excluded from coverage requirements by checking they don't appear in violation errors\n\n6. **CI simulation**: Run full verification command that CI would use: `./gradlew clean check jacocoAggregatedReport` and verify exit code 0\n\n7. **Regression test**: Add a new class without tests, run `./gradlew check`, confirm failure message identifies the uncovered class\n\n8. **Coverage thresholds documented**: Verify thresholds are documented and match configured values in Gradle",
         "status": "pending",
         "dependencies": [
-          1,
-          2,
-          3,
-          4,
-          5,
-          6,
-          7,
-          8,
-          9,
-          10
+          "1",
+          "2",
+          "3",
+          "4",
+          "5",
+          "6",
+          "7",
+          "8",
+          "9",
+          "10"
         ],
         "priority": "medium",
         "subtasks": [
@@ -2296,7 +2355,8 @@
             "dependencies": [],
             "details": "Add to `buildSrc/src/main/kotlin/kotlin-jvm.gradle.kts` after the existing `tasks.jacocoTestReport` block:\n\n1. Configure `tasks.jacocoTestCoverageVerification` with `dependsOn(tasks.jacocoTestReport)`\n\n2. Add violation rules:\n   - First rule: Overall minimum 80% coverage\n   - Second rule: CLASS element with exclusions for `*.MainKt`, `*.di.*`, and `*.config.*Config`, LINE counter at 75% minimum, BRANCH counter at 70% minimum\n\n3. Wire into check task: `tasks.check { dependsOn(tasks.jacocoTestCoverageVerification) }`\n\nThis leverages the existing JaCoCo plugin application and jacocoTestReport configuration already in the convention plugin. The MainKt exclusion pattern aligns with what's already excluded in the aggregated report.",
             "status": "pending",
-            "testStrategy": "Run `./gradlew :core:jacocoTestCoverageVerification` to verify task executes. Temporarily add a class without tests to verify coverage failure. Run `./gradlew :core:check` to confirm verification is wired into the check lifecycle."
+            "testStrategy": "Run `./gradlew :core:jacocoTestCoverageVerification` to verify task executes. Temporarily add a class without tests to verify coverage failure. Run `./gradlew :core:check` to confirm verification is wired into the check lifecycle.",
+            "parentId": "undefined"
           },
           {
             "id": 2,
@@ -2307,7 +2367,8 @@
             ],
             "details": "Add to `build.gradle.kts` after the existing `jacocoAggregatedReport` configuration:\n\n1. Create `jacocoAggregatedVerification` task of type `JacocoCoverageVerification`:\n   - Set group='verification' and description\n   - Add `dependsOn(jacocoAggregatedReport)`\n   - Configure violation rules: LINE COVEREDRATIO 0.80, BRANCH COVEREDRATIO 0.70\n\n2. In the existing `gradle.projectsEvaluated` block, configure the verification task with the same `executionData`, `sourceDirectories`, and `classDirectories` (including MainKt exclusion) as the report task\n\n3. Create `checkCoverage` convenience task that depends on `jacocoAggregatedVerification`\n\n4. Create `testWithCoverage` task that runs all subproject tests and generates the aggregated report",
             "status": "pending",
-            "testStrategy": "Run `./gradlew checkCoverage` to verify aggregated verification executes successfully. Run `./gradlew testWithCoverage` to confirm report generation. Verify violation rules trigger failure by temporarily lowering thresholds to values above current coverage."
+            "testStrategy": "Run `./gradlew checkCoverage` to verify aggregated verification executes successfully. Run `./gradlew testWithCoverage` to confirm report generation. Verify violation rules trigger failure by temporarily lowering thresholds to values above current coverage.",
+            "parentId": "undefined"
           },
           {
             "id": 3,
@@ -2319,15 +2380,23 @@
             ],
             "details": "1. Create `TESTING.md` at project root documenting:\n   - Coverage targets: 80% overall line, 70% overall branch, 75% class line, 70% class branch\n   - Excluded patterns and rationale (MainKt entry points, DI modules, Config data classes, Exposed Table definitions)\n   - How to run coverage verification: `./gradlew check` or `./gradlew checkCoverage`\n   - How to generate coverage report: `./gradlew testWithCoverage` or `./gradlew jacocoAggregatedReport`\n\n2. Add `**/*Table.class` to exclusion patterns in both convention plugin and root build\n\n3. Verify `./gradlew check` at root level triggers aggregated verification by adding dependency\n\n4. Add CI convenience: Document that `./gradlew check` failing indicates coverage regression, preventing merge of undertested code",
             "status": "pending",
-            "testStrategy": "Verify TESTING.md renders correctly with proper markdown formatting. Run `./gradlew check` from root and confirm it runs coverage verification. Verify Table class exclusions work by checking a module with Exposed tables still passes verification."
+            "testStrategy": "Verify TESTING.md renders correctly with proper markdown formatting. Run `./gradlew check` from root and confirm it runs coverage verification. Verify Table class exclusions work by checking a module with Exposed tables still passes verification.",
+            "parentId": "undefined"
           }
-        ]
+        ],
+        "complexity": 4,
+        "recommendedSubtasks": 3,
+        "expansionPrompt": "Break down into: (1) Add jacocoTestCoverageVerification with violation rules to kotlin-jvm.gradle.kts including class-level thresholds and exclusion patterns for MainKt, DI, and Config classes; (2) Add jacocoAggregatedVerification task and checkCoverage convenience task to root build.gradle.kts with proper execution data sources; (3) Create TESTING.md documentation with coverage targets and wire verification into the check task lifecycle. Consider that the project already has JaCoCo plugin configured, aggregated report task, and MainKt exclusion - leverage these existing patterns."
       }
     ],
     "metadata": {
-      "created": "2026-01-27T08:09:05.201Z",
-      "updated": "2026-01-27T21:49:56.932Z",
-      "description": "Tasks for features context"
+      "version": "1.0.0",
+      "lastModified": "2026-01-28T06:39:40.108Z",
+      "taskCount": 11,
+      "completedCount": 4,
+      "tags": [
+        "features"
+      ]
     }
   }
 }

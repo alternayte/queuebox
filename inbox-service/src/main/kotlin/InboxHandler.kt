@@ -1,6 +1,7 @@
 package org.nxtspec
 
 import kotlinx.serialization.json.JsonElement
+import org.nxtspec.repository.InboxRepositoryInterface
 import java.util.UUID
 
 sealed class InboxHandlerResult {
@@ -11,7 +12,7 @@ sealed class InboxHandlerResult {
 }
 
 class InboxHandler(
-    private val repository: InboxRepository,
+    private val repository: InboxRepositoryInterface,
     private val extractor: IdempotencyExtractor
 ) {
     suspend fun handle(source: String, sourceConfig: SourceConfig.Http, payload: JsonElement): InboxHandlerResult {

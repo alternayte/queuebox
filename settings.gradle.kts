@@ -26,6 +26,7 @@ rootProject.name = "queuebox"
 include("core")
 include("config")
 include("postgres")
+include("sqlserver")
 include("rabbitmq")
 include("outbox-service")
 include("inbox-service")

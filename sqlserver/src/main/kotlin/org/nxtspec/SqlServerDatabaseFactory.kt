@@ -2,39 +2,42 @@ package org.nxtspec
 
 import com.zaxxer.hikari.HikariConfig
 import com.zaxxer.hikari.HikariDataSource
-import com.zaxxer.hikari.metrics.micrometer.MicrometerMetricsTrackerFactory
-import io.micrometer.core.instrument.MeterRegistry
 import org.jetbrains.exposed.sql.Database
 import javax.sql.DataSource
 
-object DatabaseFactory {
+/**
+ * Factory for creating SQL Server database connections with HikariCP connection pooling.
+ * Supports JDBC URLs in the format: jdbc:sqlserver://host:1433;databaseName=queuebox
+ */
+object SqlServerDatabaseFactory {
+
     /**
-     * Create a HikariDataSource with optional metrics integration.
-     * When a MeterRegistry is provided, HikariCP metrics will be automatically
-     * exposed including connection pool statistics and acquisition timings.
+     * Creates a HikariDataSource configured for SQL Server.
      */
-    fun create(config: DatabaseConfig, registry: MeterRegistry? = null): HikariDataSource {
+    fun create(config: DatabaseConfig): HikariDataSource {
         val hikariConfig = HikariConfig().apply {
             jdbcUrl = config.url
             username = config.username
             password = config.password
+            driverClassName = "com.microsoft.sqlserver.jdbc.SQLServerDriver"
             maximumPoolSize = config.poolSize
             connectionTimeout = config.connectionTimeoutMs
             isAutoCommit = false
             transactionIsolation = "TRANSACTION_READ_COMMITTED"
-
-            // Enable Micrometer metrics if registry is provided
-            if (registry != null) {
-                metricsTrackerFactory = MicrometerMetricsTrackerFactory(registry)
-            }
         }
         return HikariDataSource(hikariConfig)
     }
 
+    /**
+     * Connects Exposed ORM to the provided data source.
+     */
     fun init(dataSource: DataSource) {
         Database.connect(dataSource)
     }
 
+    /**
+     * Gracefully closes the connection pool.
+     */
     fun close(dataSource: HikariDataSource) {
         dataSource.close()
     }

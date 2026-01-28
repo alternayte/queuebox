@@ -1,11 +1,12 @@
 package org.nxtspec
 
 import kotlinx.coroutines.*
+import org.nxtspec.repository.OutboxRepositoryInterface
 import java.util.concurrent.atomic.AtomicBoolean
 
 class OutboxPoller(
     private val config: OutboxConfig,
-    private val repository: OutboxRepository,
+    private val repository: OutboxRepositoryInterface,
     private val router: MessageRouter,
     private val publishers: List<Publisher>,
     private val retryStrategy: RetryStrategy

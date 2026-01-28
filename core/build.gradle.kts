@@ -14,6 +14,9 @@ dependencies {
     implementation(libs.kotlinxSerialization)
     implementation(libs.kotlinxDatetime)
 
+    // Micrometer for metrics
+    implementation(libs.micrometer.core)
+
     // JSONPath for idempotency key extraction
     implementation("com.jayway.jsonpath:json-path:2.9.0")
 

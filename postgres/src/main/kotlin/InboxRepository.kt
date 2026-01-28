@@ -1,17 +1,22 @@
 package org.nxtspec
 
 import kotlinx.datetime.Clock
+import kotlinx.datetime.Instant
 import org.jetbrains.exposed.sql.ResultRow
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.inList
+import org.jetbrains.exposed.sql.SqlExpressionBuilder.less
+import org.jetbrains.exposed.sql.and
+import org.jetbrains.exposed.sql.deleteWhere
 import org.jetbrains.exposed.sql.insertIgnore
 import org.jetbrains.exposed.sql.selectAll
 import org.jetbrains.exposed.sql.transactions.experimental.newSuspendedTransaction
 import org.jetbrains.exposed.sql.update
+import org.nxtspec.repository.InboxRepositoryInterface
 import java.util.UUID
 
-class InboxRepository {
-    suspend fun store(message: InboxMessage): InboxResult = newSuspendedTransaction {
+class InboxRepository : InboxRepositoryInterface {
+    override suspend fun store(message: InboxMessage): InboxResult = newSuspendedTransaction {
         try {
             val now = Clock.System.now()
             val inserted = InboxTable.insertIgnore {
@@ -34,7 +39,7 @@ class InboxRepository {
         }
     }
 
-    suspend fun claimPending(batchSize: Int): List<InboxMessage> = newSuspendedTransaction {
+    override suspend fun claimPending(batchSize: Int): List<InboxMessage> = newSuspendedTransaction {
         val messages = InboxTable
             .selectAll()
             .where { InboxTable.state eq "pending" }
@@ -51,11 +56,25 @@ class InboxRepository {
         messages
     }
 
-    suspend fun markProcessed(id: UUID) = newSuspendedTransaction {
+    override suspend fun markProcessed(id: UUID): Unit = newSuspendedTransaction {
         val now = Clock.System.now()
         InboxTable.update({ InboxTable.id eq id }) {
             it[state] = "processed"
             it[processedAt] = now
+        }
+        Unit
+    }
+
+    override suspend fun countByState(state: String): Long = newSuspendedTransaction {
+        InboxTable
+            .selectAll()
+            .where { InboxTable.state eq state }
+            .count()
+    }
+
+    override suspend fun deleteOlderThan(state: String, cutoff: Instant): Int = newSuspendedTransaction {
+        InboxTable.deleteWhere {
+            (InboxTable.state eq state) and (InboxTable.createdAt less cutoff)
         }
     }
 
