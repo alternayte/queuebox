@@ -25,6 +25,8 @@ destinations:
     timeoutMs: 30000
     headers:
       Authorization: Bearer token123
+    transform:
+      expression: '{ "payload": $, "source": "queuebox" }'
   events-exchange:
     type: rabbitmq
     url: amqp://localhost:5672
@@ -34,6 +36,16 @@ destinations:
 routes:
   - topicPattern: "order.*"
     destination: webhook-api
+    transform:
+      expression: |
+        {
+          "orderId": id,
+          "customer": customer.name,
+          "total": items.(price * quantity) ~> $sum(),
+          "timestamp": $now()
+        }
+      timeoutMs: 150
+      onError: Fail
   - topicPattern: "user.*"
     destination: events-exchange
     routingKeyTemplate: "user.{{eventType}}"

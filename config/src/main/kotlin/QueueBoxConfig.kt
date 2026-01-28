@@ -44,13 +44,16 @@ data class InboxConfig(
 
 @Serializable
 sealed class DestinationConfig {
+    abstract val transform: TransformConfig?
+
     @Serializable
     @SerialName("http")
     data class Http(
         val baseUrl: String,
         val path: String = "/",
         val timeoutMs: Long = 30000,
-        val headers: Map<String, String> = emptyMap()
+        val headers: Map<String, String> = emptyMap(),
+        override val transform: TransformConfig? = null
     ) : DestinationConfig()
 
     @Serializable
@@ -58,7 +61,8 @@ sealed class DestinationConfig {
     data class RabbitMQ(
         val url: String,
         val exchange: String,
-        val exchangeType: String = "topic"
+        val exchangeType: String = "topic",
+        override val transform: TransformConfig? = null
     ) : DestinationConfig()
 }
 
@@ -66,7 +70,8 @@ sealed class DestinationConfig {
 data class RouteConfig(
     val topicPattern: String,
     val destination: String,
-    val routingKeyTemplate: String? = null
+    val routingKeyTemplate: String? = null,
+    val transform: TransformConfig? = null
 )
 
 @Serializable

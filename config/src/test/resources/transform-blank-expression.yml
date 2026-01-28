@@ -1,0 +1,19 @@
+server:
+  httpPort: 8080
+
+database:
+  url: jdbc:postgresql://localhost:5432/queuebox
+  username: postgres
+  password: secret
+
+destinations:
+  webhook-api:
+    type: http
+    baseUrl: https://api.example.com
+    path: /webhooks
+
+routes:
+  - topicPattern: "order.*"
+    destination: webhook-api
+    transform:
+      expression: ""
