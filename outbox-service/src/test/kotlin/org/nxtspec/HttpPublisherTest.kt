@@ -38,12 +38,14 @@ class HttpPublisherTest {
         id: UUID = UUID.randomUUID(),
         topic: String = "test.topic",
         key: String? = null,
-        attempt: Int = 1
+        attempt: Int = 1,
+        headers: Map<String, String> = emptyMap()
     ): OutboxMessage = OutboxMessage(
         id = id,
         topic = topic,
         key = key,
         payload = JsonObject(mapOf("data" to JsonPrimitive("test"))),
+        headers = headers,
         attempt = attempt
     )
 
@@ -295,5 +297,81 @@ class HttpPublisherTest {
         publisher.publish(createTestMessage(), createTestDestination())
 
         assertEquals(ContentType.Application.Json, capturedContentType)
+    }
+
+    @Test
+    fun `should include per-message headers when present`() = runTest {
+        var capturedHeaders: Headers? = null
+        val mockEngine = MockEngine { request ->
+            capturedHeaders = request.headers
+            respond("", HttpStatusCode.OK)
+        }
+
+        val publisher = HttpPublisher(createClientWithEngine(mockEngine))
+        val message = createTestMessage(
+            headers = mapOf(
+                "X-Correlation-Id" to "corr-123",
+                "X-User-Id" to "user-456"
+            )
+        )
+
+        publisher.publish(message, createTestDestination())
+
+        assertEquals("corr-123", capturedHeaders!!["X-Correlation-Id"])
+        assertEquals("user-456", capturedHeaders!!["X-User-Id"])
+    }
+
+    @Test
+    fun `should allow per-message headers to override destination headers`() = runTest {
+        var capturedHeaders: Headers? = null
+        val mockEngine = MockEngine { request ->
+            capturedHeaders = request.headers
+            respond("", HttpStatusCode.OK)
+        }
+
+        val publisher = HttpPublisher(createClientWithEngine(mockEngine))
+        val destination = createTestDestination(
+            headers = mapOf(
+                "X-Api-Key" to "dest-key",
+                "X-Source" to "destination"
+            )
+        )
+        val message = createTestMessage(
+            headers = mapOf(
+                "X-Api-Key" to "message-key",  // Override destination header
+                "X-Request-Id" to "req-789"     // New header
+            )
+        )
+
+        publisher.publish(message, destination)
+
+        // Per-message header should override destination header
+        assertEquals("message-key", capturedHeaders!!["X-Api-Key"])
+        // Destination header not overridden should remain
+        assertEquals("destination", capturedHeaders!!["X-Source"])
+        // New per-message header should be present
+        assertEquals("req-789", capturedHeaders!!["X-Request-Id"])
+    }
+
+    @Test
+    fun `should include both destination and per-message headers when both present`() = runTest {
+        var capturedHeaders: Headers? = null
+        val mockEngine = MockEngine { request ->
+            capturedHeaders = request.headers
+            respond("", HttpStatusCode.OK)
+        }
+
+        val publisher = HttpPublisher(createClientWithEngine(mockEngine))
+        val destination = createTestDestination(
+            headers = mapOf("X-Dest-Header" to "dest-value")
+        )
+        val message = createTestMessage(
+            headers = mapOf("X-Msg-Header" to "msg-value")
+        )
+
+        publisher.publish(message, destination)
+
+        assertEquals("dest-value", capturedHeaders!!["X-Dest-Header"])
+        assertEquals("msg-value", capturedHeaders!!["X-Msg-Header"])
     }
 }

@@ -831,6 +831,253 @@ class ConfigValidatorTest {
         assertNotNull(validated)
     }
 
+    // === Source Transform Configuration Validation ===
+
+    @Test
+    fun `should pass when http source has valid transform`() {
+        val config = createValidConfig().copy(
+            sources = mapOf(
+                "stripe-webhooks" to SourceConfig.Http(
+                    path = "/webhooks/stripe",
+                    idempotencyKeyPath = "$.id",
+                    transform = TransformConfig(
+                        expression = "{ \"eventId\": id }",
+                        timeoutMs = 100,
+                        maxDepth = 50
+                    )
+                )
+            )
+        )
+        val validated = ConfigValidator.validate(config)
+        assertNotNull(validated)
+    }
+
+    @Test
+    fun `should pass when http source transform is null`() {
+        val config = createValidConfig().copy(
+            sources = mapOf(
+                "stripe-webhooks" to SourceConfig.Http(
+                    path = "/webhooks/stripe",
+                    idempotencyKeyPath = "$.id",
+                    transform = null
+                )
+            )
+        )
+        val validated = ConfigValidator.validate(config)
+        assertNotNull(validated)
+    }
+
+    @Test
+    fun `should pass when rabbitmq source has valid transform`() {
+        val config = createValidConfig().copy(
+            sources = mapOf(
+                "order-events" to SourceConfig.RabbitMQ(
+                    queueName = "orders",
+                    connectionUrl = "amqp://localhost:5672",
+                    idempotencyKeyPath = "$.orderId",
+                    transform = TransformConfig(
+                        expression = """{ "orderId": orderId, "total": ${"$"}sum(items.price) }""",
+                        timeoutMs = 200,
+                        onError = TransformErrorStrategy.Skip
+                    )
+                )
+            )
+        )
+        val validated = ConfigValidator.validate(config)
+        assertNotNull(validated)
+    }
+
+    @Test
+    fun `should pass when rabbitmq source transform is null`() {
+        val config = createValidConfig().copy(
+            sources = mapOf(
+                "order-events" to SourceConfig.RabbitMQ(
+                    queueName = "orders",
+                    connectionUrl = "amqp://localhost:5672",
+                    transform = null
+                )
+            )
+        )
+        val validated = ConfigValidator.validate(config)
+        assertNotNull(validated)
+    }
+
+    @Test
+    fun `should fail when http source transform expression is blank`() {
+        val config = createValidConfig().copy(
+            sources = mapOf(
+                "stripe-webhooks" to SourceConfig.Http(
+                    path = "/webhooks/stripe",
+                    idempotencyKeyPath = "$.id",
+                    transform = TransformConfig(expression = "")
+                )
+            )
+        )
+        val exception = assertFailsWith<IllegalArgumentException> {
+            ConfigValidator.validate(config)
+        }
+        assertContains(exception.message!!, "Source 'stripe-webhooks'")
+        assertContains(exception.message!!, "transform expression cannot be blank")
+    }
+
+    @Test
+    fun `should fail when rabbitmq source transform expression is blank`() {
+        val config = createValidConfig().copy(
+            sources = mapOf(
+                "order-events" to SourceConfig.RabbitMQ(
+                    queueName = "orders",
+                    connectionUrl = "amqp://localhost:5672",
+                    transform = TransformConfig(expression = "   ")
+                )
+            )
+        )
+        val exception = assertFailsWith<IllegalArgumentException> {
+            ConfigValidator.validate(config)
+        }
+        assertContains(exception.message!!, "Source 'order-events'")
+        assertContains(exception.message!!, "transform expression cannot be blank")
+    }
+
+    @Test
+    fun `should fail when source transform timeoutMs is zero`() {
+        val config = createValidConfig().copy(
+            sources = mapOf(
+                "stripe-webhooks" to SourceConfig.Http(
+                    path = "/webhooks/stripe",
+                    idempotencyKeyPath = "$.id",
+                    transform = TransformConfig(expression = "{ \"id\": id }", timeoutMs = 0)
+                )
+            )
+        )
+        val exception = assertFailsWith<IllegalArgumentException> {
+            ConfigValidator.validate(config)
+        }
+        assertContains(exception.message!!, "Source 'stripe-webhooks'")
+        assertContains(exception.message!!, "timeoutMs must be positive")
+    }
+
+    @Test
+    fun `should fail when source transform timeoutMs is negative`() {
+        val config = createValidConfig().copy(
+            sources = mapOf(
+                "stripe-webhooks" to SourceConfig.Http(
+                    path = "/webhooks/stripe",
+                    idempotencyKeyPath = "$.id",
+                    transform = TransformConfig(expression = "{ \"id\": id }", timeoutMs = -50)
+                )
+            )
+        )
+        val exception = assertFailsWith<IllegalArgumentException> {
+            ConfigValidator.validate(config)
+        }
+        assertContains(exception.message!!, "Source 'stripe-webhooks'")
+        assertContains(exception.message!!, "timeoutMs must be positive")
+    }
+
+    @Test
+    fun `should fail when source transform maxDepth is zero`() {
+        val config = createValidConfig().copy(
+            sources = mapOf(
+                "order-events" to SourceConfig.RabbitMQ(
+                    queueName = "orders",
+                    connectionUrl = "amqp://localhost:5672",
+                    transform = TransformConfig(expression = "{ \"id\": id }", maxDepth = 0)
+                )
+            )
+        )
+        val exception = assertFailsWith<IllegalArgumentException> {
+            ConfigValidator.validate(config)
+        }
+        assertContains(exception.message!!, "Source 'order-events'")
+        assertContains(exception.message!!, "maxDepth must be positive")
+    }
+
+    @Test
+    fun `should fail when source transform maxDepth is negative`() {
+        val config = createValidConfig().copy(
+            sources = mapOf(
+                "order-events" to SourceConfig.RabbitMQ(
+                    queueName = "orders",
+                    connectionUrl = "amqp://localhost:5672",
+                    transform = TransformConfig(expression = "{ \"id\": id }", maxDepth = -10)
+                )
+            )
+        )
+        val exception = assertFailsWith<IllegalArgumentException> {
+            ConfigValidator.validate(config)
+        }
+        assertContains(exception.message!!, "Source 'order-events'")
+        assertContains(exception.message!!, "maxDepth must be positive")
+    }
+
+    @Test
+    fun `should pass when source transform uses all error strategies`() {
+        // Test FAIL (default)
+        var config = createValidConfig().copy(
+            sources = mapOf(
+                "stripe-webhooks" to SourceConfig.Http(
+                    path = "/webhooks/stripe",
+                    idempotencyKeyPath = "$.id",
+                    transform = TransformConfig(
+                        expression = "{ \"id\": id }",
+                        onError = TransformErrorStrategy.Fail
+                    )
+                )
+            )
+        )
+        assertNotNull(ConfigValidator.validate(config))
+
+        // Test SKIP
+        config = createValidConfig().copy(
+            sources = mapOf(
+                "stripe-webhooks" to SourceConfig.Http(
+                    path = "/webhooks/stripe",
+                    idempotencyKeyPath = "$.id",
+                    transform = TransformConfig(
+                        expression = "{ \"id\": id }",
+                        onError = TransformErrorStrategy.Skip
+                    )
+                )
+            )
+        )
+        assertNotNull(ConfigValidator.validate(config))
+
+        // Test DEAD
+        config = createValidConfig().copy(
+            sources = mapOf(
+                "stripe-webhooks" to SourceConfig.Http(
+                    path = "/webhooks/stripe",
+                    idempotencyKeyPath = "$.id",
+                    transform = TransformConfig(
+                        expression = "{ \"id\": id }",
+                        onError = TransformErrorStrategy.Dead
+                    )
+                )
+            )
+        )
+        assertNotNull(ConfigValidator.validate(config))
+    }
+
+    @Test
+    fun `should pass when multiple sources have transforms`() {
+        val config = createValidConfig().copy(
+            sources = mapOf(
+                "stripe-webhooks" to SourceConfig.Http(
+                    path = "/webhooks/stripe",
+                    idempotencyKeyPath = "$.id",
+                    transform = TransformConfig(expression = "{ \"eventId\": id }")
+                ),
+                "order-events" to SourceConfig.RabbitMQ(
+                    queueName = "orders",
+                    connectionUrl = "amqp://localhost:5672",
+                    transform = TransformConfig(expression = "{ \"orderId\": orderId }")
+                )
+            )
+        )
+        val validated = ConfigValidator.validate(config)
+        assertNotNull(validated)
+    }
+
     @Test
     fun `should pass when transform uses all error strategies`() {
         // Test FAIL (default)
@@ -877,5 +1124,473 @@ class ConfigValidatorTest {
             )
         )
         assertNotNull(ConfigValidator.validate(config))
+    }
+
+    // === Inbox Authentication Validation ===
+
+    @Test
+    fun `should pass when source has valid bearer auth`() {
+        val config = createValidConfig().copy(
+            sources = mapOf(
+                "stripe-webhooks" to SourceConfig.Http(
+                    path = "/webhooks/stripe",
+                    idempotencyKeyPath = "$.id",
+                    auth = InboxAuthConfig.Bearer(token = "secret-token")
+                )
+            )
+        )
+        val validated = ConfigValidator.validate(config)
+        assertNotNull(validated)
+    }
+
+    @Test
+    fun `should fail when bearer token is blank`() {
+        val config = createValidConfig().copy(
+            sources = mapOf(
+                "stripe-webhooks" to SourceConfig.Http(
+                    path = "/webhooks/stripe",
+                    idempotencyKeyPath = "$.id",
+                    auth = InboxAuthConfig.Bearer(token = "")
+                )
+            )
+        )
+        val exception = assertFailsWith<IllegalArgumentException> {
+            ConfigValidator.validate(config)
+        }
+        assertContains(exception.message!!, "bearer token cannot be blank")
+    }
+
+    @Test
+    fun `should pass when source has valid api key auth`() {
+        val config = createValidConfig().copy(
+            sources = mapOf(
+                "partner-webhook" to SourceConfig.Http(
+                    path = "/webhooks/partner",
+                    idempotencyKeyPath = "$.id",
+                    auth = InboxAuthConfig.ApiKey(headerName = "X-API-Key", key = "my-api-key")
+                )
+            )
+        )
+        val validated = ConfigValidator.validate(config)
+        assertNotNull(validated)
+    }
+
+    @Test
+    fun `should fail when api key is blank`() {
+        val config = createValidConfig().copy(
+            sources = mapOf(
+                "partner-webhook" to SourceConfig.Http(
+                    path = "/webhooks/partner",
+                    idempotencyKeyPath = "$.id",
+                    auth = InboxAuthConfig.ApiKey(headerName = "X-API-Key", key = "")
+                )
+            )
+        )
+        val exception = assertFailsWith<IllegalArgumentException> {
+            ConfigValidator.validate(config)
+        }
+        assertContains(exception.message!!, "API key cannot be blank")
+    }
+
+    @Test
+    fun `should fail when api key header name is blank`() {
+        val config = createValidConfig().copy(
+            sources = mapOf(
+                "partner-webhook" to SourceConfig.Http(
+                    path = "/webhooks/partner",
+                    idempotencyKeyPath = "$.id",
+                    auth = InboxAuthConfig.ApiKey(headerName = "", key = "my-key")
+                )
+            )
+        )
+        val exception = assertFailsWith<IllegalArgumentException> {
+            ConfigValidator.validate(config)
+        }
+        assertContains(exception.message!!, "header name cannot be blank")
+    }
+
+    @Test
+    fun `should pass when source has valid hmac auth`() {
+        val config = createValidConfig().copy(
+            sources = mapOf(
+                "stripe-webhooks" to SourceConfig.Http(
+                    path = "/webhooks/stripe",
+                    idempotencyKeyPath = "$.id",
+                    auth = InboxAuthConfig.HmacSignature(
+                        secret = "webhook-secret",
+                        headerName = "Stripe-Signature",
+                        algorithm = "HmacSHA256"
+                    )
+                )
+            )
+        )
+        val validated = ConfigValidator.validate(config)
+        assertNotNull(validated)
+    }
+
+    @Test
+    fun `should fail when hmac secret is blank`() {
+        val config = createValidConfig().copy(
+            sources = mapOf(
+                "stripe-webhooks" to SourceConfig.Http(
+                    path = "/webhooks/stripe",
+                    idempotencyKeyPath = "$.id",
+                    auth = InboxAuthConfig.HmacSignature(
+                        secret = "",
+                        headerName = "X-Signature",
+                        algorithm = "HmacSHA256"
+                    )
+                )
+            )
+        )
+        val exception = assertFailsWith<IllegalArgumentException> {
+            ConfigValidator.validate(config)
+        }
+        assertContains(exception.message!!, "HMAC secret cannot be blank")
+    }
+
+    @Test
+    fun `should fail when hmac algorithm is invalid`() {
+        val config = createValidConfig().copy(
+            sources = mapOf(
+                "stripe-webhooks" to SourceConfig.Http(
+                    path = "/webhooks/stripe",
+                    idempotencyKeyPath = "$.id",
+                    auth = InboxAuthConfig.HmacSignature(
+                        secret = "webhook-secret",
+                        headerName = "X-Signature",
+                        algorithm = "MD5"
+                    )
+                )
+            )
+        )
+        val exception = assertFailsWith<IllegalArgumentException> {
+            ConfigValidator.validate(config)
+        }
+        assertContains(exception.message!!, "algorithm must be HmacSHA256 or HmacSHA512")
+    }
+
+    @Test
+    fun `should pass when hmac uses SHA512 algorithm`() {
+        val config = createValidConfig().copy(
+            sources = mapOf(
+                "secure-webhook" to SourceConfig.Http(
+                    path = "/webhooks/secure",
+                    idempotencyKeyPath = "$.id",
+                    auth = InboxAuthConfig.HmacSignature(
+                        secret = "webhook-secret",
+                        headerName = "X-Signature",
+                        algorithm = "HmacSHA512"
+                    )
+                )
+            )
+        )
+        val validated = ConfigValidator.validate(config)
+        assertNotNull(validated)
+    }
+
+    @Test
+    fun `should fail when hmac header name is blank`() {
+        val config = createValidConfig().copy(
+            sources = mapOf(
+                "secure-webhook" to SourceConfig.Http(
+                    path = "/webhooks/secure",
+                    idempotencyKeyPath = "$.id",
+                    auth = InboxAuthConfig.HmacSignature(
+                        secret = "webhook-secret",
+                        headerName = "",
+                        algorithm = "HmacSHA256"
+                    )
+                )
+            )
+        )
+        val exception = assertFailsWith<IllegalArgumentException> {
+            ConfigValidator.validate(config)
+        }
+        assertContains(exception.message!!, "signature header name cannot be blank")
+    }
+
+    @Test
+    fun `should pass when source auth is null`() {
+        val config = createValidConfig().copy(
+            sources = mapOf(
+                "public-webhook" to SourceConfig.Http(
+                    path = "/webhooks/public",
+                    idempotencyKeyPath = "$.id",
+                    auth = null
+                )
+            )
+        )
+        val validated = ConfigValidator.validate(config)
+        assertNotNull(validated)
+    }
+
+    // === Destination Authentication Validation ===
+
+    @Test
+    fun `should pass when destination has valid oauth2 auth`() {
+        val config = createValidConfig().copy(
+            destinations = mapOf(
+                "oauth-api" to DestinationConfig.Http(
+                    baseUrl = "https://api.example.com",
+                    path = "/webhooks",
+                    auth = DestinationAuthConfig.OAuth2(
+                        clientId = "client-id",
+                        clientSecret = "client-secret",
+                        tokenUrl = "https://auth.example.com/token"
+                    )
+                )
+            ),
+            routes = emptyList()
+        )
+        val validated = ConfigValidator.validate(config)
+        assertNotNull(validated)
+    }
+
+    @Test
+    fun `should fail when oauth2 clientId is blank`() {
+        val config = createValidConfig().copy(
+            destinations = mapOf(
+                "oauth-api" to DestinationConfig.Http(
+                    baseUrl = "https://api.example.com",
+                    path = "/webhooks",
+                    auth = DestinationAuthConfig.OAuth2(
+                        clientId = "",
+                        clientSecret = "client-secret",
+                        tokenUrl = "https://auth.example.com/token"
+                    )
+                )
+            ),
+            routes = emptyList()
+        )
+        val exception = assertFailsWith<IllegalArgumentException> {
+            ConfigValidator.validate(config)
+        }
+        assertContains(exception.message!!, "OAuth2 clientId cannot be blank")
+    }
+
+    @Test
+    fun `should fail when oauth2 clientSecret is blank`() {
+        val config = createValidConfig().copy(
+            destinations = mapOf(
+                "oauth-api" to DestinationConfig.Http(
+                    baseUrl = "https://api.example.com",
+                    path = "/webhooks",
+                    auth = DestinationAuthConfig.OAuth2(
+                        clientId = "client-id",
+                        clientSecret = "",
+                        tokenUrl = "https://auth.example.com/token"
+                    )
+                )
+            ),
+            routes = emptyList()
+        )
+        val exception = assertFailsWith<IllegalArgumentException> {
+            ConfigValidator.validate(config)
+        }
+        assertContains(exception.message!!, "OAuth2 clientSecret cannot be blank")
+    }
+
+    @Test
+    fun `should fail when oauth2 tokenUrl is blank`() {
+        val config = createValidConfig().copy(
+            destinations = mapOf(
+                "oauth-api" to DestinationConfig.Http(
+                    baseUrl = "https://api.example.com",
+                    path = "/webhooks",
+                    auth = DestinationAuthConfig.OAuth2(
+                        clientId = "client-id",
+                        clientSecret = "client-secret",
+                        tokenUrl = ""
+                    )
+                )
+            ),
+            routes = emptyList()
+        )
+        val exception = assertFailsWith<IllegalArgumentException> {
+            ConfigValidator.validate(config)
+        }
+        assertContains(exception.message!!, "OAuth2 tokenUrl cannot be blank")
+    }
+
+    @Test
+    fun `should pass when destination has valid basic auth`() {
+        val config = createValidConfig().copy(
+            destinations = mapOf(
+                "legacy-api" to DestinationConfig.Http(
+                    baseUrl = "https://legacy.example.com",
+                    path = "/api",
+                    auth = DestinationAuthConfig.Basic(
+                        username = "user",
+                        password = "pass"
+                    )
+                )
+            ),
+            routes = emptyList()
+        )
+        val validated = ConfigValidator.validate(config)
+        assertNotNull(validated)
+    }
+
+    @Test
+    fun `should fail when basic auth username is blank`() {
+        val config = createValidConfig().copy(
+            destinations = mapOf(
+                "legacy-api" to DestinationConfig.Http(
+                    baseUrl = "https://legacy.example.com",
+                    path = "/api",
+                    auth = DestinationAuthConfig.Basic(
+                        username = "",
+                        password = "pass"
+                    )
+                )
+            ),
+            routes = emptyList()
+        )
+        val exception = assertFailsWith<IllegalArgumentException> {
+            ConfigValidator.validate(config)
+        }
+        assertContains(exception.message!!, "Basic auth username cannot be blank")
+    }
+
+    @Test
+    fun `should pass when basic auth password is empty`() {
+        val config = createValidConfig().copy(
+            destinations = mapOf(
+                "legacy-api" to DestinationConfig.Http(
+                    baseUrl = "https://legacy.example.com",
+                    path = "/api",
+                    auth = DestinationAuthConfig.Basic(
+                        username = "user",
+                        password = ""
+                    )
+                )
+            ),
+            routes = emptyList()
+        )
+        val validated = ConfigValidator.validate(config)
+        assertNotNull(validated)
+    }
+
+    @Test
+    fun `should pass when destination has valid header auth`() {
+        val config = createValidConfig().copy(
+            destinations = mapOf(
+                "api-key-service" to DestinationConfig.Http(
+                    baseUrl = "https://api.service.com",
+                    path = "/v1",
+                    auth = DestinationAuthConfig.Header(
+                        headerName = "X-API-Key",
+                        headerValue = "my-api-key"
+                    )
+                )
+            ),
+            routes = emptyList()
+        )
+        val validated = ConfigValidator.validate(config)
+        assertNotNull(validated)
+    }
+
+    @Test
+    fun `should fail when header auth name is blank`() {
+        val config = createValidConfig().copy(
+            destinations = mapOf(
+                "api-key-service" to DestinationConfig.Http(
+                    baseUrl = "https://api.service.com",
+                    path = "/v1",
+                    auth = DestinationAuthConfig.Header(
+                        headerName = "",
+                        headerValue = "my-api-key"
+                    )
+                )
+            ),
+            routes = emptyList()
+        )
+        val exception = assertFailsWith<IllegalArgumentException> {
+            ConfigValidator.validate(config)
+        }
+        assertContains(exception.message!!, "header name cannot be blank")
+    }
+
+    @Test
+    fun `should fail when header auth value is blank`() {
+        val config = createValidConfig().copy(
+            destinations = mapOf(
+                "api-key-service" to DestinationConfig.Http(
+                    baseUrl = "https://api.service.com",
+                    path = "/v1",
+                    auth = DestinationAuthConfig.Header(
+                        headerName = "X-API-Key",
+                        headerValue = ""
+                    )
+                )
+            ),
+            routes = emptyList()
+        )
+        val exception = assertFailsWith<IllegalArgumentException> {
+            ConfigValidator.validate(config)
+        }
+        assertContains(exception.message!!, "header value cannot be blank")
+    }
+
+    @Test
+    fun `should pass when destination auth is null`() {
+        val config = createValidConfig().copy(
+            destinations = mapOf(
+                "public-api" to DestinationConfig.Http(
+                    baseUrl = "https://public.api.com",
+                    path = "/",
+                    auth = null
+                )
+            ),
+            routes = emptyList()
+        )
+        val validated = ConfigValidator.validate(config)
+        assertNotNull(validated)
+    }
+
+    @Test
+    fun `should validate auth for multiple sources and destinations`() {
+        val config = createValidConfig().copy(
+            sources = mapOf(
+                "stripe" to SourceConfig.Http(
+                    path = "/stripe",
+                    idempotencyKeyPath = "$.id",
+                    auth = InboxAuthConfig.HmacSignature(
+                        secret = "stripe-secret",
+                        algorithm = "HmacSHA256"
+                    )
+                ),
+                "github" to SourceConfig.Http(
+                    path = "/github",
+                    idempotencyKeyPath = "$.delivery",
+                    auth = InboxAuthConfig.HmacSignature(
+                        secret = "github-secret",
+                        algorithm = "HmacSHA256",
+                        headerName = "X-Hub-Signature-256"
+                    )
+                )
+            ),
+            destinations = mapOf(
+                "oauth-api" to DestinationConfig.Http(
+                    baseUrl = "https://oauth.api.com",
+                    auth = DestinationAuthConfig.OAuth2(
+                        clientId = "id",
+                        clientSecret = "secret",
+                        tokenUrl = "https://auth.com/token"
+                    )
+                ),
+                "basic-api" to DestinationConfig.Http(
+                    baseUrl = "https://basic.api.com",
+                    auth = DestinationAuthConfig.Basic(
+                        username = "user",
+                        password = "pass"
+                    )
+                )
+            ),
+            routes = emptyList()
+        )
+        val validated = ConfigValidator.validate(config)
+        assertNotNull(validated)
     }
 }

@@ -88,13 +88,92 @@ object ConfigValidator {
             validateTransform(dest.transform, "Destination '$name'", "destinations.$name.transform")
         }
 
+        // Validate source transforms and auth
+        config.sources.forEach { (name, source) ->
+            validateTransform(source.transform, "Source '$name'", "sources.$name.transform")
+            if (source is SourceConfig.Http) {
+                validateInboxAuth(source.auth, "Source '$name'", "sources.$name.auth")
+            }
+        }
+
+        // Validate destination auth
+        config.destinations.forEach { (name, dest) ->
+            if (dest is DestinationConfig.Http) {
+                validateDestinationAuth(dest.auth, "Destination '$name'", "destinations.$name.auth")
+            }
+        }
+
         // Validate retention configuration
         if (config.retention.enabled) {
             validateTableRetention("outbox", config.retention.outbox)
             validateTableRetention("inbox", config.retention.inbox)
         }
 
+        // Validate column mapping
+        validateColumnMapping(config.database.columnMapping)
+
         return config
+    }
+
+    /**
+     * Validates that all column names in the mapping are safe SQL identifiers.
+     * This prevents SQL injection since column names are interpolated into raw SQL strings.
+     */
+    private fun validateColumnMapping(mapping: ColumnMappingConfig) {
+        // Valid SQL identifier: starts with letter or underscore, contains only alphanumeric and underscores
+        val sqlIdentifierRegex = Regex("^[a-zA-Z_][a-zA-Z0-9_]*$")
+
+        // Validate outbox column names
+        val outboxColumns = listOf(
+            "id" to mapping.outbox.id,
+            "topic" to mapping.outbox.topic,
+            "key" to mapping.outbox.key,
+            "payload" to mapping.outbox.payload,
+            "headers" to mapping.outbox.headers,
+            "state" to mapping.outbox.state,
+            "attempt" to mapping.outbox.attempt,
+            "maxAttempts" to mapping.outbox.maxAttempts,
+            "scheduledAt" to mapping.outbox.scheduledAt,
+            "createdAt" to mapping.outbox.createdAt,
+            "updatedAt" to mapping.outbox.updatedAt
+        )
+
+        outboxColumns.forEach { (fieldName, columnName) ->
+            require(columnName.isNotBlank()) {
+                "Outbox column name for '$fieldName' cannot be blank. " +
+                    "Set via 'database.columnMapping.outbox.$fieldName' in YAML or ${EnvConfigLoader.yamlPathToEnvKey("database.columnMapping.outbox.$fieldName")} env var."
+            }
+            require(sqlIdentifierRegex.matches(columnName)) {
+                "Invalid outbox column name '$columnName' for '$fieldName'. " +
+                    "Column names must start with a letter or underscore and contain only alphanumeric characters and underscores. " +
+                    "Set via 'database.columnMapping.outbox.$fieldName' in YAML or ${EnvConfigLoader.yamlPathToEnvKey("database.columnMapping.outbox.$fieldName")} env var."
+            }
+        }
+
+        // Validate inbox column names
+        val inboxColumns = listOf(
+            "id" to mapping.inbox.id,
+            "source" to mapping.inbox.source,
+            "idempotencyKey" to mapping.inbox.idempotencyKey,
+            "aggregateId" to mapping.inbox.aggregateId,
+            "eventType" to mapping.inbox.eventType,
+            "payload" to mapping.inbox.payload,
+            "state" to mapping.inbox.state,
+            "createdAt" to mapping.inbox.createdAt,
+            "processedAt" to mapping.inbox.processedAt
+        )
+
+        inboxColumns.forEach { (fieldName, columnName) ->
+            require(columnName.isNotBlank()) {
+                "Inbox column name for '$fieldName' cannot be blank. " +
+                    "Set via 'database.columnMapping.inbox.$fieldName' in YAML or ${EnvConfigLoader.yamlPathToEnvKey("database.columnMapping.inbox.$fieldName")} env var."
+            }
+            require(sqlIdentifierRegex.matches(columnName)) {
+                "Invalid inbox column name '$columnName' for '$fieldName'. " +
+                    "Column names must start with a letter or underscore and contain only alphanumeric characters and underscores. " +
+                    "Set via 'database.columnMapping.inbox.$fieldName' in YAML or ${EnvConfigLoader.yamlPathToEnvKey("database.columnMapping.inbox.$fieldName")} env var."
+            }
+        }
     }
 
     /**
@@ -113,6 +192,86 @@ object ConfigValidator {
             require(it.maxDepth > 0) {
                 "$context transform maxDepth must be positive. " +
                     "Set via '$yamlPath.maxDepth' in YAML or ${EnvConfigLoader.yamlPathToEnvKey("$yamlPath.maxDepth")} env var."
+            }
+        }
+    }
+
+    /**
+     * Validates InboxAuthConfig if present.
+     */
+    private fun validateInboxAuth(auth: InboxAuthConfig?, context: String, yamlPath: String) {
+        auth?.let {
+            when (it) {
+                is InboxAuthConfig.Bearer -> {
+                    require(it.token.isNotBlank()) {
+                        "$context auth bearer token cannot be blank. " +
+                            "Set via '$yamlPath.token' in YAML or ${EnvConfigLoader.yamlPathToEnvKey("$yamlPath.token")} env var."
+                    }
+                }
+                is InboxAuthConfig.ApiKey -> {
+                    require(it.key.isNotBlank()) {
+                        "$context auth API key cannot be blank. " +
+                            "Set via '$yamlPath.key' in YAML or ${EnvConfigLoader.yamlPathToEnvKey("$yamlPath.key")} env var."
+                    }
+                    require(it.headerName.isNotBlank()) {
+                        "$context auth header name cannot be blank. " +
+                            "Set via '$yamlPath.headerName' in YAML or ${EnvConfigLoader.yamlPathToEnvKey("$yamlPath.headerName")} env var."
+                    }
+                }
+                is InboxAuthConfig.HmacSignature -> {
+                    require(it.secret.isNotBlank()) {
+                        "$context HMAC secret cannot be blank. " +
+                            "Set via '$yamlPath.secret' in YAML or ${EnvConfigLoader.yamlPathToEnvKey("$yamlPath.secret")} env var."
+                    }
+                    require(it.algorithm in listOf("HmacSHA256", "HmacSHA512")) {
+                        "$context HMAC algorithm must be HmacSHA256 or HmacSHA512. " +
+                            "Set via '$yamlPath.algorithm' in YAML or ${EnvConfigLoader.yamlPathToEnvKey("$yamlPath.algorithm")} env var."
+                    }
+                    require(it.headerName.isNotBlank()) {
+                        "$context HMAC signature header name cannot be blank. " +
+                            "Set via '$yamlPath.headerName' in YAML or ${EnvConfigLoader.yamlPathToEnvKey("$yamlPath.headerName")} env var."
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * Validates DestinationAuthConfig if present.
+     */
+    private fun validateDestinationAuth(auth: DestinationAuthConfig?, context: String, yamlPath: String) {
+        auth?.let {
+            when (it) {
+                is DestinationAuthConfig.OAuth2 -> {
+                    require(it.clientId.isNotBlank()) {
+                        "$context OAuth2 clientId cannot be blank. " +
+                            "Set via '$yamlPath.clientId' in YAML or ${EnvConfigLoader.yamlPathToEnvKey("$yamlPath.clientId")} env var."
+                    }
+                    require(it.clientSecret.isNotBlank()) {
+                        "$context OAuth2 clientSecret cannot be blank. " +
+                            "Set via '$yamlPath.clientSecret' in YAML or ${EnvConfigLoader.yamlPathToEnvKey("$yamlPath.clientSecret")} env var."
+                    }
+                    require(it.tokenUrl.isNotBlank()) {
+                        "$context OAuth2 tokenUrl cannot be blank. " +
+                            "Set via '$yamlPath.tokenUrl' in YAML or ${EnvConfigLoader.yamlPathToEnvKey("$yamlPath.tokenUrl")} env var."
+                    }
+                }
+                is DestinationAuthConfig.Basic -> {
+                    require(it.username.isNotBlank()) {
+                        "$context Basic auth username cannot be blank. " +
+                            "Set via '$yamlPath.username' in YAML or ${EnvConfigLoader.yamlPathToEnvKey("$yamlPath.username")} env var."
+                    }
+                }
+                is DestinationAuthConfig.Header -> {
+                    require(it.headerName.isNotBlank()) {
+                        "$context header name cannot be blank. " +
+                            "Set via '$yamlPath.headerName' in YAML or ${EnvConfigLoader.yamlPathToEnvKey("$yamlPath.headerName")} env var."
+                    }
+                    require(it.headerValue.isNotBlank()) {
+                        "$context header value cannot be blank. " +
+                            "Set via '$yamlPath.headerValue' in YAML or ${EnvConfigLoader.yamlPathToEnvKey("$yamlPath.headerValue")} env var."
+                    }
+                }
             }
         }
     }

@@ -35,16 +35,23 @@ class RabbitPublisher(
                         .replace("{{ topic }}", message.topic)
                         .replace("{{topic}}", message.topic)
 
+                    // Build merged headers: standard headers, then destination headers, then per-message headers
+                    // Per-message headers take highest precedence and can override all others
+                    val mergedHeaders = buildMap<String, Any> {
+                        // Standard headers
+                        put("x-topic", message.topic)
+                        put("x-attempt", message.attempt)
+                        // Destination-level static headers
+                        dest.headers.forEach { (k, v) -> put(k, v) }
+                        // Per-message dynamic headers (override destination headers)
+                        message.headers.forEach { (k, v) -> put(k, v) }
+                    }
+
                     // Build message properties
                     val props = AMQP.BasicProperties.Builder()
                         .messageId(message.id.toString())
                         .contentType("application/json")
-                        .headers(
-                            mapOf(
-                                "x-topic" to message.topic,
-                                "x-attempt" to message.attempt
-                            )
-                        )
+                        .headers(mergedHeaders)
                         .build()
 
                     // Publish with mandatory flag

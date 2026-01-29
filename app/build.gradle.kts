@@ -5,6 +5,9 @@ plugins {
 
     // Apply the Application plugin to add support for building an executable JVM application.
     application
+
+    // Serialization plugin for DTOs
+    alias(libs.plugins.kotlinPluginSerialization)
 }
 
 dependencies {

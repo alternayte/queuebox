@@ -13,9 +13,11 @@ dependencies {
     implementation(project(":core"))
     implementation(project(":config"))
     implementation(project(":postgres"))
+    implementation(project(":outbox-service"))  // For TransformEngine reuse
 
     // Ktor server
     implementation(libs.bundles.ktorServerEcosystem)
+    implementation(libs.ktor.server.double.receive)
 
     // Kotlinx ecosystem (coroutines, serialization, datetime)
     implementation(libs.bundles.kotlinxEcosystem)

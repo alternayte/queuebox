@@ -27,7 +27,56 @@ data class DatabaseConfig(
     val username: String,
     val password: String,
     val poolSize: Int = 10,
-    val connectionTimeoutMs: Long = 30000
+    val connectionTimeoutMs: Long = 30000,
+    val columnMapping: ColumnMappingConfig = ColumnMappingConfig(),
+    val outboxTableName: String = "outbox",
+    val inboxTableName: String = "inbox"
+)
+
+/**
+ * Configuration for custom column name mappings.
+ * Allows QueueBox to work with existing database schemas that use different column naming conventions.
+ */
+@Serializable
+data class ColumnMappingConfig(
+    val outbox: OutboxColumnMapping = OutboxColumnMapping(),
+    val inbox: InboxColumnMapping = InboxColumnMapping()
+)
+
+/**
+ * Column name mapping for the outbox table.
+ * All defaults match the standard QueueBox column names.
+ */
+@Serializable
+data class OutboxColumnMapping(
+    val id: String = "id",
+    val topic: String = "topic",
+    val key: String = "key",
+    val payload: String = "payload",
+    val headers: String = "headers",
+    val state: String = "state",
+    val attempt: String = "attempt",
+    val maxAttempts: String = "max_attempts",
+    val scheduledAt: String = "scheduled_at",
+    val createdAt: String = "created_at",
+    val updatedAt: String = "updated_at"
+)
+
+/**
+ * Column name mapping for the inbox table.
+ * All defaults match the standard QueueBox column names.
+ */
+@Serializable
+data class InboxColumnMapping(
+    val id: String = "id",
+    val source: String = "source",
+    val idempotencyKey: String = "idempotency_key",
+    val aggregateId: String = "aggregate_id",
+    val eventType: String = "event_type",
+    val payload: String = "payload",
+    val state: String = "state",
+    val createdAt: String = "created_at",
+    val processedAt: String = "processed_at"
 )
 
 @Serializable
@@ -54,7 +103,8 @@ sealed class DestinationConfig {
         val path: String = "/",
         val timeoutMs: Long = 30000,
         val headers: Map<String, String> = emptyMap(),
-        override val transform: TransformConfig? = null
+        override val transform: TransformConfig? = null,
+        val auth: DestinationAuthConfig? = null
     ) : DestinationConfig()
 
     @Serializable
@@ -63,6 +113,7 @@ sealed class DestinationConfig {
         val url: String,
         val exchange: String,
         val exchangeType: String = "topic",
+        val headers: Map<String, String> = emptyMap(),
         override val transform: TransformConfig? = null
     ) : DestinationConfig()
 }
@@ -72,17 +123,23 @@ data class RouteConfig(
     val topicPattern: String,
     val destination: String,
     val routingKeyTemplate: String? = null,
+    val routingKeyMissingFieldDefault: String? = null,
     val transform: TransformConfig? = null
 )
 
 @Serializable
 sealed class SourceConfig {
+    abstract val transform: TransformConfig?
+
     @Serializable
     @SerialName("http")
     data class Http(
         val path: String,
         val idempotencyKeyPath: String,
-        val eventTypePath: String? = null
+        val aggregateIdPath: String? = null,
+        val eventTypePath: String? = null,
+        override val transform: TransformConfig? = null,
+        val auth: InboxAuthConfig? = null
     ) : SourceConfig()
 
     @Serializable
@@ -91,6 +148,8 @@ sealed class SourceConfig {
         val queueName: String,
         val connectionUrl: String,
         val idempotencyKeyPath: String = "$.id",
-        val prefetchCount: Int = 10
+        val aggregateIdPath: String? = null,
+        val prefetchCount: Int = 10,
+        override val transform: TransformConfig? = null
     ) : SourceConfig()
 }

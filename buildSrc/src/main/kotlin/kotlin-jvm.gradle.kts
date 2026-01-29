@@ -18,6 +18,24 @@ tasks.jacocoTestReport {
     }
 }
 
+tasks.jacocoTestCoverageVerification {
+    dependsOn(tasks.jacocoTestReport)
+
+    violationRules {
+        // Per-module overall coverage - relaxed to allow modules with fewer tests
+        rule {
+            limit {
+                minimum = "0.15".toBigDecimal()
+            }
+        }
+    }
+}
+
+// Wire verification into check task
+tasks.check {
+    dependsOn(tasks.jacocoTestCoverageVerification)
+}
+
 kotlin {
     // Use a specific Java version to make it easier to work in different environments.
     jvmToolchain(23)

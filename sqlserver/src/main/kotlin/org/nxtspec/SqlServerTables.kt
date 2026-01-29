@@ -13,6 +13,7 @@ object SqlServerOutboxTable : UUIDTable("outbox") {
     val topic: Column<String> = varchar("topic", 255)
     val key: Column<String?> = varchar("key", 255).nullable()
     val payload: Column<String> = text("payload")  // JSON stored as NVARCHAR(MAX)
+    val headers: Column<String> = text("headers").default("{}")  // JSON headers as NVARCHAR(MAX)
     val state: Column<String> = varchar("state", 50).default("pending")
     val attempt: Column<Int> = integer("attempt").default(0)
     val maxAttempts: Column<Int> = integer("max_attempts").default(5)
@@ -28,6 +29,7 @@ object SqlServerOutboxTable : UUIDTable("outbox") {
 object SqlServerInboxTable : UUIDTable("inbox") {
     val messageSrc: Column<String> = varchar("source", 255)
     val idempotencyKey: Column<String> = varchar("idempotency_key", 255)
+    val aggregateId: Column<String?> = varchar("aggregate_id", 255).nullable()
     val eventType: Column<String?> = varchar("event_type", 255).nullable()
     val payload: Column<String> = text("payload")  // JSON stored as NVARCHAR(MAX)
     val state: Column<String> = varchar("state", 50).default("pending")
@@ -36,5 +38,6 @@ object SqlServerInboxTable : UUIDTable("inbox") {
 
     init {
         uniqueIndex(messageSrc, idempotencyKey)
+        index(false, aggregateId, state)
     }
 }

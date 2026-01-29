@@ -1,21 +1,64 @@
 package org.nxtspec
 
+import kotlinx.serialization.json.JsonElement
+
+/**
+ * Result of routing a message to a destination.
+ *
+ * @property destination The resolved destination to publish to
+ * @property routingKey The computed routing key for the message
+ * @property routeTransform Optional transform configured at the route level
+ * @property destinationTransform Optional transform configured at the destination level
+ */
 data class RoutingResult(
     val destination: Destination,
-    val routingKey: String
+    val routingKey: String,
+    val routeTransform: TransformConfig? = null,
+    val destinationTransform: TransformConfig? = null
 )
 
+/**
+ * Routes messages to destinations based on topic pattern matching.
+ *
+ * @property routes List of route configurations defining topic-to-destination mappings
+ * @property destinations Map of destination name to Destination instances
+ * @property destinationTransforms Map of destination name to optional transform config
+ * @property routingKeyRenderer Renderer for routing key templates with payload field substitution
+ */
 class MessageRouter(
     private val routes: List<RouteConfig>,
-    private val destinations: Map<String, Destination>
+    private val destinations: Map<String, Destination>,
+    private val destinationTransforms: Map<String, TransformConfig?> = emptyMap(),
+    private val routingKeyRenderer: RoutingKeyRenderer = RoutingKeyRenderer()
 ) {
-    fun route(topic: String): RoutingResult? {
+    /**
+     * Routes a topic to its destination, including any configured transforms.
+     *
+     * @param topic The message topic to route
+     * @param payload Optional payload for dynamic routing key substitution
+     * @return RoutingResult with destination and transforms, or null if no route matches
+     */
+    fun route(topic: String, payload: JsonElement? = null): RoutingResult? {
         val matchedRoute = routes.firstOrNull { matchesPattern(topic, it.topicPattern) }
         return matchedRoute?.let {
             val destination = destinations[it.destination] ?: return null
+            val template = it.routingKeyTemplate ?: topic
+            val routingKey = if (payload != null) {
+                val missingFieldDefault = it.routingKeyMissingFieldDefault
+                val renderer = if (missingFieldDefault != null) {
+                    RoutingKeyRenderer(missingFieldDefault)
+                } else {
+                    routingKeyRenderer
+                }
+                renderer.render(template, topic, payload)
+            } else {
+                renderLegacyTemplate(template, topic)
+            }
             RoutingResult(
                 destination = destination,
-                routingKey = renderTemplate(it.routingKeyTemplate ?: topic, topic)
+                routingKey = routingKey,
+                routeTransform = it.transform,
+                destinationTransform = destinationTransforms[it.destination]
             )
         }
     }
@@ -32,7 +75,7 @@ class MessageRouter(
         return regex.matches(topic)
     }
 
-    private fun renderTemplate(template: String, topic: String): String {
+    private fun renderLegacyTemplate(template: String, topic: String): String {
         // Simple template rendering: replace {{ topic }} with actual topic
         return template
             .replace("{{ topic }}", topic)

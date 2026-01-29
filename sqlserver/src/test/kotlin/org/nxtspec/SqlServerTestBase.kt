@@ -88,6 +88,7 @@ abstract class SqlServerTestBase {
         state: String,
         topic: String = "test-topic",
         payload: JsonElement = JsonObject(emptyMap()),
+        headers: String = "{}",
         attempt: Int = 0,
         scheduledAt: Instant = Clock.System.now(),
         updatedAt: Instant = Clock.System.now()
@@ -99,6 +100,7 @@ abstract class SqlServerTestBase {
                 it[SqlServerOutboxTable.id] = id
                 it[SqlServerOutboxTable.topic] = topic
                 it[SqlServerOutboxTable.payload] = payload.toString()
+                it[SqlServerOutboxTable.headers] = headers
                 it[SqlServerOutboxTable.state] = state
                 it[SqlServerOutboxTable.attempt] = attempt
                 it[SqlServerOutboxTable.scheduledAt] = scheduledAt
@@ -113,7 +115,8 @@ abstract class SqlServerTestBase {
         source: String,
         idempotencyKey: String,
         payload: JsonElement = JsonObject(emptyMap()),
-        state: String = "pending"
+        state: String = "pending",
+        aggregateId: String? = null
     ): UUID {
         val id = UUID.randomUUID()
         val now = Clock.System.now()
@@ -122,6 +125,7 @@ abstract class SqlServerTestBase {
                 it[SqlServerInboxTable.id] = id
                 it[messageSrc] = source
                 it[SqlServerInboxTable.idempotencyKey] = idempotencyKey
+                it[SqlServerInboxTable.aggregateId] = aggregateId
                 it[SqlServerInboxTable.payload] = payload.toString()
                 it[SqlServerInboxTable.state] = state
                 it[createdAt] = now

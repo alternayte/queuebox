@@ -12,6 +12,7 @@ data class InboxMessage(
     val id: UUID = UUID.randomUUID(),
     val source: String,
     val idempotencyKey: String,
+    val aggregateId: String? = null,
     val eventType: String? = null,
     val payload: JsonElement,
     val state: MessageState = MessageState.Pending,

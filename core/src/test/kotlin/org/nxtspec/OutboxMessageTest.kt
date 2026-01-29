@@ -121,4 +121,41 @@ class OutboxMessageTest {
         assertEquals(original.payload, deserialized.payload)
         assertEquals(original.state, deserialized.state)
     }
+
+    @Test
+    fun `should default headers to empty map`() {
+        val message = OutboxMessage(topic = "test", payload = testPayload)
+
+        assertEquals(emptyMap<String, String>(), message.headers)
+    }
+
+    @Test
+    fun `should allow custom headers to be set`() {
+        val customHeaders = mapOf("X-Custom" to "value", "X-Request-Id" to "123")
+        val message = OutboxMessage(topic = "test", payload = testPayload, headers = customHeaders)
+
+        assertEquals(customHeaders, message.headers)
+        assertEquals("value", message.headers["X-Custom"])
+        assertEquals("123", message.headers["X-Request-Id"])
+    }
+
+    @Test
+    fun `should serialize and deserialize headers correctly`() {
+        val customHeaders = mapOf("X-Custom" to "value", "X-Request-Id" to "123")
+        val original = OutboxMessage(topic = "test", payload = testPayload, headers = customHeaders)
+        val json = Json.encodeToString(OutboxMessage.serializer(), original)
+        val deserialized = Json.decodeFromString(OutboxMessage.serializer(), json)
+
+        assertEquals(original.headers, deserialized.headers)
+        assertEquals(customHeaders, deserialized.headers)
+    }
+
+    @Test
+    fun `copy should preserve headers when not modified`() {
+        val customHeaders = mapOf("X-Custom" to "value")
+        val original = OutboxMessage(topic = "test", payload = testPayload, headers = customHeaders)
+        val copied = original.copy(topic = "modified")
+
+        assertEquals(customHeaders, copied.headers)
+    }
 }

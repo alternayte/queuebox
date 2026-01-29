@@ -49,4 +49,14 @@ interface MetricsCollectorInterface {
      * Record a duplicate inbox message detected.
      */
     fun recordInboxDuplicate()
+
+    // Cleanup metrics
+
+    /**
+     * Record a retention cleanup run.
+     * @param table The table cleaned (e.g., "outbox" or "inbox")
+     * @param deleted Number of records deleted
+     * @param durationNanos Duration of the cleanup in nanoseconds
+     */
+    fun recordCleanupRun(table: String, deleted: Int, durationNanos: Long)
 }

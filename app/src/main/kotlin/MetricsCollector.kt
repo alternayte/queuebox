@@ -65,4 +65,11 @@ class MetricsCollector(registry: MeterRegistry) : MetricsCollectorInterface {
     override fun updatePendingCount(count: Long) {
         metrics.setPendingMessageCount(count)
     }
+
+    /**
+     * Record a retention cleanup run.
+     */
+    override fun recordCleanupRun(table: String, deleted: Int, durationNanos: Long) {
+        metrics.recordCleanupRun(table, deleted, durationNanos)
+    }
 }

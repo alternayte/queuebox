@@ -17,6 +17,9 @@ class QueueBoxMetrics(private val registry: MeterRegistry) {
     private val startTime = System.currentTimeMillis()
     private val pendingMessageCount = AtomicLong(0)
 
+    // Cleanup tracking (last run timestamps per table)
+    private val cleanupLastRunTimestamps = mutableMapOf<String, AtomicLong>()
+
     // Outbox counters
     val outboxMessagesSent: Counter = Counter.builder("queuebox_outbox_messages_total")
         .description("Total outbox messages by status")
@@ -46,6 +49,12 @@ class QueueBoxMetrics(private val registry: MeterRegistry) {
 
     // Publish duration timers (one per destination type)
     private val publishTimers = mutableMapOf<String, Timer>()
+
+    // Cleanup counters (one per table)
+    private val cleanupCounters = mutableMapOf<String, Counter>()
+
+    // Cleanup timers (one per table)
+    private val cleanupTimers = mutableMapOf<String, Timer>()
 
     fun getPublishTimer(destinationType: String): Timer {
         return publishTimers.getOrPut(destinationType) {
@@ -100,5 +109,53 @@ class QueueBoxMetrics(private val registry: MeterRegistry) {
      */
     fun recordPublishDuration(durationMs: Long, destinationType: String) {
         getPublishTimer(destinationType).record(durationMs, TimeUnit.MILLISECONDS)
+    }
+
+    /**
+     * Get or create a cleanup deleted counter for a specific table.
+     */
+    private fun getCleanupCounter(table: String): Counter {
+        return cleanupCounters.getOrPut(table) {
+            Counter.builder("queuebox_cleanup_messages_deleted_total")
+                .description("Total messages deleted by retention cleanup")
+                .tag("table", table)
+                .register(registry)
+        }
+    }
+
+    /**
+     * Get or create a cleanup duration timer for a specific table.
+     */
+    private fun getCleanupTimer(table: String): Timer {
+        return cleanupTimers.getOrPut(table) {
+            Timer.builder("queuebox_cleanup_duration_seconds")
+                .description("Time taken to run retention cleanup")
+                .tag("table", table)
+                .publishPercentiles(0.5, 0.95, 0.99)
+                .register(registry)
+        }
+    }
+
+    /**
+     * Get or create a cleanup last run timestamp gauge for a specific table.
+     */
+    private fun getOrCreateCleanupLastRunGauge(table: String): AtomicLong {
+        return cleanupLastRunTimestamps.getOrPut(table) {
+            val timestamp = AtomicLong(0)
+            Gauge.builder("queuebox_cleanup_last_run_timestamp", timestamp) { it.get().toDouble() }
+                .description("Unix timestamp of last cleanup run")
+                .tag("table", table)
+                .register(registry)
+            timestamp
+        }
+    }
+
+    /**
+     * Record a cleanup run with deleted count and duration.
+     */
+    fun recordCleanupRun(table: String, deleted: Int, durationNanos: Long) {
+        getCleanupCounter(table).increment(deleted.toDouble())
+        getCleanupTimer(table).record(durationNanos, TimeUnit.NANOSECONDS)
+        getOrCreateCleanupLastRunGauge(table).set(System.currentTimeMillis() / 1000)
     }
 }

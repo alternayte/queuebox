@@ -13,6 +13,7 @@ data class OutboxMessage(
     val topic: String,
     val key: String? = null,
     val payload: JsonElement,
+    val headers: Map<String, String> = emptyMap(),
     val state: MessageState = MessageState.Pending,
     val attempt: Int = 0,
     val maxAttempts: Int = 5,

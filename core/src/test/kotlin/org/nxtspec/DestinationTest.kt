@@ -53,7 +53,8 @@ class DestinationTest {
             url = "amqp://localhost:5672",
             exchange = "events",
             exchangeType = "direct",
-            routingKeyTemplate = "orders.{{ action }}"
+            routingKeyTemplate = "orders.{{ action }}",
+            headers = mapOf("X-Source" to "queuebox", "X-Version" to "1.0")
         )
 
         assertEquals("queue-service", rabbitmq.name)
@@ -61,6 +62,9 @@ class DestinationTest {
         assertEquals("events", rabbitmq.exchange)
         assertEquals("direct", rabbitmq.exchangeType)
         assertEquals("orders.{{ action }}", rabbitmq.routingKeyTemplate)
+        assertEquals(2, rabbitmq.headers.size)
+        assertEquals("queuebox", rabbitmq.headers["X-Source"])
+        assertEquals("1.0", rabbitmq.headers["X-Version"])
     }
 
     @Test
@@ -73,6 +77,7 @@ class DestinationTest {
 
         assertEquals("topic", rabbitmq.exchangeType)
         assertEquals("{{ topic }}", rabbitmq.routingKeyTemplate)
+        assertTrue(rabbitmq.headers.isEmpty())
     }
 
     @Test
@@ -194,7 +199,8 @@ class DestinationTest {
             url = "amqp://rabbit.example.com:5672",
             exchange = "my-exchange",
             exchangeType = "headers",
-            routingKeyTemplate = "custom.{{ id }}"
+            routingKeyTemplate = "custom.{{ id }}",
+            headers = mapOf("X-Static" to "value")
         )
 
         val serialized = json.encodeToString<Destination>(original)
@@ -206,5 +212,27 @@ class DestinationTest {
         assertEquals(original.exchange, deserialized.exchange)
         assertEquals(original.exchangeType, deserialized.exchangeType)
         assertEquals(original.routingKeyTemplate, deserialized.routingKeyTemplate)
+        assertEquals(original.headers, deserialized.headers)
+    }
+
+    @Test
+    fun `should deserialize RabbitMQ destination with headers from JSON`() {
+        val jsonString = """
+            {
+                "type": "rabbitmq",
+                "name": "rabbitmq-with-headers",
+                "url": "amqp://test-host:5672",
+                "exchange": "test-exchange",
+                "headers": {"X-Source": "queuebox", "X-Priority": "high"}
+            }
+        """.trimIndent()
+
+        val destination = json.decodeFromString<Destination>(jsonString)
+
+        assertIs<Destination.RabbitMQ>(destination)
+        assertEquals("rabbitmq-with-headers", destination.name)
+        assertEquals(2, destination.headers.size)
+        assertEquals("queuebox", destination.headers["X-Source"])
+        assertEquals("high", destination.headers["X-Priority"])
     }
 }

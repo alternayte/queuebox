@@ -2,6 +2,9 @@ package org.nxtspec
 
 import kotlinx.datetime.Clock
 import kotlinx.datetime.Instant
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import org.jetbrains.exposed.sql.ResultRow
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.inList
@@ -18,20 +21,24 @@ import org.nxtspec.repository.OutboxRepositoryInterface
 import java.util.UUID
 import kotlin.time.Duration.Companion.milliseconds
 
-class OutboxRepository : OutboxRepositoryInterface {
+class OutboxRepository(
+    columnMapping: OutboxColumnMapping = OutboxColumnMapping(),
+    tableName: String = "outbox"
+) : OutboxRepositoryInterface {
+    private val table = DynamicOutboxTable(columnMapping, tableName)
     override suspend fun claimBatch(batchSize: Int): List<OutboxMessage> = newSuspendedTransaction {
         val now = Clock.System.now()
-        val messages = OutboxTable
+        val messages = table
             .selectAll()
-            .where { (OutboxTable.state eq "pending") and (OutboxTable.scheduledAt lessEq now) }
+            .where { (table.state eq "pending") and (table.scheduledAt lessEq now) }
             .limit(batchSize)
             .forUpdate()
             .map { it.toOutboxMessage() }
 
         if (messages.isNotEmpty()) {
-            OutboxTable.update({ OutboxTable.id inList messages.map { it.id } }) {
-                it[state] = "processing"
-                it[updatedAt] = now
+            table.update({ table.id inList messages.map { it.id } }) {
+                it[table.state] = "processing"
+                it[table.updatedAt] = now
             }
         }
 
@@ -44,10 +51,10 @@ class OutboxRepository : OutboxRepositoryInterface {
 
     override suspend fun markFailed(id: UUID, error: String): Unit = newSuspendedTransaction {
         val now = Clock.System.now()
-        OutboxTable.update({ OutboxTable.id eq id }) {
-            it[attempt] = OutboxTable.attempt + 1
-            it[state] = "failed"
-            it[updatedAt] = now
+        table.update({ table.id eq id }) {
+            it[table.attempt] = table.attempt + 1
+            it[table.state] = "failed"
+            it[table.updatedAt] = now
         }
         Unit
     }
@@ -55,11 +62,11 @@ class OutboxRepository : OutboxRepositoryInterface {
     override suspend fun scheduleRetry(id: UUID, delayMs: Long): Unit = newSuspendedTransaction {
         val now = Clock.System.now()
         val scheduledTime = now + delayMs.milliseconds
-        OutboxTable.update({ OutboxTable.id eq id }) {
-            it[scheduledAt] = scheduledTime
-            it[state] = "pending"
-            it[attempt] = OutboxTable.attempt + 1
-            it[updatedAt] = now
+        table.update({ table.id eq id }) {
+            it[table.scheduledAt] = scheduledTime
+            it[table.state] = "pending"
+            it[table.attempt] = table.attempt + 1
+            it[table.updatedAt] = now
         }
         Unit
     }
@@ -69,50 +76,59 @@ class OutboxRepository : OutboxRepositoryInterface {
     }
 
     override suspend fun countByState(state: String): Long = newSuspendedTransaction {
-        OutboxTable
+        table
             .selectAll()
-            .where { OutboxTable.state eq state }
+            .where { table.state eq state }
             .count()
     }
 
     override suspend fun deleteOlderThan(state: String, cutoff: Instant): Int = newSuspendedTransaction {
-        OutboxTable.deleteWhere {
-            (OutboxTable.state eq state) and (OutboxTable.updatedAt less cutoff)
+        table.deleteWhere {
+            (table.state eq state) and (table.updatedAt less cutoff)
         }
     }
 
     override suspend fun deleteExceptMostRecent(state: String, keepCount: Int): Int = newSuspendedTransaction {
-        val idsToKeep = OutboxTable
-            .select(OutboxTable.id)
-            .where { OutboxTable.state eq state }
-            .orderBy(OutboxTable.updatedAt, org.jetbrains.exposed.sql.SortOrder.DESC)
+        val idsToKeep = table
+            .select(table.id)
+            .where { table.state eq state }
+            .orderBy(table.updatedAt, org.jetbrains.exposed.sql.SortOrder.DESC)
             .limit(keepCount)
 
-        OutboxTable.deleteWhere {
-            (OutboxTable.state eq state) and (OutboxTable.id notInSubQuery idsToKeep)
+        table.deleteWhere {
+            (table.state eq state) and (table.id notInSubQuery idsToKeep)
         }
     }
 
     private fun updateState(id: UUID, newState: String) {
         val now = Clock.System.now()
-        OutboxTable.update({ OutboxTable.id eq id }) {
-            it[state] = newState
-            it[updatedAt] = now
+        table.update({ table.id eq id }) {
+            it[table.state] = newState
+            it[table.updatedAt] = now
         }
     }
 
-    private fun ResultRow.toOutboxMessage(): OutboxMessage = OutboxMessage(
-        id = this[OutboxTable.id].value,
-        topic = this[OutboxTable.topic],
-        key = this[OutboxTable.key],
-        payload = this[OutboxTable.payload],
-        state = stringToMessageState(this[OutboxTable.state]),
-        attempt = this[OutboxTable.attempt],
-        maxAttempts = this[OutboxTable.maxAttempts],
-        scheduledAt = this[OutboxTable.scheduledAt],
-        createdAt = this[OutboxTable.createdAt],
-        updatedAt = this[OutboxTable.updatedAt]
-    )
+    private fun ResultRow.toOutboxMessage(): OutboxMessage {
+        val headersJson = this[table.headers]
+        val headers = if (headersJson is JsonObject) {
+            headersJson.mapValues { it.value.jsonPrimitive.content }
+        } else {
+            emptyMap()
+        }
+        return OutboxMessage(
+            id = this[table.id].value,
+            topic = this[table.topic],
+            key = this[table.key],
+            payload = this[table.payload],
+            headers = headers,
+            state = stringToMessageState(this[table.state]),
+            attempt = this[table.attempt],
+            maxAttempts = this[table.maxAttempts],
+            scheduledAt = this[table.scheduledAt],
+            createdAt = this[table.createdAt],
+            updatedAt = this[table.updatedAt]
+        )
+    }
 
     private fun stringToMessageState(state: String): MessageState = when (state) {
         "pending" -> MessageState.Pending

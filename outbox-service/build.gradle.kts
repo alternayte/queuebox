@@ -1,5 +1,6 @@
 plugins {
     id("buildsrc.convention.kotlin-jvm")
+    alias(libs.plugins.kotlinPluginSerialization)
 }
 
 group = "org.nxtspec"
@@ -19,6 +20,9 @@ dependencies {
 
     // Ktor HTTP client
     implementation(libs.bundles.ktorClientEcosystem)
+
+    // JSONata for payload transformation
+    implementation(libs.jsonata)
 
     testImplementation(libs.kotlin.test)
     testImplementation(libs.mockk)

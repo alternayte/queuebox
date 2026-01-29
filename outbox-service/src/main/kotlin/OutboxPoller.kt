@@ -3,6 +3,9 @@ package org.nxtspec
 import kotlinx.coroutines.*
 import org.nxtspec.metrics.MetricsCollectorInterface
 import org.nxtspec.repository.OutboxRepositoryInterface
+import org.nxtspec.transform.TransformContext
+import org.nxtspec.transform.TransformPipeline
+import org.nxtspec.transform.TransformResult
 import java.util.concurrent.atomic.AtomicBoolean
 
 class OutboxPoller(
@@ -11,7 +14,8 @@ class OutboxPoller(
     private val router: MessageRouter,
     private val publishers: List<Publisher>,
     private val retryStrategy: RetryStrategy,
-    private val metricsCollector: MetricsCollectorInterface? = null
+    private val metricsCollector: MetricsCollectorInterface? = null,
+    private val transformPipeline: TransformPipeline? = null
 ) {
     private val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
     private val running = AtomicBoolean(true)
@@ -49,7 +53,7 @@ class OutboxPoller(
     private suspend fun processMessage(message: OutboxMessage) {
         val startTime = System.currentTimeMillis()
 
-        val routingResult = router.route(message.topic)
+        val routingResult = router.route(message.topic, message.payload)
         if (routingResult == null) {
             // No route found, mark as dead
             repository.markDead(message.id)
@@ -67,7 +71,41 @@ class OutboxPoller(
             return
         }
 
-        publisher.publish(message, routingResult.destination).fold(
+        // Apply transforms if pipeline is configured
+        val messageToPublish = if (transformPipeline != null &&
+            (routingResult.routeTransform != null || routingResult.destinationTransform != null)
+        ) {
+            val context = TransformContext(
+                messageId = message.id,
+                topic = message.topic,
+                attempt = message.attempt,
+                timestamp = message.createdAt
+            )
+
+            when (val result = transformPipeline.transform(
+                payload = message.payload,
+                routeTransform = routingResult.routeTransform,
+                destinationTransform = routingResult.destinationTransform,
+                context = context
+            )) {
+                is TransformResult.Success -> message.copy(payload = result.payload)
+                is TransformResult.Error -> {
+                    handlePublishFailure(message, TransformException(result.message))
+                    recordProcessingDuration(startTime)
+                    return
+                }
+                is TransformResult.DeadLetter -> {
+                    repository.markDead(message.id)
+                    metricsCollector?.recordMessageDead()
+                    recordProcessingDuration(startTime)
+                    return
+                }
+            }
+        } else {
+            message
+        }
+
+        publisher.publish(messageToPublish, routingResult.destination).fold(
             onSuccess = {
                 repository.markSent(message.id)
                 metricsCollector?.recordMessageSent()
@@ -104,3 +142,8 @@ class OutboxPoller(
         scope.cancel()
     }
 }
+
+/**
+ * Exception thrown when a payload transformation fails.
+ */
+class TransformException(message: String) : RuntimeException(message)

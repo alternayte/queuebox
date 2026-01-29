@@ -183,4 +183,48 @@ class SqlServerOutboxRepositoryTest : SqlServerTestBase() {
         assertEquals(2, repository.countByState("sent"))
         assertEquals(1, repository.countByState("pending"))
     }
+
+    // --- Headers tests ---
+
+    @Test
+    fun `claimBatch returns messages with headers when present`() = runTest {
+        // Given: a message with custom headers
+        val headersJson = """{"X-Custom":"value","X-Request-Id":"123"}"""
+        insertOutboxMessage(state = "pending", headers = headersJson)
+
+        // When: claiming the batch
+        val claimed = repository.claimBatch(10)
+
+        // Then: headers are correctly parsed
+        assertEquals(1, claimed.size)
+        assertEquals(mapOf("X-Custom" to "value", "X-Request-Id" to "123"), claimed[0].headers)
+    }
+
+    @Test
+    fun `claimBatch returns empty headers when not set`() = runTest {
+        // Given: a message with default empty headers
+        insertOutboxMessage(state = "pending")
+
+        // When: claiming the batch
+        val claimed = repository.claimBatch(10)
+
+        // Then: headers default to empty map
+        assertEquals(1, claimed.size)
+        assertEquals(emptyMap<String, String>(), claimed[0].headers)
+    }
+
+    @Test
+    fun `claimBatch handles special characters in headers`() = runTest {
+        // Given: headers with special characters
+        val headersJson = """{"X-Unicode":"héllo wörld","X-Special":"value/with=chars"}"""
+        insertOutboxMessage(state = "pending", headers = headersJson)
+
+        // When: claiming the batch
+        val claimed = repository.claimBatch(10)
+
+        // Then: special characters are preserved
+        assertEquals(1, claimed.size)
+        assertEquals("héllo wörld", claimed[0].headers["X-Unicode"])
+        assertEquals("value/with=chars", claimed[0].headers["X-Special"])
+    }
 }

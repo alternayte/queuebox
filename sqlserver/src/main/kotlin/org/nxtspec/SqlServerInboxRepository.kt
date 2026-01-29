@@ -24,7 +24,11 @@ import java.util.UUID
  * Uses MERGE statement for atomic insert-if-not-exists deduplication,
  * which is the SQL Server equivalent of PostgreSQL's INSERT ON CONFLICT IGNORE.
  */
-class SqlServerInboxRepository : InboxRepositoryInterface {
+class SqlServerInboxRepository(
+    private val columnMapping: InboxColumnMapping = InboxColumnMapping(),
+    private val tableName: String = "inbox"
+) : InboxRepositoryInterface {
+    private val table = SqlServerDynamicInboxTable(columnMapping, tableName)
 
     override suspend fun store(message: InboxMessage): InboxResult = newSuspendedTransaction {
         try {
@@ -33,15 +37,25 @@ class SqlServerInboxRepository : InboxRepositoryInterface {
                 java.time.Instant.ofEpochSecond(now.epochSeconds, now.nanosecondsOfSecond.toLong())
             )
 
+            // Escape column names that are SQL Server reserved words
+            val sourceCol = escapeSqlServerColumnName(columnMapping.source)
+            val idempotencyKeyCol = escapeSqlServerColumnName(columnMapping.idempotencyKey)
+            val idCol = escapeSqlServerColumnName(columnMapping.id)
+            val aggregateIdCol = escapeSqlServerColumnName(columnMapping.aggregateId)
+            val eventTypeCol = escapeSqlServerColumnName(columnMapping.eventType)
+            val payloadCol = escapeSqlServerColumnName(columnMapping.payload)
+            val stateCol = escapeSqlServerColumnName(columnMapping.state)
+            val createdAtCol = escapeSqlServerColumnName(columnMapping.createdAt)
+
             // Use MERGE for atomic insert-if-not-exists
             // This is the SQL Server equivalent of INSERT ... ON CONFLICT DO NOTHING
             val sql = """
-                MERGE inbox AS target
+                MERGE $tableName AS target
                 USING (SELECT ? AS source, ? AS idempotency_key) AS src
-                ON target.source = src.source AND target.idempotency_key = src.idempotency_key
+                ON target.$sourceCol = src.source AND target.$idempotencyKeyCol = src.idempotency_key
                 WHEN NOT MATCHED THEN
-                    INSERT (id, source, idempotency_key, event_type, payload, state, created_at)
-                    VALUES (?, ?, ?, ?, ?, 'pending', ?);
+                    INSERT ($idCol, $sourceCol, $idempotencyKeyCol, $aggregateIdCol, $eventTypeCol, $payloadCol, $stateCol, $createdAtCol)
+                    VALUES (?, ?, ?, ?, ?, ?, 'pending', ?);
             """.trimIndent()
 
             val conn = TransactionManager.current().connection.connection as java.sql.Connection
@@ -51,9 +65,10 @@ class SqlServerInboxRepository : InboxRepositoryInterface {
                 stmt.setString(3, message.id.toString())
                 stmt.setString(4, message.source)
                 stmt.setString(5, message.idempotencyKey)
-                stmt.setString(6, message.eventType)
-                stmt.setString(7, message.payload.toString())
-                stmt.setTimestamp(8, nowTimestamp)
+                stmt.setString(6, message.aggregateId)
+                stmt.setString(7, message.eventType)
+                stmt.setString(8, message.payload.toString())
+                stmt.setTimestamp(9, nowTimestamp)
                 stmt.executeUpdate()
             }
 
@@ -68,11 +83,52 @@ class SqlServerInboxRepository : InboxRepositoryInterface {
     }
 
     override suspend fun claimPending(batchSize: Int): List<InboxMessage> = newSuspendedTransaction {
-        // Use raw SQL with SQL Server-specific locking hints
+        // Escape column names that are SQL Server reserved words
+        val idCol = escapeSqlServerColumnName(columnMapping.id)
+        val sourceCol = escapeSqlServerColumnName(columnMapping.source)
+        val idempotencyKeyCol = escapeSqlServerColumnName(columnMapping.idempotencyKey)
+        val aggregateIdCol = escapeSqlServerColumnName(columnMapping.aggregateId)
+        val eventTypeCol = escapeSqlServerColumnName(columnMapping.eventType)
+        val payloadCol = escapeSqlServerColumnName(columnMapping.payload)
+        val stateCol = escapeSqlServerColumnName(columnMapping.state)
+        val createdAtCol = escapeSqlServerColumnName(columnMapping.createdAt)
+        val processedAtCol = escapeSqlServerColumnName(columnMapping.processedAt)
+
+        // Use CTE-based query with ROW_NUMBER() for aggregate ordering:
+        // - Only claims one message per aggregate at a time (oldest first)
+        // - Messages without aggregateId are treated as independent
+        // - Excludes aggregates that already have messages being processed
         val sql = """
-            SELECT TOP (?) id, source, idempotency_key, event_type, payload, state, created_at, processed_at
-            FROM inbox WITH (ROWLOCK, UPDLOCK, READPAST)
-            WHERE state = 'pending'
+            WITH
+            locked_aggregates AS (
+                SELECT DISTINCT $aggregateIdCol
+                FROM $tableName
+                WHERE $aggregateIdCol IS NOT NULL
+                AND $stateCol = 'processing'
+            ),
+            aggregate_messages AS (
+                SELECT *, ROW_NUMBER() OVER (PARTITION BY $aggregateIdCol ORDER BY $createdAtCol ASC) as rn
+                FROM $tableName
+                WHERE $aggregateIdCol IS NOT NULL
+                AND $stateCol = 'pending'
+                AND $aggregateIdCol NOT IN (SELECT $aggregateIdCol FROM locked_aggregates WHERE $aggregateIdCol IS NOT NULL)
+            ),
+            independent_messages AS (
+                SELECT *, 1 as rn
+                FROM $tableName
+                WHERE $aggregateIdCol IS NULL
+                AND $stateCol = 'pending'
+            ),
+            candidates AS (
+                SELECT $idCol, $sourceCol, $idempotencyKeyCol, $aggregateIdCol, $eventTypeCol, $payloadCol, $stateCol, $createdAtCol, $processedAtCol
+                FROM aggregate_messages WHERE rn = 1
+                UNION ALL
+                SELECT $idCol, $sourceCol, $idempotencyKeyCol, $aggregateIdCol, $eventTypeCol, $payloadCol, $stateCol, $createdAtCol, $processedAtCol
+                FROM independent_messages
+            )
+            SELECT TOP (?) $idCol, $sourceCol, $idempotencyKeyCol, $aggregateIdCol, $eventTypeCol, $payloadCol, $stateCol, $createdAtCol, $processedAtCol
+            FROM candidates WITH (ROWLOCK, UPDLOCK, READPAST)
+            ORDER BY $createdAtCol ASC
         """.trimIndent()
 
         val conn = TransactionManager.current().connection.connection as java.sql.Connection
@@ -88,7 +144,7 @@ class SqlServerInboxRepository : InboxRepositoryInterface {
         }
 
         if (messages.isNotEmpty()) {
-            SqlServerInboxTable.update({ SqlServerInboxTable.id inList messages.map { it.id } }) {
+            table.update({ table.id inList messages.map { it.id } }) {
                 it[state] = "processing"
             }
         }
@@ -98,7 +154,7 @@ class SqlServerInboxRepository : InboxRepositoryInterface {
 
     override suspend fun markProcessed(id: UUID): Unit = newSuspendedTransaction {
         val now = Clock.System.now()
-        SqlServerInboxTable.update({ SqlServerInboxTable.id eq id }) {
+        table.update({ table.id eq id }) {
             it[state] = "processed"
             it[processedAt] = now
         }
@@ -106,38 +162,40 @@ class SqlServerInboxRepository : InboxRepositoryInterface {
     }
 
     override suspend fun countByState(state: String): Long = newSuspendedTransaction {
-        SqlServerInboxTable
+        table
             .selectAll()
-            .where { SqlServerInboxTable.state eq state }
+            .where { table.state eq state }
             .count()
     }
 
     override suspend fun deleteOlderThan(state: String, cutoff: Instant): Int = newSuspendedTransaction {
-        SqlServerInboxTable.deleteWhere {
-            (SqlServerInboxTable.state eq state) and (SqlServerInboxTable.createdAt less cutoff)
+        table.deleteWhere {
+            (table.state eq state) and (table.createdAt less cutoff)
         }
     }
 
-    private fun ResultRow.toInboxMessage(): InboxMessage = InboxMessage(
-        id = this[SqlServerInboxTable.id].value,
-        source = this[SqlServerInboxTable.messageSrc],
-        idempotencyKey = this[SqlServerInboxTable.idempotencyKey],
-        eventType = this[SqlServerInboxTable.eventType],
-        payload = Json.parseToJsonElement(this[SqlServerInboxTable.payload]),
-        state = stringToMessageState(this[SqlServerInboxTable.state]),
-        createdAt = this[SqlServerInboxTable.createdAt],
-        processedAt = this[SqlServerInboxTable.processedAt]
+    private fun ResultRow.toInboxMessageFromRow(): InboxMessage = InboxMessage(
+        id = this[table.id].value,
+        source = this[table.messageSrc],
+        idempotencyKey = this[table.idempotencyKey],
+        aggregateId = this[table.aggregateId],
+        eventType = this[table.eventType],
+        payload = Json.parseToJsonElement(this[table.payload]),
+        state = stringToMessageState(this[table.state]),
+        createdAt = this[table.createdAt],
+        processedAt = this[table.processedAt]
     )
 
     private fun ResultSet.toInboxMessage(): InboxMessage = InboxMessage(
-        id = UUID.fromString(getString("id")),
-        source = getString("source"),
-        idempotencyKey = getString("idempotency_key"),
-        eventType = getString("event_type"),
-        payload = Json.parseToJsonElement(getString("payload")),
-        state = stringToMessageState(getString("state")),
-        createdAt = getTimestamp("created_at").toInstant().toKotlinInstant(),
-        processedAt = getTimestamp("processed_at")?.toInstant()?.toKotlinInstant()
+        id = UUID.fromString(getString(columnMapping.id)),
+        source = getString(columnMapping.source),
+        idempotencyKey = getString(columnMapping.idempotencyKey),
+        aggregateId = getString(columnMapping.aggregateId),
+        eventType = getString(columnMapping.eventType),
+        payload = Json.parseToJsonElement(getString(columnMapping.payload)),
+        state = stringToMessageState(getString(columnMapping.state)),
+        createdAt = getTimestamp(columnMapping.createdAt).toInstant().toKotlinInstant(),
+        processedAt = getTimestamp(columnMapping.processedAt)?.toInstant()?.toKotlinInstant()
     )
 
     private fun stringToMessageState(state: String): MessageState = when (state) {

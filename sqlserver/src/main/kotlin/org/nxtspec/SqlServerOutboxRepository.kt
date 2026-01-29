@@ -28,21 +28,38 @@ import kotlin.time.Duration.Companion.milliseconds
  * Uses ROWLOCK, UPDLOCK, READPAST table hints for concurrent batch claiming,
  * which is the SQL Server equivalent of PostgreSQL's FOR UPDATE SKIP LOCKED.
  */
-class SqlServerOutboxRepository : OutboxRepositoryInterface {
+class SqlServerOutboxRepository(
+    private val columnMapping: OutboxColumnMapping = OutboxColumnMapping(),
+    private val tableName: String = "outbox"
+) : OutboxRepositoryInterface {
+    private val table = SqlServerDynamicOutboxTable(columnMapping, tableName)
 
     override suspend fun claimBatch(batchSize: Int): List<OutboxMessage> = newSuspendedTransaction {
         val now = Clock.System.now()
         val nowTimestamp = Timestamp.from(java.time.Instant.ofEpochSecond(now.epochSeconds, now.nanosecondsOfSecond.toLong()))
+
+        // Escape column names that are SQL Server reserved words
+        val idCol = escapeSqlServerColumnName(columnMapping.id)
+        val topicCol = escapeSqlServerColumnName(columnMapping.topic)
+        val keyCol = escapeSqlServerColumnName(columnMapping.key)
+        val payloadCol = escapeSqlServerColumnName(columnMapping.payload)
+        val headersCol = escapeSqlServerColumnName(columnMapping.headers)
+        val stateCol = escapeSqlServerColumnName(columnMapping.state)
+        val attemptCol = escapeSqlServerColumnName(columnMapping.attempt)
+        val maxAttemptsCol = escapeSqlServerColumnName(columnMapping.maxAttempts)
+        val scheduledAtCol = escapeSqlServerColumnName(columnMapping.scheduledAt)
+        val createdAtCol = escapeSqlServerColumnName(columnMapping.createdAt)
+        val updatedAtCol = escapeSqlServerColumnName(columnMapping.updatedAt)
 
         // Use raw SQL with SQL Server-specific locking hints
         // ROWLOCK: Lock at row level
         // UPDLOCK: Take update locks to prevent other transactions from modifying
         // READPAST: Skip locked rows (equivalent to SKIP LOCKED in PostgreSQL)
         val sql = """
-            SELECT TOP (?) id, topic, [key], payload, state, attempt, max_attempts,
-                   scheduled_at, created_at, updated_at
-            FROM outbox WITH (ROWLOCK, UPDLOCK, READPAST)
-            WHERE state = 'pending' AND scheduled_at <= ?
+            SELECT TOP (?) $idCol, $topicCol, $keyCol, $payloadCol, $headersCol, $stateCol, $attemptCol, $maxAttemptsCol,
+                   $scheduledAtCol, $createdAtCol, $updatedAtCol
+            FROM $tableName WITH (ROWLOCK, UPDLOCK, READPAST)
+            WHERE $stateCol = 'pending' AND $scheduledAtCol <= ?
         """.trimIndent()
 
         val conn = TransactionManager.current().connection.connection as java.sql.Connection
@@ -59,7 +76,7 @@ class SqlServerOutboxRepository : OutboxRepositoryInterface {
         }
 
         if (messages.isNotEmpty()) {
-            SqlServerOutboxTable.update({ SqlServerOutboxTable.id inList messages.map { it.id } }) {
+            table.update({ table.id inList messages.map { it.id } }) {
                 it[state] = "processing"
                 it[updatedAt] = now
             }
@@ -74,8 +91,8 @@ class SqlServerOutboxRepository : OutboxRepositoryInterface {
 
     override suspend fun markFailed(id: UUID, error: String): Unit = newSuspendedTransaction {
         val now = Clock.System.now()
-        SqlServerOutboxTable.update({ SqlServerOutboxTable.id eq id }) {
-            it[attempt] = SqlServerOutboxTable.attempt + 1
+        table.update({ table.id eq id }) {
+            it[attempt] = table.attempt + 1
             it[state] = "failed"
             it[updatedAt] = now
         }
@@ -85,10 +102,10 @@ class SqlServerOutboxRepository : OutboxRepositoryInterface {
     override suspend fun scheduleRetry(id: UUID, delayMs: Long): Unit = newSuspendedTransaction {
         val now = Clock.System.now()
         val scheduledTime = now + delayMs.milliseconds
-        SqlServerOutboxTable.update({ SqlServerOutboxTable.id eq id }) {
+        table.update({ table.id eq id }) {
             it[scheduledAt] = scheduledTime
             it[state] = "pending"
-            it[attempt] = SqlServerOutboxTable.attempt + 1
+            it[attempt] = table.attempt + 1
             it[updatedAt] = now
         }
         Unit
@@ -99,63 +116,81 @@ class SqlServerOutboxRepository : OutboxRepositoryInterface {
     }
 
     override suspend fun countByState(state: String): Long = newSuspendedTransaction {
-        SqlServerOutboxTable
+        table
             .selectAll()
-            .where { SqlServerOutboxTable.state eq state }
+            .where { table.state eq state }
             .count()
     }
 
     override suspend fun deleteOlderThan(state: String, cutoff: Instant): Int = newSuspendedTransaction {
-        SqlServerOutboxTable.deleteWhere {
-            (SqlServerOutboxTable.state eq state) and (SqlServerOutboxTable.updatedAt less cutoff)
+        table.deleteWhere {
+            (table.state eq state) and (table.updatedAt less cutoff)
         }
     }
 
     override suspend fun deleteExceptMostRecent(state: String, keepCount: Int): Int = newSuspendedTransaction {
-        val idsToKeep = SqlServerOutboxTable
-            .select(SqlServerOutboxTable.id)
-            .where { SqlServerOutboxTable.state eq state }
-            .orderBy(SqlServerOutboxTable.updatedAt, SortOrder.DESC)
+        val idsToKeep = table
+            .select(table.id)
+            .where { table.state eq state }
+            .orderBy(table.updatedAt, SortOrder.DESC)
             .limit(keepCount)
 
-        SqlServerOutboxTable.deleteWhere {
-            (SqlServerOutboxTable.state eq state) and (SqlServerOutboxTable.id notInSubQuery idsToKeep)
+        table.deleteWhere {
+            (table.state eq state) and (table.id notInSubQuery idsToKeep)
         }
     }
 
     private fun updateState(id: UUID, newState: String) {
         val now = Clock.System.now()
-        SqlServerOutboxTable.update({ SqlServerOutboxTable.id eq id }) {
+        table.update({ table.id eq id }) {
             it[state] = newState
             it[updatedAt] = now
         }
     }
 
-    private fun ResultRow.toOutboxMessage(): OutboxMessage = OutboxMessage(
-        id = this[SqlServerOutboxTable.id].value,
-        topic = this[SqlServerOutboxTable.topic],
-        key = this[SqlServerOutboxTable.key],
-        payload = Json.parseToJsonElement(this[SqlServerOutboxTable.payload]),
-        state = stringToMessageState(this[SqlServerOutboxTable.state]),
-        attempt = this[SqlServerOutboxTable.attempt],
-        maxAttempts = this[SqlServerOutboxTable.maxAttempts],
-        scheduledAt = this[SqlServerOutboxTable.scheduledAt],
-        createdAt = this[SqlServerOutboxTable.createdAt],
-        updatedAt = this[SqlServerOutboxTable.updatedAt]
-    )
+    private fun ResultRow.toOutboxMessage(): OutboxMessage {
+        val headersJson = this[table.headers]
+        val headers = parseHeadersJson(headersJson)
+        return OutboxMessage(
+            id = this[table.id].value,
+            topic = this[table.topic],
+            key = this[table.key],
+            payload = Json.parseToJsonElement(this[table.payload]),
+            headers = headers,
+            state = stringToMessageState(this[table.state]),
+            attempt = this[table.attempt],
+            maxAttempts = this[table.maxAttempts],
+            scheduledAt = this[table.scheduledAt],
+            createdAt = this[table.createdAt],
+            updatedAt = this[table.updatedAt]
+        )
+    }
 
-    private fun ResultSet.toOutboxMessage(): OutboxMessage = OutboxMessage(
-        id = UUID.fromString(getString("id")),
-        topic = getString("topic"),
-        key = getString("key"),
-        payload = Json.parseToJsonElement(getString("payload")),
-        state = stringToMessageState(getString("state")),
-        attempt = getInt("attempt"),
-        maxAttempts = getInt("max_attempts"),
-        scheduledAt = getTimestamp("scheduled_at").toInstant().toKotlinInstant(),
-        createdAt = getTimestamp("created_at").toInstant().toKotlinInstant(),
-        updatedAt = getTimestamp("updated_at").toInstant().toKotlinInstant()
-    )
+    private fun ResultSet.toOutboxMessage(): OutboxMessage {
+        val headersJson = getString(columnMapping.headers) ?: "{}"
+        val headers = parseHeadersJson(headersJson)
+        return OutboxMessage(
+            id = UUID.fromString(getString(columnMapping.id)),
+            topic = getString(columnMapping.topic),
+            key = getString(columnMapping.key),
+            payload = Json.parseToJsonElement(getString(columnMapping.payload)),
+            headers = headers,
+            state = stringToMessageState(getString(columnMapping.state)),
+            attempt = getInt(columnMapping.attempt),
+            maxAttempts = getInt(columnMapping.maxAttempts),
+            scheduledAt = getTimestamp(columnMapping.scheduledAt).toInstant().toKotlinInstant(),
+            createdAt = getTimestamp(columnMapping.createdAt).toInstant().toKotlinInstant(),
+            updatedAt = getTimestamp(columnMapping.updatedAt).toInstant().toKotlinInstant()
+        )
+    }
+
+    private fun parseHeadersJson(json: String): Map<String, String> {
+        return try {
+            Json.decodeFromString<Map<String, String>>(json)
+        } catch (e: Exception) {
+            emptyMap()
+        }
+    }
 
     private fun stringToMessageState(state: String): MessageState = when (state) {
         "pending" -> MessageState.Pending

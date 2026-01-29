@@ -12,9 +12,17 @@ import io.micrometer.prometheusmetrics.PrometheusConfig
 import io.micrometer.prometheusmetrics.PrometheusMeterRegistry
 import kotlinx.coroutines.runBlocking
 import org.nxtspec.*
+import org.nxtspec.auth.DestinationAuthResolver
+import org.nxtspec.auth.OAuth2TokenManager
 import org.nxtspec.http.HttpPublisher
+import org.nxtspec.repository.ColumnMappingData
 import org.nxtspec.repository.DatabaseProviderFactory
 import org.nxtspec.repository.DatabaseType
+import org.nxtspec.repository.InboxColumnMappingData
+import org.nxtspec.repository.OutboxColumnMappingData
+import org.nxtspec.transform.InboxTransformPipeline
+import org.nxtspec.transform.TransformEngine
+import org.nxtspec.transform.TransformPipeline
 
 fun main() {
     // Load configuration
@@ -29,7 +37,35 @@ fun main() {
 
     // Repositories via factory pattern
     val dbType = DatabaseType.valueOf(config.database.type.uppercase())
-    val repositoryFactory = DatabaseProviderFactory.create(dbType, dataSource)
+    val columnMappingData = ColumnMappingData(
+        outbox = OutboxColumnMappingData(
+            id = config.database.columnMapping.outbox.id,
+            topic = config.database.columnMapping.outbox.topic,
+            key = config.database.columnMapping.outbox.key,
+            payload = config.database.columnMapping.outbox.payload,
+            headers = config.database.columnMapping.outbox.headers,
+            state = config.database.columnMapping.outbox.state,
+            attempt = config.database.columnMapping.outbox.attempt,
+            maxAttempts = config.database.columnMapping.outbox.maxAttempts,
+            scheduledAt = config.database.columnMapping.outbox.scheduledAt,
+            createdAt = config.database.columnMapping.outbox.createdAt,
+            updatedAt = config.database.columnMapping.outbox.updatedAt
+        ),
+        inbox = InboxColumnMappingData(
+            id = config.database.columnMapping.inbox.id,
+            source = config.database.columnMapping.inbox.source,
+            idempotencyKey = config.database.columnMapping.inbox.idempotencyKey,
+            aggregateId = config.database.columnMapping.inbox.aggregateId,
+            eventType = config.database.columnMapping.inbox.eventType,
+            payload = config.database.columnMapping.inbox.payload,
+            state = config.database.columnMapping.inbox.state,
+            createdAt = config.database.columnMapping.inbox.createdAt,
+            processedAt = config.database.columnMapping.inbox.processedAt
+        ),
+        outboxTableName = config.database.outboxTableName,
+        inboxTableName = config.database.inboxTableName
+    )
+    val repositoryFactory = DatabaseProviderFactory.create(dbType, dataSource, columnMappingData)
     val outboxRepository = repositoryFactory.createOutboxRepository()
     val inboxRepository = repositoryFactory.createInboxRepository()
 
@@ -41,32 +77,72 @@ fun main() {
                 baseUrl = destConfig.baseUrl,
                 path = destConfig.path,
                 timeoutMs = destConfig.timeoutMs,
-                headers = destConfig.headers
+                headers = destConfig.headers,
+                authConfig = destConfig.auth
             )
             is DestinationConfig.RabbitMQ -> Destination.RabbitMQ(
                 name = name,
                 url = destConfig.url,
                 exchange = destConfig.exchange,
-                exchangeType = destConfig.exchangeType
+                exchangeType = destConfig.exchangeType,
+                headers = destConfig.headers
             )
         }
+    }
+
+    // Extract destination-level transforms
+    val destinationTransforms = config.destinations.mapValues { (_, destConfig) ->
+        destConfig.transform
     }
 
     // Metrics
     val metricsCollector = MetricsCollector(prometheusRegistry)
 
+    // Authentication
+    val tokenManager = OAuth2TokenManager()
+    val authResolver = DestinationAuthResolver(tokenManager)
+
     // Publishers
-    val httpPublisher = HttpPublisher(metricsCollector = metricsCollector)
+    val httpPublisher = HttpPublisher(
+        metricsCollector = metricsCollector,
+        authResolver = authResolver
+    )
     val publishers = listOf(httpPublisher)
 
+    // Transform pipelines (shared engine for both outbox and inbox)
+    val transformEngine = TransformEngine()
+    val transformPipeline = TransformPipeline(transformEngine)
+    val inboxTransformPipeline = InboxTransformPipeline(transformEngine)
+
+    // Retention service
+    val retentionService = RetentionService(
+        config.retention,
+        outboxRepository,
+        inboxRepository,
+        metricsCollector
+    )
+
     // Outbox service
-    val router = MessageRouter(config.routes, destinations)
+    val router = MessageRouter(config.routes, destinations, destinationTransforms)
     val retryStrategy = RetryStrategy(config.outbox)
-    val outboxPoller = OutboxPoller(config.outbox, outboxRepository, router, publishers, retryStrategy, metricsCollector)
+    val outboxPoller = OutboxPoller(
+        config.outbox,
+        outboxRepository,
+        router,
+        publishers,
+        retryStrategy,
+        metricsCollector,
+        transformPipeline
+    )
 
     // Inbox service
     val extractor = IdempotencyExtractor()
-    val inboxHandler = InboxHandler(inboxRepository, extractor, metricsCollector)
+    val inboxHandler = InboxHandler(
+        repository = inboxRepository,
+        extractor = extractor,
+        metricsCollector = metricsCollector,
+        transformPipeline = inboxTransformPipeline
+    )
 
     // RabbitMQ consumers for inbox sources
     val rabbitConsumers = config.sources
@@ -84,7 +160,9 @@ fun main() {
                     prefetchCount = rabbitConfig.prefetchCount,
                     idempotencyKeyPath = rabbitConfig.idempotencyKeyPath
                 ),
-                metricsCollector = metricsCollector
+                metricsCollector = metricsCollector,
+                transformPipeline = inboxTransformPipeline,
+                sourceTransform = rabbitConfig.transform
             ) to connection
         }
 
@@ -93,6 +171,9 @@ fun main() {
 
     // Start poller
     outboxPoller.start()
+
+    // Start retention cleanup
+    retentionService.start()
 
     // Start RabbitMQ consumers
     runBlocking {
@@ -108,7 +189,9 @@ fun main() {
                 connection.close()
             }
             outboxPoller.shutdown()
+            retentionService.stop()
             httpPublisher.close()
+            tokenManager.close()
             dataSource.close()
         }
         println("Shutdown complete")
@@ -120,6 +203,7 @@ fun main() {
         configureInboxRoutes(config.inbox, config.sources, inboxHandler)
         configureHealthRoutes(healthManager)
         configureMetricsRoutes(prometheusRegistry)
+        configureAdminRoutes(transformEngine)
     }.start(wait = true)
 }
 

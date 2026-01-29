@@ -6,6 +6,9 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.runBlocking
 import kotlinx.datetime.Clock
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.RepeatedTest
 import org.junit.jupiter.api.Tag
@@ -236,5 +239,46 @@ class OutboxRepositoryTest : PostgresTestBase() {
         val allIds = results.flatten().map { it.id }
         assertEquals(allIds.size, allIds.distinct().size, "No duplicates across different repository instances")
         assertEquals(15, allIds.size, "All messages should be claimed exactly once")
+    }
+
+    // --- Headers tests ---
+
+    @Test
+    fun `claimBatch should return messages with headers when present`() = runBlocking {
+        val headers = buildJsonObject {
+            put("X-Custom", JsonPrimitive("value"))
+            put("X-Request-Id", JsonPrimitive("123"))
+        }
+        insertOutboxMessage("pending", headers = headers)
+
+        val result = repository.claimBatch(10)
+
+        assertEquals(1, result.size)
+        assertEquals(mapOf("X-Custom" to "value", "X-Request-Id" to "123"), result[0].headers)
+    }
+
+    @Test
+    fun `claimBatch should return empty headers map when not set`() = runBlocking {
+        insertOutboxMessage("pending")
+
+        val result = repository.claimBatch(10)
+
+        assertEquals(1, result.size)
+        assertEquals(emptyMap<String, String>(), result[0].headers)
+    }
+
+    @Test
+    fun `claimBatch should handle special characters in headers`() = runBlocking {
+        val headers = buildJsonObject {
+            put("X-Unicode", JsonPrimitive("héllo wörld 你好"))
+            put("X-Special", JsonPrimitive("value/with=special&chars"))
+        }
+        insertOutboxMessage("pending", headers = headers)
+
+        val result = repository.claimBatch(10)
+
+        assertEquals(1, result.size)
+        assertEquals("héllo wörld 你好", result[0].headers["X-Unicode"])
+        assertEquals("value/with=special&chars", result[0].headers["X-Special"])
     }
 }

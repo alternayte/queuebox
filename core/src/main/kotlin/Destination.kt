@@ -12,7 +12,8 @@ sealed interface Destination {
         val baseUrl: String,
         val path: String = "/",
         val timeoutMs: Long = 30000,
-        val headers: Map<String, String> = emptyMap()
+        val headers: Map<String, String> = emptyMap(),
+        val authConfig: DestinationAuthConfig? = null
     ) : Destination
 
     @Serializable
@@ -22,6 +23,7 @@ sealed interface Destination {
         val url: String,
         val exchange: String,
         val exchangeType: String = "topic",
-        val routingKeyTemplate: String = "{{ topic }}"
+        val routingKeyTemplate: String = "{{ topic }}",
+        val headers: Map<String, String> = emptyMap()
     ) : Destination
 }

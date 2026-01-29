@@ -50,6 +50,9 @@ class InboxRoutesTest {
                             is InboxHandlerResult.ExtractionFailed ->
                                 call.respond(HttpStatusCode.BadRequest, mapOf("error" to result.reason))
 
+                            is InboxHandlerResult.TransformFailed ->
+                                call.respond(HttpStatusCode.UnprocessableEntity, mapOf("error" to "Transform failed: ${result.reason}"))
+
                             is InboxHandlerResult.StorageFailed ->
                                 call.respond(HttpStatusCode.InternalServerError, mapOf("error" to "Storage failed"))
                         }

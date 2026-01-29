@@ -89,6 +89,7 @@ abstract class PostgresTestBase {
         state: String,
         topic: String = "test-topic",
         payload: JsonElement = JsonObject(emptyMap()),
+        headers: JsonElement = JsonObject(emptyMap()),
         attempt: Int = 0,
         scheduledAt: Instant = Clock.System.now()
     ): UUID {
@@ -99,6 +100,7 @@ abstract class PostgresTestBase {
                 it[OutboxTable.id] = id
                 it[OutboxTable.topic] = topic
                 it[OutboxTable.payload] = payload
+                it[OutboxTable.headers] = headers
                 it[OutboxTable.state] = state
                 it[OutboxTable.attempt] = attempt
                 it[OutboxTable.scheduledAt] = scheduledAt
@@ -113,7 +115,8 @@ abstract class PostgresTestBase {
         source: String,
         idempotencyKey: String,
         payload: JsonElement = JsonObject(emptyMap()),
-        state: String = "pending"
+        state: String = "pending",
+        aggregateId: String? = null
     ): UUID {
         val id = UUID.randomUUID()
         val now = Clock.System.now()
@@ -122,6 +125,7 @@ abstract class PostgresTestBase {
                 it[InboxTable.id] = id
                 it[messageSrc] = source
                 it[InboxTable.idempotencyKey] = idempotencyKey
+                it[InboxTable.aggregateId] = aggregateId
                 it[InboxTable.payload] = payload
                 it[InboxTable.state] = state
                 it[createdAt] = now

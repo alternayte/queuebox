@@ -1,5 +1,7 @@
 package org.nxtspec
 
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
@@ -213,5 +215,164 @@ class MessageRouterTest {
         assertNotNull(router.route("Order.Created"))
         assertNull(router.route("order.created"))
         assertNull(router.route("ORDER.CREATED"))
+    }
+
+    // Payload-based routing key tests
+
+    @Test
+    fun `should use payload field in routing key template`() {
+        val destinations = mapOf(
+            "dest" to Destination.Http(name = "dest", baseUrl = "http://localhost")
+        )
+        val routes = listOf(
+            RouteConfig(
+                topicPattern = "order.*",
+                destination = "dest",
+                routingKeyTemplate = "events.{{ payload.region }}.{{ topic }}"
+            )
+        )
+        val router = MessageRouter(routes, destinations)
+        val payload = buildJsonObject {
+            put("region", JsonPrimitive("us-east"))
+        }
+
+        val result = router.route("order.created", payload)
+
+        assertNotNull(result)
+        assertEquals("events.us-east.order.created", result.routingKey)
+    }
+
+    @Test
+    fun `should use legacy template when payload is null`() {
+        val destinations = mapOf(
+            "dest" to Destination.Http(name = "dest", baseUrl = "http://localhost")
+        )
+        val routes = listOf(
+            RouteConfig(
+                topicPattern = "order.*",
+                destination = "dest",
+                routingKeyTemplate = "routed.{{ topic }}"
+            )
+        )
+        val router = MessageRouter(routes, destinations)
+
+        val result = router.route("order.created", null)
+
+        assertNotNull(result)
+        assertEquals("routed.order.created", result.routingKey)
+    }
+
+    @Test
+    fun `should use empty string default for missing payload field`() {
+        val destinations = mapOf(
+            "dest" to Destination.Http(name = "dest", baseUrl = "http://localhost")
+        )
+        val routes = listOf(
+            RouteConfig(
+                topicPattern = "order.*",
+                destination = "dest",
+                routingKeyTemplate = "events.{{ payload.missing }}.{{ topic }}"
+            )
+        )
+        val router = MessageRouter(routes, destinations)
+        val payload = buildJsonObject {}
+
+        val result = router.route("order.created", payload)
+
+        assertNotNull(result)
+        assertEquals("events..order.created", result.routingKey)
+    }
+
+    @Test
+    fun `should use custom default for missing payload field`() {
+        val destinations = mapOf(
+            "dest" to Destination.Http(name = "dest", baseUrl = "http://localhost")
+        )
+        val routes = listOf(
+            RouteConfig(
+                topicPattern = "order.*",
+                destination = "dest",
+                routingKeyTemplate = "events.{{ payload.region }}.{{ topic }}",
+                routingKeyMissingFieldDefault = "default"
+            )
+        )
+        val router = MessageRouter(routes, destinations)
+        val payload = buildJsonObject {}
+
+        val result = router.route("order.created", payload)
+
+        assertNotNull(result)
+        assertEquals("events.default.order.created", result.routingKey)
+    }
+
+    @Test
+    fun `should extract nested payload fields for routing`() {
+        val destinations = mapOf(
+            "dest" to Destination.Http(name = "dest", baseUrl = "http://localhost")
+        )
+        val routes = listOf(
+            RouteConfig(
+                topicPattern = "order.*",
+                destination = "dest",
+                routingKeyTemplate = "events.{{ payload.data.region }}"
+            )
+        )
+        val router = MessageRouter(routes, destinations)
+        val payload = buildJsonObject {
+            put("data", buildJsonObject {
+                put("region", JsonPrimitive("eu-west"))
+            })
+        }
+
+        val result = router.route("order.created", payload)
+
+        assertNotNull(result)
+        assertEquals("events.eu-west", result.routingKey)
+    }
+
+    @Test
+    fun `should support data prefix as payload alias`() {
+        val destinations = mapOf(
+            "dest" to Destination.Http(name = "dest", baseUrl = "http://localhost")
+        )
+        val routes = listOf(
+            RouteConfig(
+                topicPattern = "order.*",
+                destination = "dest",
+                routingKeyTemplate = "events.{{ data.eventType }}"
+            )
+        )
+        val router = MessageRouter(routes, destinations)
+        val payload = buildJsonObject {
+            put("eventType", JsonPrimitive("order.created"))
+        }
+
+        val result = router.route("order.created", payload)
+
+        assertNotNull(result)
+        assertEquals("events.order.created", result.routingKey)
+    }
+
+    @Test
+    fun `should preserve backward compatibility - existing topic patterns work with payload`() {
+        val destinations = mapOf(
+            "dest" to Destination.Http(name = "dest", baseUrl = "http://localhost")
+        )
+        val routes = listOf(
+            RouteConfig(
+                topicPattern = "order.*",
+                destination = "dest",
+                routingKeyTemplate = "routed.{{ topic }}.events"
+            )
+        )
+        val router = MessageRouter(routes, destinations)
+        val payload = buildJsonObject {
+            put("ignored", JsonPrimitive("field"))
+        }
+
+        val result = router.route("order.created", payload)
+
+        assertNotNull(result)
+        assertEquals("routed.order.created.events", result.routingKey)
     }
 }

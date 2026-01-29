@@ -10,6 +10,8 @@ repositories {
 }
 
 dependencies {
+    implementation(project(":core"))
+
     testImplementation(libs.kotlin.test)
     testImplementation(libs.mockk)
 

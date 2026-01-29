@@ -11,12 +11,14 @@ import io.ktor.serialization.kotlinx.json.*
 import org.nxtspec.Destination
 import org.nxtspec.OutboxMessage
 import org.nxtspec.Publisher
+import org.nxtspec.auth.DestinationAuthResolver
 import org.nxtspec.metrics.MetricsCollectorInterface
 import java.util.concurrent.ConcurrentHashMap
 
 class HttpPublisher(
     private val clientFactory: ((Destination.Http) -> HttpClient)? = null,
-    private val metricsCollector: MetricsCollectorInterface? = null
+    private val metricsCollector: MetricsCollectorInterface? = null,
+    private val authResolver: DestinationAuthResolver? = null
 ) : Publisher {
     private val clients = ConcurrentHashMap<String, HttpClient>()
 
@@ -47,6 +49,13 @@ class HttpPublisher(
         val startTime = System.currentTimeMillis()
         return try {
             val client = getClient(httpDest)
+
+            // Resolve auth headers if configured
+            val authHeaders = authResolver?.resolveAuthHeaders(httpDest.authConfig) ?: emptyMap()
+
+            // Merge headers: destination static -> auth -> per-message (later wins)
+            val mergedCustomHeaders = httpDest.headers + authHeaders + message.headers
+
             val response = client.post(httpDest.baseUrl + httpDest.path) {
                 contentType(ContentType.Application.Json)
                 // Standard headers
@@ -54,8 +63,8 @@ class HttpPublisher(
                 header("X-Topic", message.topic)
                 header("X-Attempt", message.attempt.toString())
                 message.key?.let { header("X-Message-Key", it) }
-                // Custom headers from config
-                httpDest.headers.forEach { (k, v) -> header(k, v) }
+                // Custom headers (destination + per-message, with per-message taking precedence)
+                mergedCustomHeaders.forEach { (k, v) -> header(k, v) }
                 setBody(message.payload)
             }
 
@@ -93,5 +102,11 @@ class HttpPublisher(
 }
 
 object HttpPublisherFactory {
-    fun create(metricsCollector: MetricsCollectorInterface? = null): HttpPublisher = HttpPublisher(metricsCollector = metricsCollector)
+    fun create(
+        metricsCollector: MetricsCollectorInterface? = null,
+        authResolver: DestinationAuthResolver? = null
+    ): HttpPublisher = HttpPublisher(
+        metricsCollector = metricsCollector,
+        authResolver = authResolver
+    )
 }

@@ -13,6 +13,7 @@ repositories {
 dependencies {
     implementation(project(":core"))
     implementation(project(":config"))
+    implementation(project(":inbox-service"))  // For InboxTransformPipeline
 
     // RabbitMQ client
     implementation("com.rabbitmq:amqp-client:5.22.0")
