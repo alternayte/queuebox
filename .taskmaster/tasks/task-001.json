@@ -1,0 +1,11 @@
+{
+  "id": "1",
+  "title": "what skills are available?",
+  "description": "what skills are available?",
+  "status": "pending",
+  "priority": "medium",
+  "dependencies": [],
+  "subtasks": [],
+  "details": "",
+  "testStrategy": ""
+}

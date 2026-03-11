@@ -4,6 +4,7 @@ CREATE TABLE outbox (
     topic VARCHAR(255) NOT NULL,
     key VARCHAR(255),
     payload JSONB NOT NULL,
+    headers JSONB NOT NULL DEFAULT '{}',
     state VARCHAR(50) NOT NULL DEFAULT 'pending',
     attempt INTEGER NOT NULL DEFAULT 0,
     max_attempts INTEGER NOT NULL DEFAULT 5,
@@ -21,5 +22,6 @@ CREATE INDEX idx_outbox_pending_scheduled ON outbox(state, scheduled_at)
 CREATE INDEX idx_outbox_topic ON outbox(topic);
 
 COMMENT ON TABLE outbox IS 'Transactional outbox for reliable message publishing';
+COMMENT ON COLUMN outbox.headers IS 'Message headers as key-value pairs (JSON object)';
 COMMENT ON COLUMN outbox.state IS 'Message state: pending, processing, sent, failed, dead';
 COMMENT ON COLUMN outbox.scheduled_at IS 'When the message should be processed (supports delayed/retry scheduling)';

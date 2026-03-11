@@ -30,6 +30,46 @@ To include RabbitMQ:
 docker compose --profile rabbitmq up -d
 ```
 
+### Building the Docker Image
+
+**Local build:**
+
+```bash
+docker build -t queuebox .
+```
+
+**Multi-platform build** (for cross-platform compatibility):
+
+```bash
+# Create a builder instance (one-time setup)
+docker buildx create --name queuebox-builder --use
+
+# Build for multiple architectures
+docker buildx build --platform linux/amd64,linux/arm64 -t queuebox .
+```
+
+**Build and push to Docker Hub:**
+
+```bash
+# Tag with your Docker Hub username
+docker buildx build \
+  --platform linux/amd64,linux/arm64 \
+  -t yourusername/queuebox:latest \
+  -t yourusername/queuebox:1.0.0 \
+  --push .
+```
+
+**Build with cloud builder** (faster for multi-platform builds):
+
+```bash
+# Use Docker's cloud build infrastructure
+docker buildx build \
+  --platform linux/amd64,linux/arm64 \
+  --builder cloud-yourusername-default \
+  -t yourusername/queuebox:latest \
+  --push .
+```
+
 ### Manual Setup
 
 **Requirements:** JDK 21+, PostgreSQL 14+
@@ -185,15 +225,167 @@ retention:
     batchSize: 1000
 ```
 
-### Environment Variable Overrides
+### Required Fields Reference
 
-Any config value can be overridden via environment variables using the `${VAR_NAME}` syntax with optional defaults:
+#### Core Required Fields
+
+These fields have no defaults and must always be provided:
+
+| Field | YAML Path | Environment Variable | Description |
+|-------|-----------|---------------------|-------------|
+| Database URL | `database.url` | `QUEUEBOX_DATABASE_URL` | JDBC connection string |
+| Database Username | `database.username` | `QUEUEBOX_DATABASE_USERNAME` | Database user |
+| Database Password | `database.password` | `QUEUEBOX_DATABASE_PASSWORD` | Database password |
+
+#### Conditional Requirements
+
+These fields are required only when configuring specific features:
+
+**HTTP Destinations** (each destination in `destinations` with `type: http`):
+
+| Field | Required | Default |
+|-------|----------|---------|
+| `baseUrl` | Yes | — |
+| `path` | No | `/` |
+| `timeoutMs` | No | `30000` |
+
+**RabbitMQ Destinations** (each destination with `type: rabbitmq`):
+
+| Field | Required | Default |
+|-------|----------|---------|
+| `url` | Yes | — |
+| `exchange` | Yes | — |
+| `exchangeType` | No | `topic` |
+
+**Routes** (each entry in `routes`):
+
+| Field | Required | Default |
+|-------|----------|---------|
+| `topicPattern` | Yes | — |
+| `destination` | Yes | — (must reference existing destination) |
+
+**HTTP Sources** (each source in `sources` with `type: http`):
+
+| Field | Required | Default |
+|-------|----------|---------|
+| `path` | Yes | — |
+| `idempotencyKeyPath` | Yes | — |
+
+**RabbitMQ Sources** (each source with `type: rabbitmq`):
+
+| Field | Required | Default |
+|-------|----------|---------|
+| `queueName` | Yes | — |
+| `connectionUrl` | Yes | — |
+| `idempotencyKeyPath` | No | `$.id` |
+| `prefetchCount` | No | `10` |
+
+#### Authentication Requirements
+
+When `auth` is specified, these fields become required based on auth type:
+
+**Inbox Auth (sources):**
+
+| Auth Type | Required Fields |
+|-----------|-----------------|
+| `bearer` | `token` |
+| `api-key` | `key` |
+| `hmac` | `secret` |
+
+**Destination Auth:**
+
+| Auth Type | Required Fields |
+|-----------|-----------------|
+| `oauth2` | `clientId`, `clientSecret`, `tokenUrl` |
+| `basic` | `username` |
+| `header` | `headerName`, `headerValue` |
+
+#### Retention Requirements
+
+When `retention.enabled: true`:
+
+| Policy | Required Field |
+|--------|----------------|
+| `age` | `maxAge` (e.g., `7d`, `24h`) |
+| `count` | `maxCount` (positive integer) |
+| `disabled` | None |
+
+### Environment Variables
+
+QueueBox supports two ways to use environment variables:
+
+#### 1. Substitution in YAML
+
+Use `${VAR_NAME}` syntax with optional defaults inside your YAML config:
 
 ```yaml
 database:
   url: ${DB_URL:-jdbc:postgresql://localhost:5432/queuebox}
   password: ${DB_PASSWORD}  # Required, no default
 ```
+
+#### 2. Environment-Only Configuration (No YAML)
+
+For container deployments, you can configure QueueBox entirely with environment variables using the `QUEUEBOX_` prefix — no YAML file needed.
+
+**Naming convention:**
+- Prefix all variables with `QUEUEBOX_`
+- Use underscores to separate path segments (maps to dots in YAML)
+- Use double underscore `__` for literal underscores in field names
+- Use numeric segments for array indices
+
+| Environment Variable | YAML Equivalent |
+|---------------------|-----------------|
+| `QUEUEBOX_DATABASE_URL` | `database.url` |
+| `QUEUEBOX_DATABASE_USERNAME` | `database.username` |
+| `QUEUEBOX_DATABASE_PASSWORD` | `database.password` |
+| `QUEUEBOX_SERVER_HTTP_PORT` | `server.httpPort` |
+| `QUEUEBOX_OUTBOX_POLL_INTERVAL_MS` | `outbox.pollIntervalMs` |
+| `QUEUEBOX_ROUTES_0_TOPIC_PATTERN` | `routes[0].topicPattern` |
+| `QUEUEBOX_ROUTES_0_DESTINATION` | `routes[0].destination` |
+| `QUEUEBOX_DESTINATIONS_MY__API_BASE_URL` | `destinations.my_api.baseUrl` |
+
+**Docker example:**
+
+```bash
+docker run -e QUEUEBOX_DATABASE_URL=jdbc:postgresql://db:5432/queuebox \
+           -e QUEUEBOX_DATABASE_USERNAME=postgres \
+           -e QUEUEBOX_DATABASE_PASSWORD=secret \
+           -e QUEUEBOX_DESTINATIONS_WEBHOOK_TYPE=http \
+           -e QUEUEBOX_DESTINATIONS_WEBHOOK_BASE_URL=https://api.example.com \
+           -e QUEUEBOX_ROUTES_0_TOPIC_PATTERN="order.*" \
+           -e QUEUEBOX_ROUTES_0_DESTINATION=webhook \
+           -e QUEUEBOX_SOURCES_STRIPE_TYPE=http \
+           -e QUEUEBOX_SOURCES_STRIPE_PATH=/stripe \
+           -e QUEUEBOX_SOURCES_STRIPE_IDEMPOTENCY_KEY_PATH="$.id" \
+           queuebox
+```
+
+**Docker Compose example:**
+
+```yaml
+services:
+  queuebox:
+    image: queuebox
+    environment:
+      QUEUEBOX_DATABASE_URL: jdbc:postgresql://db:5432/queuebox
+      QUEUEBOX_DATABASE_USERNAME: postgres
+      QUEUEBOX_DATABASE_PASSWORD: secret
+      QUEUEBOX_DESTINATIONS_WEBHOOK_TYPE: http
+      QUEUEBOX_DESTINATIONS_WEBHOOK_BASE_URL: https://api.example.com
+      QUEUEBOX_ROUTES_0_TOPIC_PATTERN: "order.*"
+      QUEUEBOX_ROUTES_0_DESTINATION: webhook
+      QUEUEBOX_SOURCES_STRIPE_TYPE: http
+      QUEUEBOX_SOURCES_STRIPE_PATH: /stripe
+      QUEUEBOX_SOURCES_STRIPE_IDEMPOTENCY_KEY_PATH: "$.id"
+```
+
+**Minimum required variables:**
+- `QUEUEBOX_DATABASE_URL`
+- `QUEUEBOX_DATABASE_USERNAME`
+- `QUEUEBOX_DATABASE_PASSWORD`
+
+All other settings have defaults or are optional depending on your use case.
 
 ## HTTP API
 
