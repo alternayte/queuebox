@@ -56,6 +56,22 @@ object ConfigValidator {
             "Outbox batch size must be greater than 0. " +
                 "Set via 'outbox.batchSize' in YAML or ${EnvConfigLoader.yamlPathToEnvKey("outbox.batchSize")} env var."
         }
+        require(config.outbox.concurrency > 0) {
+            "Outbox concurrency must be greater than 0. " +
+                "Set via 'outbox.concurrency' in YAML or ${EnvConfigLoader.yamlPathToEnvKey("outbox.concurrency")} env var."
+        }
+        require(config.outbox.claimTimeoutMs > 0) {
+            "Outbox claim timeout must be greater than 0. " +
+                "Set via 'outbox.claimTimeoutMs' in YAML or ${EnvConfigLoader.yamlPathToEnvKey("outbox.claimTimeoutMs")} env var."
+        }
+        require(config.outbox.shutdownTimeoutMs > 0) {
+            "Outbox shutdown timeout must be greater than 0. " +
+                "Set via 'outbox.shutdownTimeoutMs' in YAML or ${EnvConfigLoader.yamlPathToEnvKey("outbox.shutdownTimeoutMs")} env var."
+        }
+        require(config.inbox.maxBodyBytes > 0) {
+            "Inbox max body bytes must be greater than 0. " +
+                "Set via 'inbox.maxBodyBytes' in YAML or ${EnvConfigLoader.yamlPathToEnvKey("inbox.maxBodyBytes")} env var."
+        }
         require(config.outbox.maxAttempts > 0) {
             "Outbox max attempts must be greater than 0. " +
                 "Set via 'outbox.maxAttempts' in YAML or ${EnvConfigLoader.yamlPathToEnvKey("outbox.maxAttempts")} env var."
@@ -92,6 +108,13 @@ object ConfigValidator {
         config.sources.forEach { (name, source) ->
             validateTransform(source.transform, "Source '$name'", "sources.$name.transform")
             validateSourceTopic(name, source)
+            source.rateLimit?.let {
+                require(it.requestsPerMinute > 0) {
+                    "Source '$name' rateLimit.requestsPerMinute must be greater than 0. " +
+                        "Set via 'sources.$name.rateLimit.requestsPerMinute' in YAML or " +
+                        "${EnvConfigLoader.yamlPathToEnvKey("sources.$name.rateLimit.requestsPerMinute")} env var."
+                }
+            }
             if (source is SourceConfig.Http) {
                 validateInboxAuth(source.auth, "Source '$name'", "sources.$name.auth")
             }

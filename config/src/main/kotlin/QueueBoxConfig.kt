@@ -30,7 +30,9 @@ data class DatabaseConfig(
     val connectionTimeoutMs: Long = 30000,
     val columnMapping: ColumnMappingConfig = ColumnMappingConfig(),
     val outboxTableName: String = "outbox",
-    val inboxTableName: String = "inbox"
+    val inboxTableName: String = "inbox",
+    /** Run the bundled migrations at startup. See F-030. */
+    val migrate: Boolean = true
 )
 
 /**
@@ -88,13 +90,29 @@ data class OutboxConfig(
     val retryBaseDelayMs: Long = 1000,
     val maxAttempts: Int = 5,
     /** Visibility timeout. A claim older than this returns to state 'pending'. See F-006. */
-    val claimTimeoutMs: Long = 300000
+    val claimTimeoutMs: Long = 300000,
+    /** Maximum number of messages that the poller publishes at the same time. See F-014. */
+    val concurrency: Int = 8,
+    /** Minimum interval between two pending count queries. See F-015. */
+    val pendingGaugeIntervalMs: Long = 5000,
+    /** Maximum time that the shutdown waits for the in-flight messages. See F-028. */
+    val shutdownTimeoutMs: Long = 30000
 )
 
 @Serializable
 data class InboxConfig(
     val basePath: String = "/inbox",
-    val relay: InboxRelayConfig = InboxRelayConfig()
+    val relay: InboxRelayConfig = InboxRelayConfig(),
+    /** Maximum accepted request body size in bytes. A larger body gets 413. See F-023. */
+    val maxBodyBytes: Long = 1048576
+)
+
+/**
+ * Optional per-source rate limit for an inbox HTTP endpoint. See F-024.
+ */
+@Serializable
+data class RateLimitConfig(
+    val requestsPerMinute: Int
 )
 
 /**
@@ -157,6 +175,9 @@ sealed class SourceConfig {
      */
     abstract val topic: String
 
+    /** Optional rate limit for this source. See F-024. */
+    abstract val rateLimit: RateLimitConfig?
+
     @Serializable
     @SerialName("http")
     data class Http(
@@ -166,6 +187,7 @@ sealed class SourceConfig {
         val eventTypePath: String? = null,
         override val transform: TransformConfig? = null,
         override val topic: String = "{{ eventType }}",
+        override val rateLimit: RateLimitConfig? = null,
         val auth: InboxAuthConfig? = null
     ) : SourceConfig()
 
@@ -178,6 +200,7 @@ sealed class SourceConfig {
         val aggregateIdPath: String? = null,
         val prefetchCount: Int = 10,
         override val transform: TransformConfig? = null,
-        override val topic: String = "{{ eventType }}"
+        override val topic: String = "{{ eventType }}",
+        override val rateLimit: RateLimitConfig? = null
     ) : SourceConfig()
 }
