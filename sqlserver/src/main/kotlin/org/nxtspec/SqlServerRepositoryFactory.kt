@@ -3,6 +3,7 @@ package org.nxtspec
 import org.nxtspec.repository.ColumnMappingData
 import org.nxtspec.repository.InboxRepositoryInterface
 import org.nxtspec.repository.OutboxRepositoryInterface
+import org.nxtspec.repository.Migrator
 import org.nxtspec.repository.RepositoryFactory
 import org.nxtspec.repository.TransactionRunner
 import javax.sql.DataSource
@@ -51,4 +52,6 @@ class SqlServerRepositoryFactory(
         SqlServerInboxRepository(inboxColumnMapping, columnMapping.inboxTableName)
 
     override fun createTransactionRunner(): TransactionRunner = SqlServerTransactionRunner()
+
+    override fun createMigrator(): Migrator = SqlServerMigrator()
 }

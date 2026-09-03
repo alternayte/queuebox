@@ -101,10 +101,11 @@ abstract class PostgresTestBase {
         payload: JsonElement = JsonObject(emptyMap()),
         headers: JsonElement = JsonObject(emptyMap()),
         attempt: Int = 0,
-        scheduledAt: Instant = Clock.System.now()
+        scheduledAt: Instant = Clock.System.now(),
+        createdAt: Instant = Clock.System.now(),
+        updatedAt: Instant = Clock.System.now()
     ): UUID {
         val id = UUID.randomUUID()
-        val now = Clock.System.now()
         transaction {
             OutboxTable.insert {
                 it[OutboxTable.id] = id
@@ -114,8 +115,8 @@ abstract class PostgresTestBase {
                 it[OutboxTable.state] = state
                 it[OutboxTable.attempt] = attempt
                 it[OutboxTable.scheduledAt] = scheduledAt
-                it[createdAt] = now
-                it[updatedAt] = now
+                it[OutboxTable.createdAt] = createdAt
+                it[OutboxTable.updatedAt] = updatedAt
             }
         }
         return id
@@ -126,10 +127,10 @@ abstract class PostgresTestBase {
         idempotencyKey: String,
         payload: JsonElement = JsonObject(emptyMap()),
         state: String = "pending",
-        aggregateId: String? = null
+        aggregateId: String? = null,
+        createdAt: Instant = Clock.System.now()
     ): UUID {
         val id = UUID.randomUUID()
-        val now = Clock.System.now()
         transaction {
             InboxTable.insert {
                 it[InboxTable.id] = id
@@ -138,7 +139,7 @@ abstract class PostgresTestBase {
                 it[InboxTable.aggregateId] = aggregateId
                 it[InboxTable.payload] = payload
                 it[InboxTable.state] = state
-                it[createdAt] = now
+                it[InboxTable.createdAt] = createdAt
             }
         }
         return id

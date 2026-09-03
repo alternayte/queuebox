@@ -10,6 +10,10 @@ repositories {
 }
 
 dependencies {
+    // Flyway migrations
+    implementation(libs.flyway.core)
+    implementation(libs.flyway.sqlserver)
+
     implementation(project(":core"))
     implementation(project(":config"))
 

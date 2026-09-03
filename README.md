@@ -79,6 +79,10 @@ docker buildx build \
 CREATE DATABASE queuebox;
 ```
 
+QueueBox creates its own tables. At startup it applies the bundled migrations with Flyway.
+Set `database.migrate: false` when the application user has no DDL rights, and apply the SQL
+files by hand. See [docs/development/migrations.md](docs/development/migrations.md).
+
 2. Configure `config/src/main/resources/queuebox.yml` or set environment variables:
 ```bash
 export DB_URL=jdbc:postgresql://localhost:5432/queuebox
@@ -142,6 +146,10 @@ outbox:
   batchSize: 100                          # Messages per poll cycle
   retryBaseDelayMs: 1000                  # Base delay for exponential backoff
   maxAttempts: 5                          # Max delivery attempts before dead-letter
+  concurrency: 8                          # Messages published at the same time
+  claimTimeoutMs: 300000                  # A claim older than this returns to pending
+  pendingGaugeIntervalMs: 5000            # Minimum interval between pending count queries
+  shutdownTimeoutMs: 30000                # Maximum wait for the in-flight messages
 
 inbox:
   basePath: /inbox                        # Base path for inbox HTTP endpoints
@@ -355,6 +363,22 @@ When `retention.enabled: true`:
 | `age` | `maxAge` (e.g., `7d`, `24h`) |
 | `count` | `maxCount` (positive integer) |
 | `disabled` | None |
+
+#### Which timestamp the age policy uses
+
+The two tables measure age from a different column. State the difference when you size a
+retention window.
+
+| Table | Column | Meaning |
+|-------|--------|---------|
+| `outbox` | `updated_at` | The moment of the last state change, which is the delivery or the dead-letter. |
+| `inbox` | `created_at` | The moment of receipt. The inbox has no `updated_at` column. |
+
+The test `postgres/src/test/kotlin/org/nxtspec/RetentionSemanticsTest.kt` is the source of truth.
+
+The age policy deletes at most `batchSize` rows per statement, and it repeats until no eligible
+row remains. The outbox age policy cleans the states `sent` and `dead`. The inbox age policy
+cleans the states `processed` and `dead`.
 
 ### Environment Variables
 
@@ -735,6 +759,11 @@ default is an empty string if `routingKeyMissingFieldDefault` is not configured.
 The test
 `outbox-service/src/test/kotlin/org/nxtspec/RoutingKeyTemplateContractTest.kt` is the source of
 truth for the supported placeholder forms.
+
+**Ordering under concurrency.** The poller claims a batch in order, oldest first, and then
+publishes up to `outbox.concurrency` messages at the same time. Two messages of one batch can
+therefore arrive at the destination out of order. Set `outbox.concurrency: 1` when a destination
+needs strict order.
 
 **Precedence.** The route `routingKeyTemplate` wins. QueueBox renders it, and the RabbitMQ
 publisher uses the result. A RabbitMQ destination also has its own `routingKeyTemplate`, which

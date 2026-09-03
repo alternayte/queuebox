@@ -69,6 +69,13 @@ fun main() {
         inboxTableName = config.database.inboxTableName
     )
     val repositoryFactory = DatabaseProviderFactory.create(dbType, dataSource, columnMappingData)
+
+    // F-030: apply the bundled migrations before anything reads a table.
+    if (config.database.migrate) {
+        val applied = repositoryFactory.createMigrator().migrate(dataSource)
+        println("Applied $applied migration(s)")
+    }
+
     val outboxRepository = repositoryFactory.createOutboxRepository()
     val inboxRepository = repositoryFactory.createInboxRepository()
     val transactionRunner = repositoryFactory.createTransactionRunner()
@@ -204,27 +211,9 @@ fun main() {
         rabbitConsumers.forEach { (consumer, _) -> consumer.start() }
     }
 
-    // Register shutdown hook BEFORE starting the server
-    Runtime.getRuntime().addShutdownHook(Thread {
-        println("Shutting down QueueBox...")
-        runBlocking {
-            rabbitConsumers.forEach { (consumer, connection) ->
-                consumer.stop()
-                connection.close()
-            }
-            outboxPoller.shutdown()
-            inboxRelay.shutdown()
-            retentionService.stop()
-            httpPublisher.close()
-            rabbitPublisher.close()
-            tokenManager.close()
-            dataSource.close()
-        }
-        println("Shutdown complete")
-    })
-
-    // Start server
-    embeddedServer(
+    // F-029: hold the server reference, so the shutdown can stop it first.
+    val requestDrain = RequestDrain()
+    val server = embeddedServer(
         factory = Netty,
         environment = applicationEnvironment { },
         configure = {
@@ -233,13 +222,55 @@ fun main() {
             maxChunkSize = minOf(config.inbox.maxBodyBytes, maxChunkSize.toLong()).toInt()
         }
     ) {
+        configureRequestDrain(requestDrain)
         configureRouting()
         configureInboxRoutes(config.inbox, config.sources, inboxHandler)
         configureHealthRoutes(healthManager)
         configureMetricsRoutes(prometheusRegistry)
         configureAdminRoutes(transformEngine)
-    }.start(wait = true)
+    }
+
+    val shutdownSequence = ShutdownSequence(
+        stopServer = {
+            // Wait for the in-flight requests. The Ktor stop cancels a running handler.
+            val drained = requestDrain.await(SHUTDOWN_GRACE_PERIOD_MS)
+            if (!drained) {
+                println("Shutdown drain timeout. ${requestDrain.count()} request(s) still in flight.")
+            }
+            server.stop(
+                gracePeriodMillis = SHUTDOWN_GRACE_PERIOD_MS,
+                timeoutMillis = config.outbox.shutdownTimeoutMs
+            )
+        },
+        stopBackgroundServices = {
+            rabbitConsumers.forEach { (consumer, connection) ->
+                consumer.stop()
+                connection.close()
+            }
+            outboxPoller.shutdown()
+            inboxRelay.shutdown()
+            retentionService.stop()
+        },
+        closeResources = {
+            httpPublisher.close()
+            rabbitPublisher.close()
+            tokenManager.close()
+            dataSource.close()
+        }
+    )
+
+    // Register the shutdown hook BEFORE the server starts.
+    Runtime.getRuntime().addShutdownHook(
+        Thread {
+            runBlocking { shutdownSequence.run() }
+        }
+    )
+
+    server.start(wait = true)
 }
+
+/** Time that an in-flight request has to finish before the server stops. See F-029. */
+private const val SHUTDOWN_GRACE_PERIOD_MS = 5000L
 
 fun Application.configureRouting() {
     install(ContentNegotiation) {

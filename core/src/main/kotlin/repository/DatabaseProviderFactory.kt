@@ -64,6 +64,9 @@ interface RepositoryFactory {
     fun createOutboxRepository(): OutboxRepositoryInterface
     fun createInboxRepository(): InboxRepositoryInterface
     fun createTransactionRunner(): TransactionRunner
+
+    /** The migrator for this database. See F-030. */
+    fun createMigrator(): Migrator
 }
 
 /**

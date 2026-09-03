@@ -11,6 +11,7 @@ ktor = "3.4.0"
 hoplite = "2.9.0"
 micrometer = "1.14.3"
 jsonata = "0.9.8"
+flyway = "11.1.0"
 
 # Testing
 testcontainers = "1.20.4"
@@ -45,6 +46,11 @@ micrometer-prometheus = { group = "io.micrometer", name = "micrometer-registry-p
 
 # JSONata
 jsonata = { group = "com.dashjoin", name = "jsonata", version.ref = "jsonata" }
+
+# Flyway
+flyway-core = { group = "org.flywaydb", name = "flyway-core", version.ref = "flyway" }
+flyway-postgresql = { group = "org.flywaydb", name = "flyway-database-postgresql", version.ref = "flyway" }
+flyway-sqlserver = { group = "org.flywaydb", name = "flyway-sqlserver", version.ref = "flyway" }
 
 # Testing
 kotlin-test = { module = "org.jetbrains.kotlin:kotlin-test" }
