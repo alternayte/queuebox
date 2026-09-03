@@ -4,6 +4,7 @@ import io.ktor.client.request.*
 import io.ktor.client.statement.*
 import io.ktor.http.*
 import io.ktor.serialization.kotlinx.json.*
+import io.ktor.server.application.*
 import io.ktor.server.plugins.contentnegotiation.*
 import io.ktor.server.request.*
 import io.ktor.server.response.*
@@ -26,80 +27,17 @@ class AdminRoutesTest {
     private val transformEngine = TransformEngine()
 
     private fun ApplicationTestBuilder.setupApp() {
-        install(ContentNegotiation) { json() }
-        routing {
-            route("/admin") {
-                post("/transform/test") {
-                    val request = try {
-                        call.receive<org.nxtspec.app.dto.TransformTestRequest>()
-                    } catch (e: Exception) {
-                        call.respond(
-                            HttpStatusCode.BadRequest,
-                            org.nxtspec.app.dto.TransformTestResponse(
-                                success = false,
-                                error = "Invalid request: ${e.message}"
-                            )
-                        )
-                        return@post
-                    }
-
-                    // Validate expression first
-                    transformEngine.validateExpression(request.expression).onFailure { error ->
-                        call.respond(
-                            HttpStatusCode.BadRequest,
-                            org.nxtspec.app.dto.TransformTestResponse(
-                                success = false,
-                                error = "Invalid expression: ${error.message}"
-                            )
-                        )
-                        return@post
-                    }
-
-                    // Create mock context
-                    val context = org.nxtspec.transform.TransformContext(
-                        messageId = java.util.UUID.randomUUID(),
-                        topic = request.mockTopic ?: "test.topic",
-                        attempt = 1,
-                        timestamp = kotlinx.datetime.Clock.System.now(),
-                        source = request.mockSource
-                    )
-
-                    // Evaluate the expression
-                    val result = transformEngine.evaluate(
-                        expression = request.expression,
-                        payload = request.payload,
-                        context = context,
-                        timeoutMs = request.timeoutMs ?: 100
-                    )
-
-                    result.fold(
-                        onSuccess = { output ->
-                            call.respond(
-                                org.nxtspec.app.dto.TransformTestResponse(
-                                    success = true,
-                                    result = output,
-                                    context = org.nxtspec.app.dto.TransformContextDto(
-                                        messageId = context.messageId.toString(),
-                                        topic = context.topic,
-                                        attempt = context.attempt,
-                                        timestamp = context.timestamp.toString()
-                                    )
-                                )
-                            )
-                        },
-                        onFailure = { error ->
-                            call.respond(
-                                HttpStatusCode.BadRequest,
-                                org.nxtspec.app.dto.TransformTestResponse(
-                                    success = false,
-                                    error = error.message ?: "Transform evaluation failed"
-                                )
-                            )
-                        }
-                    )
-                }
-            }
+        application {
+            configureAdminApplication(transformEngine)
         }
+    }
+
+    private fun Application.configureAdminApplication(
+        engine: TransformEngine
+    ) {
+        install(ContentNegotiation) { json() }
+        // Call the production wiring, so the test covers the shipped route.
+        configureAdminRoutes(engine)
     }
 
     @Test

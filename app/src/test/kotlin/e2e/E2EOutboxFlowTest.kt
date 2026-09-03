@@ -477,9 +477,11 @@ class E2EOutboxFlowTest : E2ETestBase() {
 
     @Test
     fun `should persist a redacted last error when the destination returns 500`() = runBlocking {
+        // The destination repeats the request headers in its error body, so the body really
+        // carries the secret that the persisted error must redact.
         val mockServer = startMockHttpServer(
             responseCode = HttpStatusCode.InternalServerError,
-            responseBody = """{"error":"boom"}"""
+            echoRequestHeaders = true
         )
 
         val secret = "Bearer super-secret-token"
@@ -520,6 +522,10 @@ class E2EOutboxFlowTest : E2ETestBase() {
 
         val lastError = getOutboxLastError(messageId)
         assertTrue(lastError != null, "The failure reason must be persisted")
+        assertTrue(
+            mockServer.receivedRequests.any { it.headers["Authorization"] == secret },
+            "The destination must have received the secret, so the redaction is not vacuous"
+        )
         assertTrue(lastError!!.contains("500"), "The error must name the status code: $lastError")
         assertFalse(
             lastError.contains("super-secret-token"),

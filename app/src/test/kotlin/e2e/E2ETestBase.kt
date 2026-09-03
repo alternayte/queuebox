@@ -273,9 +273,10 @@ abstract class E2ETestBase {
      */
     protected fun startMockHttpServer(
         responseCode: HttpStatusCode = HttpStatusCode.OK,
-        responseBody: String = """{"status": "ok"}"""
+        responseBody: String = """{"status": "ok"}""",
+        echoRequestHeaders: Boolean = false
     ): MockHttpServer {
-        val server = MockHttpServer(responseCode, responseBody)
+        val server = MockHttpServer(responseCode, responseBody, echoRequestHeaders)
         server.start()
         mockHttpServer = server
         return server
@@ -321,7 +322,8 @@ abstract class E2ETestBase {
  */
 class MockHttpServer(
     private var responseCode: HttpStatusCode = HttpStatusCode.OK,
-    private var responseBody: String = """{"status": "ok"}"""
+    private var responseBody: String = """{"status": "ok"}""",
+    private val echoRequestHeaders: Boolean = false
 ) {
     private var server: EmbeddedServer<NettyApplicationEngine, NettyApplicationEngine.Configuration>? = null
     private val _receivedRequests = CopyOnWriteArrayList<ReceivedRequest>()
@@ -352,7 +354,15 @@ class MockHttpServer(
                         )
                     )
 
-                    call.respondText(responseBody, ContentType.Application.Json, responseCode)
+                    val responseText = if (echoRequestHeaders) {
+                        // The error body repeats the request headers, which is what a badly
+                        // behaved destination does. F-016 requires the persisted error to
+                        // redact the secret that such a body carries.
+                        """{"error":"boom","received":"$headers"}"""
+                    } else {
+                        responseBody
+                    }
+                    call.respondText(responseText, ContentType.Application.Json, responseCode)
                 }
             }
         }.start(wait = false)

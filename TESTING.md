@@ -25,11 +25,12 @@ QueueBox uses [JaCoCo](https://www.jacoco.org/jacoco/) for code coverage analysi
 
 | Metric | Target |
 |--------|--------|
-| Aggregated line coverage | 72% |
-| Aggregated branch coverage | 65% |
-| Per-module minimum | 15% |
+| Aggregated line coverage | 80% |
+| Aggregated branch coverage | 70% |
+| Per-module line coverage | 60% |
 
-> **Note**: These are intermediate targets. Consider raising aggregated targets to 80% line / 70% branch as test coverage improves.
+`./gradlew check` fails when a value drops below its target. That is intended. It blocks a merge
+that adds undertested code.
 
 ### Running Coverage Verification
 
@@ -53,13 +54,19 @@ After running tests with coverage, reports are available at:
 
 ### Excluded Classes
 
-The following patterns are excluded from aggregated coverage reports:
+The same exclusion list applies to the per-module reports and to the aggregated report. Each
+entry names one reason. Add an entry only when the class carries no testable logic, or when only
+a running process can execute it.
 
-| Pattern | Rationale |
-|---------|-----------|
-| `**/MainKt.class` | Application entry points |
-| `**/*Table.class` | Exposed table definitions |
-| `**/*Tables.class` | Exposed table definitions |
+| Pattern | Reason |
+|---------|--------|
+| `**/*Table.class` | An Exposed table definition. It declares columns and indexes, and it holds no branch. The integration tests exercise every column through the repositories. |
+| `**/*Tables.class` | The same, for the file that declares more than one table. |
+| `**/AppKt.class` | The process entry point. `main` wires the whole application together and then blocks on the HTTP server, so only a started process runs it. Every part that `main` wires has its own test: `ShutdownSequenceTest`, `PublisherRegistrationTest`, `MetricsCollectorTest`, `HealthRoutesTest`, `AdminRoutesTest`, and the end to end tests under `app/src/test/kotlin/e2e`. |
+| `**/AppKt$*.class` | The lambdas that `main` declares, for the same reason. |
+
+The `**/MainKt.class` exclusion is gone. Finding F-071 deleted the five template `Main.kt` files
+and the `utils` module, so the duplicate class no longer exists.
 
 ## Continuous Integration
 

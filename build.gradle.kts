@@ -32,14 +32,14 @@ val jacocoAggregatedVerification by tasks.registering(JacocoCoverageVerification
             limit {
                 counter = "LINE"
                 value = "COVEREDRATIO"
-                minimum = "0.72".toBigDecimal()
+                minimum = "0.80".toBigDecimal()
             }
         }
         rule {
             limit {
                 counter = "BRANCH"
                 value = "COVEREDRATIO"
-                minimum = "0.65".toBigDecimal()
+                minimum = "0.70".toBigDecimal()
             }
         }
     }
@@ -71,14 +71,16 @@ gradle.projectsEvaluated {
         srcDir.takeIf { it.exists() }
     }
 
-    // Collect class directories, excluding duplicate classes (MainKt exists in multiple modules)
+    // Collect class directories
     val classDirs = subprojects.mapNotNull { subproject ->
         val classDir = subproject.layout.buildDirectory.dir("classes/kotlin/main").get().asFile
         if (classDir.exists()) {
             fileTree(classDir) {
-                exclude("**/MainKt.class")
+                // See TESTING.md for the reason behind every exclusion.
                 exclude("**/*Table.class")
                 exclude("**/*Tables.class")
+                exclude("**/AppKt.class")
+                exclude("**/AppKt$*.class")
             }
         } else null
     }
