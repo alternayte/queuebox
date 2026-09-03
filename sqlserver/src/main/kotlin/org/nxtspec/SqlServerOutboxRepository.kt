@@ -3,16 +3,22 @@ package org.nxtspec
 import kotlinx.datetime.Clock
 import kotlinx.datetime.Instant
 import kotlinx.datetime.toKotlinInstant
+import kotlinx.serialization.builtins.MapSerializer
+import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.json.Json
 import org.jetbrains.exposed.sql.ResultRow
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
+import org.jetbrains.exposed.sql.SqlExpressionBuilder.isNull
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.inList
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.less
-import org.jetbrains.exposed.sql.SqlExpressionBuilder.notInSubQuery
+import org.jetbrains.exposed.sql.SqlExpressionBuilder.lessEq
+import org.jetbrains.exposed.sql.SqlExpressionBuilder.notInList
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.plus
 import org.jetbrains.exposed.sql.SortOrder
 import org.jetbrains.exposed.sql.and
+import org.jetbrains.exposed.sql.or
 import org.jetbrains.exposed.sql.deleteWhere
+import org.jetbrains.exposed.sql.insert
 import org.jetbrains.exposed.sql.selectAll
 import org.jetbrains.exposed.sql.transactions.TransactionManager
 import org.jetbrains.exposed.sql.transactions.experimental.newSuspendedTransaction
@@ -21,6 +27,7 @@ import org.nxtspec.repository.OutboxRepositoryInterface
 import java.sql.ResultSet
 import java.sql.Timestamp
 import java.util.UUID
+import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
 
 /**
@@ -34,55 +41,91 @@ class SqlServerOutboxRepository(
 ) : OutboxRepositoryInterface {
     private val table = SqlServerDynamicOutboxTable(columnMapping, tableName)
 
+    /**
+     * F-009 and F-006: claims the oldest scheduled messages in one statement.
+     *
+     * The common table expression takes the row locks with ROWLOCK, UPDLOCK and READPAST, which
+     * is the SQL Server equivalent of FOR UPDATE SKIP LOCKED. The UPDATE runs through the same
+     * expression and OUTPUT returns the claimed rows, so the claim and the mark are atomic.
+     * claimed_at lets the reclaim step recover a crashed claim.
+     */
     override suspend fun claimBatch(batchSize: Int): List<OutboxMessage> = newSuspendedTransaction {
         val now = Clock.System.now()
         val nowTimestamp = Timestamp.from(java.time.Instant.ofEpochSecond(now.epochSeconds, now.nanosecondsOfSecond.toLong()))
 
-        // Escape column names that are SQL Server reserved words
-        val idCol = escapeSqlServerColumnName(columnMapping.id)
-        val topicCol = escapeSqlServerColumnName(columnMapping.topic)
-        val keyCol = escapeSqlServerColumnName(columnMapping.key)
-        val payloadCol = escapeSqlServerColumnName(columnMapping.payload)
-        val headersCol = escapeSqlServerColumnName(columnMapping.headers)
-        val stateCol = escapeSqlServerColumnName(columnMapping.state)
-        val attemptCol = escapeSqlServerColumnName(columnMapping.attempt)
-        val maxAttemptsCol = escapeSqlServerColumnName(columnMapping.maxAttempts)
-        val scheduledAtCol = escapeSqlServerColumnName(columnMapping.scheduledAt)
-        val createdAtCol = escapeSqlServerColumnName(columnMapping.createdAt)
-        val updatedAtCol = escapeSqlServerColumnName(columnMapping.updatedAt)
+        val t = quoteSqlServerIdentifier(tableName)
+        val idCol = quoteSqlServerIdentifier(columnMapping.id)
+        val topicCol = quoteSqlServerIdentifier(columnMapping.topic)
+        val keyCol = quoteSqlServerIdentifier(columnMapping.key)
+        val payloadCol = quoteSqlServerIdentifier(columnMapping.payload)
+        val headersCol = quoteSqlServerIdentifier(columnMapping.headers)
+        val stateCol = quoteSqlServerIdentifier(columnMapping.state)
+        val attemptCol = quoteSqlServerIdentifier(columnMapping.attempt)
+        val maxAttemptsCol = quoteSqlServerIdentifier(columnMapping.maxAttempts)
+        val scheduledAtCol = quoteSqlServerIdentifier(columnMapping.scheduledAt)
+        val createdAtCol = quoteSqlServerIdentifier(columnMapping.createdAt)
+        val updatedAtCol = quoteSqlServerIdentifier(columnMapping.updatedAt)
+        val claimedAtCol = quoteSqlServerIdentifier(columnMapping.claimedAt)
 
-        // Use raw SQL with SQL Server-specific locking hints
-        // ROWLOCK: Lock at row level
-        // UPDLOCK: Take update locks to prevent other transactions from modifying
-        // READPAST: Skip locked rows (equivalent to SKIP LOCKED in PostgreSQL)
         val sql = """
-            SELECT TOP (?) $idCol, $topicCol, $keyCol, $payloadCol, $headersCol, $stateCol, $attemptCol, $maxAttemptsCol,
-                   $scheduledAtCol, $createdAtCol, $updatedAtCol
-            FROM $tableName WITH (ROWLOCK, UPDLOCK, READPAST)
-            WHERE $stateCol = 'pending' AND $scheduledAtCol <= ?
+            WITH candidates AS (
+                SELECT TOP (?) $idCol, $stateCol, $updatedAtCol, $claimedAtCol
+                FROM $t WITH (ROWLOCK, UPDLOCK, READPAST)
+                WHERE $stateCol = 'pending' AND $scheduledAtCol <= ?
+                ORDER BY $scheduledAtCol ASC, $createdAtCol ASC
+            )
+            UPDATE candidates
+            SET $stateCol = 'processing', $updatedAtCol = ?, $claimedAtCol = ?
+            OUTPUT INSERTED.$idCol AS ${quoteSqlServerIdentifier(columnMapping.id)}
         """.trimIndent()
 
         val conn = TransactionManager.current().connection.connection as java.sql.Connection
-        val messages = conn.prepareStatement(sql).use { stmt ->
+        val claimedIds = conn.prepareStatement(sql).use { stmt ->
             stmt.setInt(1, batchSize)
             stmt.setTimestamp(2, nowTimestamp)
+            stmt.setTimestamp(3, nowTimestamp)
+            stmt.setTimestamp(4, nowTimestamp)
             stmt.executeQuery().use { rs ->
-                val results = mutableListOf<OutboxMessage>()
+                val ids = mutableListOf<UUID>()
                 while (rs.next()) {
-                    results.add(rs.toOutboxMessage())
+                    ids.add(UUID.fromString(rs.getString(columnMapping.id)))
                 }
-                results
+                ids
             }
         }
 
-        if (messages.isNotEmpty()) {
-            table.update({ table.id inList messages.map { it.id } }) {
-                it[state] = "processing"
-                it[updatedAt] = now
-            }
+        if (claimedIds.isEmpty()) {
+            emptyList()
+        } else {
+            // OUTPUT cannot return every column through a common table expression update on
+            // every SQL Server edition, so the rows are read back by identifier. The read runs
+            // in the same transaction, and the rows are already marked, so no other replica
+            // can take them.
+            val byId = table
+                .selectAll()
+                .where { table.id inList claimedIds }
+                .associate { it[table.id].value to it.toOutboxMessage() }
+            // OUTPUT does not guarantee an output order, so the claim order is restored here.
+            claimedIds.mapNotNull { byId[it] }
+                .sortedWith(compareBy({ it.scheduledAt }, { it.createdAt }))
         }
+    }
 
-        messages
+    override suspend fun insert(message: OutboxMessage): Unit = newSuspendedTransaction {
+        table.insert {
+            it[id] = message.id
+            it[topic] = message.topic
+            it[key] = message.key
+            it[payload] = message.payload.toString()
+            it[headers] = Json.encodeToString(MapSerializer(String.serializer(), String.serializer()), message.headers)
+            it[state] = "pending"
+            it[attempt] = message.attempt
+            it[maxAttempts] = message.maxAttempts
+            it[scheduledAt] = message.scheduledAt
+            it[createdAt] = message.createdAt
+            it[updatedAt] = message.updatedAt
+        }
+        Unit
     }
 
     override suspend fun markSent(id: UUID) = newSuspendedTransaction {
@@ -122,23 +165,62 @@ class SqlServerOutboxRepository(
             .count()
     }
 
-    override suspend fun deleteOlderThan(state: String, cutoff: Instant): Int = newSuspendedTransaction {
-        table.deleteWhere {
-            (table.state eq state) and (table.updatedAt less cutoff)
+    /**
+     * F-006: returns rows that stay in state 'processing' longer than the visibility timeout
+     * back to state 'pending'. The attempt count does not change.
+     */
+    override suspend fun reclaimStale(olderThan: Duration): Int = newSuspendedTransaction {
+        val cutoff = Clock.System.now() - olderThan
+        val now = Clock.System.now()
+        table.update({
+            (table.state eq "processing") and
+                ((table.claimedAt lessEq cutoff) or table.claimedAt.isNull())
+        }) {
+            it[state] = "pending"
+            it[updatedAt] = now
+            it[claimedAt] = null
         }
     }
 
-    override suspend fun deleteExceptMostRecent(state: String, keepCount: Int): Int = newSuspendedTransaction {
-        val idsToKeep = table
-            .select(table.id)
-            .where { table.state eq state }
-            .orderBy(table.updatedAt, SortOrder.DESC)
-            .limit(keepCount)
+    /**
+     * F-008: deletes at most `limit` rows per statement.
+     */
+    override suspend fun deleteOlderThan(state: String, cutoff: Instant, limit: Int): Int =
+        newSuspendedTransaction {
+            val ids = table
+                .select(table.id)
+                .where { (table.state eq state) and (table.updatedAt less cutoff) }
+                .limit(limit)
+                .map { it[table.id] }
 
-        table.deleteWhere {
-            (table.state eq state) and (table.id notInSubQuery idsToKeep)
+            if (ids.isEmpty()) {
+                0
+            } else {
+                table.deleteWhere { table.id inList ids }
+            }
         }
-    }
+
+    override suspend fun deleteExceptMostRecent(state: String, keepCount: Int, limit: Int): Int =
+        newSuspendedTransaction {
+            val idsToKeep = table
+                .select(table.id)
+                .where { table.state eq state }
+                .orderBy(table.updatedAt, SortOrder.DESC)
+                .limit(keepCount)
+                .map { it[table.id] }
+
+            val ids = table
+                .select(table.id)
+                .where { (table.state eq state) and (table.id notInList idsToKeep) }
+                .limit(limit)
+                .map { it[table.id] }
+
+            if (ids.isEmpty()) {
+                0
+            } else {
+                table.deleteWhere { table.id inList ids }
+            }
+        }
 
     private fun updateState(id: UUID, newState: String) {
         val now = Clock.System.now()

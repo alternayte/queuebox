@@ -140,13 +140,14 @@ class MessageRouterTest {
     }
 
     @Test
-    fun `should use topic as routing key when no template specified`() {
+    fun `should return no routing key when no template specified`() {
+        // F-004: a null routing key lets the destination apply its own fallback template.
         val router = createRouter("order.*" to "dest")
 
         val result = router.route("order.created")
 
         assertNotNull(result)
-        assertEquals("order.created", result.routingKey)
+        assertNull(result.routingKey)
     }
 
     @Test

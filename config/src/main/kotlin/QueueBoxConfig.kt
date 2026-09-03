@@ -59,7 +59,8 @@ data class OutboxColumnMapping(
     val maxAttempts: String = "max_attempts",
     val scheduledAt: String = "scheduled_at",
     val createdAt: String = "created_at",
-    val updatedAt: String = "updated_at"
+    val updatedAt: String = "updated_at",
+    val claimedAt: String = "claimed_at"
 )
 
 /**
@@ -76,7 +77,8 @@ data class InboxColumnMapping(
     val payload: String = "payload",
     val state: String = "state",
     val createdAt: String = "created_at",
-    val processedAt: String = "processed_at"
+    val processedAt: String = "processed_at",
+    val claimedAt: String = "claimed_at"
 )
 
 @Serializable
@@ -84,12 +86,30 @@ data class OutboxConfig(
     val pollIntervalMs: Long = 100,
     val batchSize: Int = 100,
     val retryBaseDelayMs: Long = 1000,
-    val maxAttempts: Int = 5
+    val maxAttempts: Int = 5,
+    /** Visibility timeout. A claim older than this returns to state 'pending'. See F-006. */
+    val claimTimeoutMs: Long = 300000
 )
 
 @Serializable
 data class InboxConfig(
-    val basePath: String = "/inbox"
+    val basePath: String = "/inbox",
+    val relay: InboxRelayConfig = InboxRelayConfig()
+)
+
+/**
+ * Configuration for the inbox relay.
+ *
+ * The relay moves a stored inbox message into the outbox table, and the outbox machinery
+ * routes, transforms and delivers it. QueueBox runs no business logic on the message. See F-002.
+ */
+@Serializable
+data class InboxRelayConfig(
+    val enabled: Boolean = true,
+    val pollIntervalMs: Long = 100,
+    val batchSize: Int = 100,
+    /** Visibility timeout. A claim older than this returns to state 'pending'. See F-006. */
+    val claimTimeoutMs: Long = 300000
 )
 
 @Serializable
@@ -131,6 +151,12 @@ data class RouteConfig(
 sealed class SourceConfig {
     abstract val transform: TransformConfig?
 
+    /**
+     * Template for the outbox topic that the relay writes. Supports `{{ source }}` and
+     * `{{ eventType }}`. See F-002.
+     */
+    abstract val topic: String
+
     @Serializable
     @SerialName("http")
     data class Http(
@@ -139,6 +165,7 @@ sealed class SourceConfig {
         val aggregateIdPath: String? = null,
         val eventTypePath: String? = null,
         override val transform: TransformConfig? = null,
+        override val topic: String = "{{ eventType }}",
         val auth: InboxAuthConfig? = null
     ) : SourceConfig()
 
@@ -150,6 +177,7 @@ sealed class SourceConfig {
         val idempotencyKeyPath: String = "$.id",
         val aggregateIdPath: String? = null,
         val prefetchCount: Int = 10,
-        override val transform: TransformConfig? = null
+        override val transform: TransformConfig? = null,
+        override val topic: String = "{{ eventType }}"
     ) : SourceConfig()
 }

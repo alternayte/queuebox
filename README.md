@@ -118,6 +118,7 @@ sources:
     type: http
     path: /stripe
     idempotencyKeyPath: $.id
+    eventTypePath: $.type                 # Required by the default topic template
 ```
 
 ### Full Configuration Reference
@@ -192,7 +193,9 @@ sources:
     type: http
     path: /stripe                         # Endpoint: POST /inbox/stripe
     idempotencyKeyPath: $.id              # JSONPath to extract idempotency key
-    eventTypePath: $.type                 # Optional: extract event type
+    topic: "{{ eventType }}"              # Outbox topic template for the relay
+    eventTypePath: $.type                 # Extract the event type. The default topic template
+                                          # needs it.
     aggregateIdPath: $.customer_id        # Optional: for ordered processing
     auth:                                 # Optional: validate incoming requests
       type: hmac                          # See Authentication section
@@ -270,6 +273,9 @@ These fields are required only when configuring specific features:
 |-------|----------|---------|
 | `path` | Yes | — |
 | `idempotencyKeyPath` | Yes | — |
+| `eventTypePath` | Yes, when `topic` uses `{{ eventType }}` | — |
+| `aggregateIdPath` | No | — |
+| `topic` | No | `{{ eventType }}` |
 
 **RabbitMQ Sources** (each source with `type: rabbitmq`):
 
@@ -278,7 +284,9 @@ These fields are required only when configuring specific features:
 | `queueName` | Yes | — |
 | `connectionUrl` | Yes | — |
 | `idempotencyKeyPath` | No | `$.id` |
+| `aggregateIdPath` | No | — |
 | `prefetchCount` | No | `10` |
+| `topic` | No | `{{ eventType }}` |
 
 #### Authentication Requirements
 
@@ -434,8 +442,9 @@ curl -X POST http://localhost:8080/admin/transform/test \
 2. QueueBox extracts idempotency key using configured JSONPath
 3. Duplicate check — if key exists for this source, return 200 (idempotent)
 4. Optional transform applied to payload
-5. Message stored in `inbox` table with status `pending`
+5. Message stored in `inbox` table with state `pending`
 6. Return 200 OK
+7. The relay forwards the row into the `outbox` table and marks it `processed`
 
 ### Outbox (Delivering Messages)
 
@@ -519,6 +528,7 @@ sources:
     type: http
     path: /secure
     idempotencyKeyPath: $.id
+    eventTypePath: $.type
     auth:
       type: bearer
       token: ${WEBHOOK_TOKEN}
@@ -580,9 +590,57 @@ auth:
   headerValue: "Bearer ${STATIC_TOKEN}"
 ```
 
-## Aggregate Ordering
+## The Inbox Relay
 
-When processing inbox messages, QueueBox can ensure messages for the same aggregate (e.g., customer, order) are processed in order.
+QueueBox forwards an inbox message onward. It never interprets the payload, because it does not
+know the intent of the message.
+
+The full path of an inbox message is: receive, deduplicate, transform, store, forward, route,
+deliver.
+
+1. **Receive.** An HTTP source or a RabbitMQ source accepts the message.
+2. **Deduplicate.** The unique index on source and idempotency key rejects a repeat.
+3. **Transform.** The source transform reshapes the payload, if one is configured.
+4. **Store.** QueueBox writes the inbox row in state `pending`.
+5. **Forward.** The relay claims the row, writes an outbox row, and marks the inbox row
+   `processed`. Both writes run in one transaction.
+6. **Route.** The outbox poller matches the topic against the routes.
+7. **Deliver.** The publisher sends the message to the destination.
+
+**Field mapping from the inbox row to the outbox row:**
+
+| Outbox field | Source |
+|--------------|--------|
+| `topic` | The rendered `sources.<name>.topic` template |
+| `key` | The inbox `aggregate_id` |
+| `payload` | The stored inbox payload |
+| `headers` | `x-inbox-id`, `x-source`, and `x-idempotency-key` |
+
+The topic template supports `{{ source }}` and `{{ eventType }}`. The default is
+`{{ eventType }}`. The relay marks the message `dead` when the template renders empty.
+
+```yaml
+inbox:
+  relay:
+    enabled: true
+    pollIntervalMs: 100
+    batchSize: 100
+    claimTimeoutMs: 300000
+
+sources:
+  stripe:
+    type: http
+    path: /stripe
+    idempotencyKeyPath: $.id
+    eventTypePath: $.type
+    aggregateIdPath: $.customer
+    topic: "{{ source }}.{{ eventType }}"
+```
+
+**Guarantee.** Forwarding is at least once. If the transaction fails, the inbox row stays in
+state `processing`, and the reclaim step returns it to `pending` after `claimTimeoutMs`.
+
+## Aggregate Ordering
 
 Configure `aggregateIdPath` to extract the aggregate identifier:
 
@@ -592,16 +650,27 @@ sources:
     type: http
     path: /orders
     idempotencyKeyPath: $.eventId
-    aggregateIdPath: $.orderId    # Messages for same order processed in sequence
+    eventTypePath: $.type
+    aggregateIdPath: $.orderId
 ```
 
-**How it works:**
-- Messages with the same aggregate ID are processed one at a time, in creation order
-- Messages without an aggregate ID are processed independently (no ordering guarantee)
-- If a message for an aggregate is being processed, other messages for that aggregate wait
-- Different aggregates are processed in parallel
+**What the shipped code does:**
 
-This prevents race conditions like processing "order shipped" before "order created".
+- The claim query excludes an aggregate that already has a message in state `processing`.
+- The claim keeps the oldest claimed message per aggregate and returns the rest to `pending`.
+- A message without an aggregate identifier is independent, and it carries no ordering
+  guarantee.
+- Different aggregates are forwarded in parallel.
+
+**Guarantee.** At most one message per aggregate identifier is in state `processing` at any
+time, across every replica. The relay forwards the messages of one aggregate in creation order.
+
+Ordering after the forward step is not guaranteed. The outbox poller and the destination decide
+the final delivery order.
+
+The tests `postgres/src/test/kotlin/org/nxtspec/InboxRepositoryConcurrencyTest.kt` and
+`sqlserver/src/test/kotlin/org/nxtspec/SqlServerInboxRepositoryConcurrencyTest.kt` are the
+source of truth for the claim guarantee.
 
 ## Routing Key Templates
 
@@ -611,16 +680,28 @@ For RabbitMQ destinations, you can dynamically construct routing keys from messa
 routes:
   - topicPattern: "order.*"
     destination: events-exchange
-    routingKeyTemplate: "{{ region }}.{{ priority }}.{{ topic }}"
+    routingKeyTemplate: "{{ payload.region }}.{{ payload.priority }}.{{ topic }}"
     routingKeyMissingFieldDefault: "default"
 ```
 
 **Template variables:**
-- `{{ topic }}` — The message topic
-- `{{ fieldName }}` — Any top-level field from the message payload
-- Nested fields: `{{ customer.region }}`
+- `{{ topic }}` — The message topic.
+- `{{ payload.fieldName }}` — A field from the message payload.
+- `{{ data.fieldName }}` — An alias for `payload.fieldName`.
+- Nested fields: `{{ payload.customer.region }}` or `{{ data.customer.region }}`.
 
-If a field is missing, the `routingKeyMissingFieldDefault` value is used (or empty string if not configured).
+Any other placeholder, including a bare field name such as `{{ region }}`, renders as the
+`routingKeyMissingFieldDefault` value. If a field is missing, the same default applies. The
+default is an empty string if `routingKeyMissingFieldDefault` is not configured.
+
+The test
+`outbox-service/src/test/kotlin/org/nxtspec/RoutingKeyTemplateContractTest.kt` is the source of
+truth for the supported placeholder forms.
+
+**Precedence.** The route `routingKeyTemplate` wins. QueueBox renders it, and the RabbitMQ
+publisher uses the result. A RabbitMQ destination also has its own `routingKeyTemplate`, which
+supports `{{ topic }}` only. That destination template applies only when the matched route sets
+no `routingKeyTemplate`.
 
 ## Metrics
 
@@ -631,9 +712,11 @@ QueueBox exposes Prometheus metrics at `/metrics`:
 - `queuebox_outbox_messages_pending` — Current pending messages gauge
 - `queuebox_outbox_processing_duration_seconds` — Processing time histogram
 - `queuebox_outbox_publish_duration_seconds{destination_type}` — Publish time by destination
+- `queuebox_outbox_messages_reclaimed_total` — Messages returned to pending after a stale claim
 
 **Inbox metrics:**
-- `queuebox_inbox_messages_total{status}` — Counter by status (new, duplicate)
+- `queuebox_inbox_messages_total{status}` — Counter by status (new, duplicate, forwarded)
+- `queuebox_inbox_relay_errors_total` — Inbox relay error counter
 
 **Cleanup metrics:**
 - `queuebox_cleanup_messages_deleted_total{table}` — Deleted messages counter
@@ -655,12 +738,13 @@ topic           VARCHAR(255)
 key             VARCHAR(255)        -- Optional partition/ordering key
 payload         JSONB
 headers         JSONB
-state           VARCHAR(20)         -- 'pending', 'sent', 'dead'
+state           VARCHAR(20)         -- 'pending', 'processing', 'sent', 'dead'
 attempt         INTEGER
 max_attempts    INTEGER
 scheduled_at    TIMESTAMP
 created_at      TIMESTAMP
 updated_at      TIMESTAMP
+claimed_at      TIMESTAMP           -- When the poller claimed the row
 ```
 
 **inbox:**
@@ -671,9 +755,10 @@ idempotency_key VARCHAR(255)        -- Unique per source
 aggregate_id    VARCHAR(255)
 event_type      VARCHAR(255)
 payload         JSONB
-state           VARCHAR(20)         -- 'pending', 'processed'
+state           VARCHAR(20)         -- 'pending', 'processing', 'processed', 'dead'
 created_at      TIMESTAMP
 processed_at    TIMESTAMP
+claimed_at      TIMESTAMP           -- When the relay claimed the row
 ```
 
 ## Database Support
@@ -848,4 +933,4 @@ queuebox/
 
 ## License
 
-MIT
+[LICENSE](LICENSE)

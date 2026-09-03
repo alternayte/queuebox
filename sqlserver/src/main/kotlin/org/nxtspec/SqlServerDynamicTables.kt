@@ -28,6 +28,12 @@ class SqlServerDynamicOutboxTable(
     val scheduledAt = timestamp(mapping.scheduledAt)
     val createdAt = timestamp(mapping.createdAt)
     val updatedAt = timestamp(mapping.updatedAt)
+    val claimedAt = timestamp(mapping.claimedAt).nullable()
+
+    init {
+        // Supports the claim seek: state = 'pending' AND scheduled_at <= now().
+        index(false, state, scheduledAt)
+    }
 }
 
 /**
@@ -51,36 +57,30 @@ class SqlServerDynamicInboxTable(
     val state: Column<String> = varchar(mapping.state, 50).default("pending")
     val createdAt = timestamp(mapping.createdAt)
     val processedAt = timestamp(mapping.processedAt).nullable()
+    val claimedAt = timestamp(mapping.claimedAt).nullable()
 
     init {
         uniqueIndex(messageSrc, idempotencyKey)
         index(false, aggregateId, state)
+        // Supports the claim seek: state = 'pending' ordered by created_at.
+        index(false, state, createdAt)
     }
 }
 
 /**
- * SQL Server reserved words that need to be escaped with brackets in raw SQL queries.
- */
-private val SQL_SERVER_RESERVED_WORDS = setOf(
-    "key", "user", "order", "group", "table", "index", "column", "select", "insert",
-    "update", "delete", "from", "where", "join", "left", "right", "inner", "outer",
-    "on", "and", "or", "not", "null", "in", "between", "like", "is", "as", "by",
-    "asc", "desc", "distinct", "top", "with", "case", "when", "then", "else", "end"
-)
-
-/**
- * Escapes a column name with brackets if it's a SQL Server reserved word.
- * This prevents syntax errors when using reserved words as column names in raw SQL.
+ * Quotes a SQL Server identifier with square brackets.
  *
- * @param columnName The column name to potentially escape
- * @return The escaped column name if it's a reserved word, otherwise the original name
+ * Every identifier that a raw SQL string interpolates must pass through this function.
+ * Quoting protects reserved words such as `key`, and it is the second defence against
+ * SQL injection through a configured table name or column name. The first defence is
+ * `ConfigValidator`, which rejects an identifier that is not a plain SQL identifier.
+ *
+ * @param identifier The table name or column name to quote
+ * @return The identifier inside square brackets
  */
-fun escapeSqlServerColumnName(columnName: String): String {
-    return if (columnName.lowercase() in SQL_SERVER_RESERVED_WORDS) {
-        "[$columnName]"
-    } else {
-        columnName
-    }
+fun quoteSqlServerIdentifier(identifier: String): String {
+    require(!identifier.contains(']')) { "Invalid SQL Server identifier: '$identifier'" }
+    return "[$identifier]"
 }
 
 /**

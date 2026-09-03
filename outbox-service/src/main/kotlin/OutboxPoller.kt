@@ -7,6 +7,7 @@ import org.nxtspec.transform.TransformContext
 import org.nxtspec.transform.TransformPipeline
 import org.nxtspec.transform.TransformResult
 import java.util.concurrent.atomic.AtomicBoolean
+import kotlin.time.Duration.Companion.milliseconds
 
 class OutboxPoller(
     private val config: OutboxConfig,
@@ -19,6 +20,10 @@ class OutboxPoller(
 ) {
     private val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
     private val running = AtomicBoolean(true)
+
+    // F-006: the reclaim step runs at most once per claimTimeoutMs / 5.
+    private val reclaimIntervalMs = (config.claimTimeoutMs / 5).coerceAtLeast(1)
+    private var lastReclaimAtMs = 0L
 
     fun start() {
         scope.launch {
@@ -37,6 +42,8 @@ class OutboxPoller(
     }
 
     private suspend fun processBatch() {
+        reclaimStaleClaims()
+
         val messages = repository.claimBatch(config.batchSize)
 
         // Update pending count metric
@@ -47,6 +54,21 @@ class OutboxPoller(
 
         messages.forEach { message ->
             processMessage(message)
+        }
+    }
+
+    /**
+     * F-006: returns messages that a crashed replica left in state 'processing' back to
+     * state 'pending', so they are delivered after the restart.
+     */
+    private suspend fun reclaimStaleClaims() {
+        val now = System.currentTimeMillis()
+        if (now - lastReclaimAtMs < reclaimIntervalMs) return
+        lastReclaimAtMs = now
+
+        val reclaimed = repository.reclaimStale(config.claimTimeoutMs.milliseconds)
+        if (reclaimed > 0) {
+            metricsCollector?.recordMessageReclaimed(reclaimed)
         }
     }
 
@@ -105,7 +127,11 @@ class OutboxPoller(
             message
         }
 
-        publisher.publish(messageToPublish, routingResult.destination).fold(
+        publisher.publish(
+            messageToPublish,
+            routingResult.destination,
+            PublishContext(routingKey = routingResult.routingKey)
+        ).fold(
             onSuccess = {
                 repository.markSent(message.id)
                 metricsCollector?.recordMessageSent()

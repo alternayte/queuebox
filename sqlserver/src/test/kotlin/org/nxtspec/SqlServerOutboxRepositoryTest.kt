@@ -161,7 +161,7 @@ class SqlServerOutboxRepositoryTest : SqlServerTestBase() {
 
         // When: deleting sent messages older than 1 hour
         val cutoff = Clock.System.now() - 1.hours
-        val deleted = repository.deleteOlderThan("sent", cutoff)
+        val deleted = repository.deleteOlderThan("sent", cutoff, 1000)
 
         // Then: only old sent message is deleted
         assertEquals(1, deleted)
@@ -176,7 +176,7 @@ class SqlServerOutboxRepositoryTest : SqlServerTestBase() {
         insertOutboxMessage(state = "pending") // should not be affected
 
         // When: keeping only most recent 2
-        val deleted = repository.deleteExceptMostRecent("sent", 2)
+        val deleted = repository.deleteExceptMostRecent("sent", 2, 1000)
 
         // Then: 3 are deleted, 2 remain
         assertEquals(3, deleted)

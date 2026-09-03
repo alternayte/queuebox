@@ -4,9 +4,12 @@ import kotlinx.datetime.Clock
 import kotlinx.datetime.Instant
 import org.jetbrains.exposed.sql.ResultRow
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
+import org.jetbrains.exposed.sql.SqlExpressionBuilder.isNull
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.inList
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.less
+import org.jetbrains.exposed.sql.SqlExpressionBuilder.lessEq
 import org.jetbrains.exposed.sql.and
+import org.jetbrains.exposed.sql.or
 import org.jetbrains.exposed.sql.deleteWhere
 import org.jetbrains.exposed.sql.insertIgnore
 import org.jetbrains.exposed.sql.selectAll
@@ -14,12 +17,25 @@ import org.jetbrains.exposed.sql.transactions.experimental.newSuspendedTransacti
 import org.jetbrains.exposed.sql.update
 import org.nxtspec.repository.InboxRepositoryInterface
 import java.util.UUID
+import kotlin.time.Duration
 
 class InboxRepository(
     private val columnMapping: InboxColumnMapping = InboxColumnMapping(),
     private val tableName: String = "inbox"
 ) : InboxRepositoryInterface {
     private val table = DynamicInboxTable(columnMapping, tableName)
+
+    // One lock key per inbox table, so two different inbox tables do not block each other.
+    // String.hashCode is specified by the language, so the key is stable across processes.
+    private val claimLockKey: Long = tableName.hashCode().toLong()
+
+    // Every identifier that a raw SQL string interpolates passes through this function.
+    // ConfigValidator rejects an identifier that is not a plain SQL identifier. Quoting is
+    // the second defence. See F-011.
+    private fun q(identifier: String): String {
+        require(!identifier.contains('"')) { "Invalid SQL identifier: '$identifier'" }
+        return "\"$identifier\""
+    }
     override suspend fun store(message: InboxMessage): InboxResult = newSuspendedTransaction {
         try {
             val now = Clock.System.now()
@@ -44,47 +60,75 @@ class InboxRepository(
         }
     }
 
+    /**
+     * F-001 and F-006: claims pending inbox messages in one statement against the base table.
+     *
+     * The previous query applied FOR UPDATE SKIP LOCKED to the output of a common table
+     * expression, so PostgreSQL took no row locks and two replicas claimed the same rows.
+     * The claim is now a single UPDATE driven by a locking SELECT over the base table.
+     *
+     * Choice recorded for the one message per aggregate rule: the claim takes one transaction
+     * advisory lock, so only one claim runs at a time against this inbox table. The rule itself
+     * is applied in two parts. The SQL excludes an aggregate that already has a committed row
+     * in state 'processing'. The Kotlin step then keeps the oldest message per aggregate inside
+     * the claimed batch and releases the rest to state 'pending' in the same transaction.
+     *
+     * The advisory lock is necessary. Without it a second replica cannot see the uncommitted
+     * claim of the first replica, so both replicas claim a different message of one aggregate.
+     *
+     * Resulting guarantee: at most one message per aggregate identifier is in state
+     * 'processing' at any time, across every replica. The claim itself does not run in
+     * parallel, which is the cost of the guarantee. The claim is one short statement.
+     */
     override suspend fun claimPending(batchSize: Int): List<InboxMessage> = newSuspendedTransaction {
-        // Use CTE-based query for aggregate ordering:
-        // - Only claims one message per aggregate at a time (oldest first)
-        // - Messages without aggregateId are treated as independent
-        // - Excludes aggregates that already have messages being processed
+        val t = q(tableName)
+        val conn0 = org.jetbrains.exposed.sql.transactions.TransactionManager.current()
+            .connection.connection as java.sql.Connection
+
+        // Serialise the claim against every other replica. The lock is released on commit.
+        conn0.prepareStatement("SELECT pg_advisory_xact_lock(?)").use { stmt ->
+            stmt.setLong(1, claimLockKey)
+            stmt.executeQuery().use { it.next() }
+        }
+
+        val idCol = q(columnMapping.id)
+        val stateCol = q(columnMapping.state)
+        val aggregateCol = q(columnMapping.aggregateId)
+        val createdAtCol = q(columnMapping.createdAt)
+
         val sql = """
-            WITH
-            locked_aggregates AS (
-                SELECT DISTINCT ${columnMapping.aggregateId}
-                FROM $tableName
-                WHERE ${columnMapping.aggregateId} IS NOT NULL
-                AND ${columnMapping.state} = 'processing'
-            ),
-            aggregate_messages AS (
-                SELECT DISTINCT ON (${columnMapping.aggregateId}) *
-                FROM $tableName
-                WHERE ${columnMapping.aggregateId} IS NOT NULL
-                AND ${columnMapping.state} = 'pending'
-                AND ${columnMapping.aggregateId} NOT IN (SELECT ${columnMapping.aggregateId} FROM locked_aggregates WHERE ${columnMapping.aggregateId} IS NOT NULL)
-                ORDER BY ${columnMapping.aggregateId}, ${columnMapping.createdAt} ASC
-            ),
-            independent_messages AS (
-                SELECT * FROM $tableName
-                WHERE ${columnMapping.aggregateId} IS NULL
-                AND ${columnMapping.state} = 'pending'
-            ),
-            candidates AS (
-                SELECT * FROM aggregate_messages
-                UNION ALL
-                SELECT * FROM independent_messages
-            )
-            SELECT ${columnMapping.id}, ${columnMapping.source}, ${columnMapping.idempotencyKey}, ${columnMapping.aggregateId}, ${columnMapping.eventType}, ${columnMapping.payload}, ${columnMapping.state}, ${columnMapping.createdAt}, ${columnMapping.processedAt}
-            FROM candidates
-            ORDER BY ${columnMapping.createdAt} ASC
-            LIMIT ?
-            FOR UPDATE SKIP LOCKED
+            UPDATE $t AS target
+            SET $stateCol = 'processing',
+                ${q(columnMapping.claimedAt)} = ?
+            FROM (
+                SELECT $idCol AS claim_id
+                FROM $t
+                WHERE $stateCol = 'pending'
+                  AND ( $aggregateCol IS NULL
+                        OR $aggregateCol NOT IN (
+                            SELECT DISTINCT $aggregateCol FROM $t
+                            WHERE $aggregateCol IS NOT NULL AND $stateCol = 'processing'
+                        ) )
+                ORDER BY $createdAtCol ASC
+                LIMIT ?
+                FOR UPDATE SKIP LOCKED
+            ) AS candidates
+            WHERE target.$idCol = candidates.claim_id
+            RETURNING target.$idCol, target.${q(columnMapping.source)},
+                      target.${q(columnMapping.idempotencyKey)}, target.$aggregateCol,
+                      target.${q(columnMapping.eventType)}, target.${q(columnMapping.payload)},
+                      target.$stateCol, target.$createdAtCol, target.${q(columnMapping.processedAt)}
         """.trimIndent()
 
+        val now = Clock.System.now()
+        val nowTimestamp = java.sql.Timestamp.from(
+            java.time.Instant.ofEpochSecond(now.epochSeconds, now.nanosecondsOfSecond.toLong())
+        )
+
         val conn = org.jetbrains.exposed.sql.transactions.TransactionManager.current().connection.connection as java.sql.Connection
-        val messages = conn.prepareStatement(sql).use { stmt ->
-            stmt.setInt(1, batchSize)
+        val claimed = conn.prepareStatement(sql).use { stmt ->
+            stmt.setTimestamp(1, nowTimestamp)
+            stmt.setInt(2, batchSize)
             stmt.executeQuery().use { rs ->
                 val results = mutableListOf<InboxMessage>()
                 while (rs.next()) {
@@ -94,13 +138,39 @@ class InboxRepository(
             }
         }
 
-        if (messages.isNotEmpty()) {
-            table.update({ table.id inList messages.map { it.id } }) {
-                it[state] = "processing"
+        val (kept, released) = applyAggregateRule(claimed)
+
+        if (released.isNotEmpty()) {
+            table.update({ table.id inList released.map { it.id } }) {
+                it[state] = "pending"
+                it[claimedAt] = null
             }
         }
 
-        messages
+        kept
+    }
+
+    /**
+     * Keeps the oldest claimed message per aggregate identifier and returns the rest for
+     * release. A message without an aggregate identifier is independent and is always kept.
+     */
+    private fun applyAggregateRule(
+        claimed: List<InboxMessage>
+    ): Pair<List<InboxMessage>, List<InboxMessage>> {
+        val kept = mutableListOf<InboxMessage>()
+        val released = mutableListOf<InboxMessage>()
+        val seenAggregates = mutableSetOf<String>()
+
+        claimed.sortedBy { it.createdAt }.forEach { message ->
+            val aggregateId = message.aggregateId
+            if (aggregateId == null || seenAggregates.add(aggregateId)) {
+                kept.add(message)
+            } else {
+                released.add(message)
+            }
+        }
+
+        return kept to released
     }
 
     override suspend fun markProcessed(id: UUID): Unit = newSuspendedTransaction {
@@ -112,6 +182,29 @@ class InboxRepository(
         Unit
     }
 
+    override suspend fun markDead(id: UUID): Unit = newSuspendedTransaction {
+        table.update({ table.id eq id }) {
+            it[state] = "dead"
+            it[claimedAt] = null
+        }
+        Unit
+    }
+
+    /**
+     * F-006: returns rows that stay in state 'processing' longer than the visibility timeout
+     * back to state 'pending'.
+     */
+    override suspend fun reclaimStale(olderThan: Duration): Int = newSuspendedTransaction {
+        val cutoff = Clock.System.now() - olderThan
+        table.update({
+            (table.state eq "processing") and
+                ((table.claimedAt lessEq cutoff) or table.claimedAt.isNull())
+        }) {
+            it[state] = "pending"
+            it[claimedAt] = null
+        }
+    }
+
     override suspend fun countByState(state: String): Long = newSuspendedTransaction {
         table
             .selectAll()
@@ -119,11 +212,23 @@ class InboxRepository(
             .count()
     }
 
-    override suspend fun deleteOlderThan(state: String, cutoff: Instant): Int = newSuspendedTransaction {
-        table.deleteWhere {
-            (table.state eq state) and (table.createdAt less cutoff)
+    /**
+     * F-008: deletes at most `limit` rows per statement.
+     */
+    override suspend fun deleteOlderThan(state: String, cutoff: Instant, limit: Int): Int =
+        newSuspendedTransaction {
+            val ids = table
+                .select(table.id)
+                .where { (table.state eq state) and (table.createdAt less cutoff) }
+                .limit(limit)
+                .map { it[table.id] }
+
+            if (ids.isEmpty()) {
+                0
+            } else {
+                table.deleteWhere { table.id inList ids }
+            }
         }
-    }
 
     private fun ResultRow.toInboxMessage(): InboxMessage = InboxMessage(
         id = this[table.id].value,

@@ -10,6 +10,7 @@ import io.ktor.http.*
 import io.ktor.serialization.kotlinx.json.*
 import org.nxtspec.Destination
 import org.nxtspec.OutboxMessage
+import org.nxtspec.PublishContext
 import org.nxtspec.Publisher
 import org.nxtspec.auth.DestinationAuthResolver
 import org.nxtspec.metrics.MetricsCollectorInterface
@@ -42,7 +43,11 @@ class HttpPublisher(
 
     override fun supports(destination: Destination): Boolean = destination is Destination.Http
 
-    override suspend fun publish(message: OutboxMessage, destination: Destination): Result<Unit> {
+    override suspend fun publish(
+        message: OutboxMessage,
+        destination: Destination,
+        context: PublishContext
+    ): Result<Unit> {
         val httpDest = destination as? Destination.Http
             ?: return Result.failure(IllegalArgumentException("HttpPublisher only supports HTTP destinations"))
 

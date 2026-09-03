@@ -36,7 +36,8 @@ data class OutboxColumnMappingData(
     val maxAttempts: String = "max_attempts",
     val scheduledAt: String = "scheduled_at",
     val createdAt: String = "created_at",
-    val updatedAt: String = "updated_at"
+    val updatedAt: String = "updated_at",
+    val claimedAt: String = "claimed_at"
 )
 
 /**
@@ -51,7 +52,8 @@ data class InboxColumnMappingData(
     val payload: String = "payload",
     val state: String = "state",
     val createdAt: String = "created_at",
-    val processedAt: String = "processed_at"
+    val processedAt: String = "processed_at",
+    val claimedAt: String = "claimed_at"
 )
 
 /**
@@ -60,6 +62,7 @@ data class InboxColumnMappingData(
 interface RepositoryFactory {
     fun createOutboxRepository(): OutboxRepositoryInterface
     fun createInboxRepository(): InboxRepositoryInterface
+    fun createTransactionRunner(): TransactionRunner
 }
 
 /**

@@ -840,6 +840,7 @@ class ConfigValidatorTest {
                 "stripe-webhooks" to SourceConfig.Http(
                     path = "/webhooks/stripe",
                     idempotencyKeyPath = "$.id",
+                    eventTypePath = "$.type",
                     transform = TransformConfig(
                         expression = "{ \"eventId\": id }",
                         timeoutMs = 100,
@@ -859,6 +860,7 @@ class ConfigValidatorTest {
                 "stripe-webhooks" to SourceConfig.Http(
                     path = "/webhooks/stripe",
                     idempotencyKeyPath = "$.id",
+                    eventTypePath = "$.type",
                     transform = null
                 )
             )
@@ -909,6 +911,7 @@ class ConfigValidatorTest {
                 "stripe-webhooks" to SourceConfig.Http(
                     path = "/webhooks/stripe",
                     idempotencyKeyPath = "$.id",
+                    eventTypePath = "$.type",
                     transform = TransformConfig(expression = "")
                 )
             )
@@ -945,6 +948,7 @@ class ConfigValidatorTest {
                 "stripe-webhooks" to SourceConfig.Http(
                     path = "/webhooks/stripe",
                     idempotencyKeyPath = "$.id",
+                    eventTypePath = "$.type",
                     transform = TransformConfig(expression = "{ \"id\": id }", timeoutMs = 0)
                 )
             )
@@ -963,6 +967,7 @@ class ConfigValidatorTest {
                 "stripe-webhooks" to SourceConfig.Http(
                     path = "/webhooks/stripe",
                     idempotencyKeyPath = "$.id",
+                    eventTypePath = "$.type",
                     transform = TransformConfig(expression = "{ \"id\": id }", timeoutMs = -50)
                 )
             )
@@ -1018,6 +1023,7 @@ class ConfigValidatorTest {
                 "stripe-webhooks" to SourceConfig.Http(
                     path = "/webhooks/stripe",
                     idempotencyKeyPath = "$.id",
+                    eventTypePath = "$.type",
                     transform = TransformConfig(
                         expression = "{ \"id\": id }",
                         onError = TransformErrorStrategy.Fail
@@ -1033,6 +1039,7 @@ class ConfigValidatorTest {
                 "stripe-webhooks" to SourceConfig.Http(
                     path = "/webhooks/stripe",
                     idempotencyKeyPath = "$.id",
+                    eventTypePath = "$.type",
                     transform = TransformConfig(
                         expression = "{ \"id\": id }",
                         onError = TransformErrorStrategy.Skip
@@ -1048,6 +1055,7 @@ class ConfigValidatorTest {
                 "stripe-webhooks" to SourceConfig.Http(
                     path = "/webhooks/stripe",
                     idempotencyKeyPath = "$.id",
+                    eventTypePath = "$.type",
                     transform = TransformConfig(
                         expression = "{ \"id\": id }",
                         onError = TransformErrorStrategy.Dead
@@ -1065,6 +1073,7 @@ class ConfigValidatorTest {
                 "stripe-webhooks" to SourceConfig.Http(
                     path = "/webhooks/stripe",
                     idempotencyKeyPath = "$.id",
+                    eventTypePath = "$.type",
                     transform = TransformConfig(expression = "{ \"eventId\": id }")
                 ),
                 "order-events" to SourceConfig.RabbitMQ(
@@ -1135,6 +1144,7 @@ class ConfigValidatorTest {
                 "stripe-webhooks" to SourceConfig.Http(
                     path = "/webhooks/stripe",
                     idempotencyKeyPath = "$.id",
+                    eventTypePath = "$.type",
                     auth = InboxAuthConfig.Bearer(token = "secret-token")
                 )
             )
@@ -1150,6 +1160,7 @@ class ConfigValidatorTest {
                 "stripe-webhooks" to SourceConfig.Http(
                     path = "/webhooks/stripe",
                     idempotencyKeyPath = "$.id",
+                    eventTypePath = "$.type",
                     auth = InboxAuthConfig.Bearer(token = "")
                 )
             )
@@ -1167,6 +1178,7 @@ class ConfigValidatorTest {
                 "partner-webhook" to SourceConfig.Http(
                     path = "/webhooks/partner",
                     idempotencyKeyPath = "$.id",
+                    eventTypePath = "$.type",
                     auth = InboxAuthConfig.ApiKey(headerName = "X-API-Key", key = "my-api-key")
                 )
             )
@@ -1182,6 +1194,7 @@ class ConfigValidatorTest {
                 "partner-webhook" to SourceConfig.Http(
                     path = "/webhooks/partner",
                     idempotencyKeyPath = "$.id",
+                    eventTypePath = "$.type",
                     auth = InboxAuthConfig.ApiKey(headerName = "X-API-Key", key = "")
                 )
             )
@@ -1199,6 +1212,7 @@ class ConfigValidatorTest {
                 "partner-webhook" to SourceConfig.Http(
                     path = "/webhooks/partner",
                     idempotencyKeyPath = "$.id",
+                    eventTypePath = "$.type",
                     auth = InboxAuthConfig.ApiKey(headerName = "", key = "my-key")
                 )
             )
@@ -1216,6 +1230,7 @@ class ConfigValidatorTest {
                 "stripe-webhooks" to SourceConfig.Http(
                     path = "/webhooks/stripe",
                     idempotencyKeyPath = "$.id",
+                    eventTypePath = "$.type",
                     auth = InboxAuthConfig.HmacSignature(
                         secret = "webhook-secret",
                         headerName = "Stripe-Signature",
@@ -1235,6 +1250,7 @@ class ConfigValidatorTest {
                 "stripe-webhooks" to SourceConfig.Http(
                     path = "/webhooks/stripe",
                     idempotencyKeyPath = "$.id",
+                    eventTypePath = "$.type",
                     auth = InboxAuthConfig.HmacSignature(
                         secret = "",
                         headerName = "X-Signature",
@@ -1256,6 +1272,7 @@ class ConfigValidatorTest {
                 "stripe-webhooks" to SourceConfig.Http(
                     path = "/webhooks/stripe",
                     idempotencyKeyPath = "$.id",
+                    eventTypePath = "$.type",
                     auth = InboxAuthConfig.HmacSignature(
                         secret = "webhook-secret",
                         headerName = "X-Signature",
@@ -1277,6 +1294,7 @@ class ConfigValidatorTest {
                 "secure-webhook" to SourceConfig.Http(
                     path = "/webhooks/secure",
                     idempotencyKeyPath = "$.id",
+                    eventTypePath = "$.type",
                     auth = InboxAuthConfig.HmacSignature(
                         secret = "webhook-secret",
                         headerName = "X-Signature",
@@ -1296,6 +1314,7 @@ class ConfigValidatorTest {
                 "secure-webhook" to SourceConfig.Http(
                     path = "/webhooks/secure",
                     idempotencyKeyPath = "$.id",
+                    eventTypePath = "$.type",
                     auth = InboxAuthConfig.HmacSignature(
                         secret = "webhook-secret",
                         headerName = "",
@@ -1317,6 +1336,7 @@ class ConfigValidatorTest {
                 "public-webhook" to SourceConfig.Http(
                     path = "/webhooks/public",
                     idempotencyKeyPath = "$.id",
+                    eventTypePath = "$.type",
                     auth = null
                 )
             )
@@ -1556,6 +1576,7 @@ class ConfigValidatorTest {
                 "stripe" to SourceConfig.Http(
                     path = "/stripe",
                     idempotencyKeyPath = "$.id",
+                    eventTypePath = "$.type",
                     auth = InboxAuthConfig.HmacSignature(
                         secret = "stripe-secret",
                         algorithm = "HmacSHA256"
@@ -1564,6 +1585,7 @@ class ConfigValidatorTest {
                 "github" to SourceConfig.Http(
                     path = "/github",
                     idempotencyKeyPath = "$.delivery",
+                    eventTypePath = "$.type",
                     auth = InboxAuthConfig.HmacSignature(
                         secret = "github-secret",
                         algorithm = "HmacSHA256",
@@ -1592,5 +1614,136 @@ class ConfigValidatorTest {
         )
         val validated = ConfigValidator.validate(config)
         assertNotNull(validated)
+    }
+
+    // --- F-011: table name validation ---
+
+    @Test
+    fun `validate should reject an outbox table name that contains SQL`() {
+        val config = createValidConfig().let {
+            it.copy(database = it.database.copy(outboxTableName = "outbox; DROP TABLE users --"))
+        }
+
+        val exception = assertFailsWith<IllegalArgumentException> {
+            ConfigValidator.validate(config)
+        }
+
+        assertContains(exception.message!!, "database.outboxTableName")
+        assertContains(exception.message!!, "QUEUEBOX_DATABASE_OUTBOXTABLENAME")
+    }
+
+    @Test
+    fun `validate should reject an inbox table name that contains SQL`() {
+        val config = createValidConfig().let {
+            it.copy(database = it.database.copy(inboxTableName = "inbox; DROP TABLE users --"))
+        }
+
+        val exception = assertFailsWith<IllegalArgumentException> {
+            ConfigValidator.validate(config)
+        }
+
+        assertContains(exception.message!!, "database.inboxTableName")
+        assertContains(exception.message!!, "QUEUEBOX_DATABASE_INBOXTABLENAME")
+    }
+
+    @Test
+    fun `validate should reject a blank table name`() {
+        val config = createValidConfig().let {
+            it.copy(database = it.database.copy(outboxTableName = ""))
+        }
+
+        assertFailsWith<IllegalArgumentException> {
+            ConfigValidator.validate(config)
+        }
+    }
+
+    @Test
+    fun `validate should accept a legitimate custom table name`() {
+        val config = createValidConfig().let {
+            it.copy(
+                database = it.database.copy(
+                    outboxTableName = "my_schema_outbox",
+                    inboxTableName = "my_schema_inbox"
+                )
+            )
+        }
+
+        val result = ConfigValidator.validate(config)
+
+        assertNotNull(result)
+    }
+
+    // --- F-002: source topic template ---
+
+    @Test
+    fun `validate should reject an http source that uses eventType without eventTypePath`() {
+        val config = createValidConfig().let {
+            it.copy(
+                sources = mapOf(
+                    "stripe" to SourceConfig.Http(
+                        path = "/stripe",
+                        idempotencyKeyPath = "$.id"
+                    )
+                )
+            )
+        }
+
+        val exception = assertFailsWith<IllegalArgumentException> {
+            ConfigValidator.validate(config)
+        }
+
+        assertContains(exception.message!!, "sources.stripe.eventTypePath")
+    }
+
+    @Test
+    fun `validate should accept an http source with an eventTypePath`() {
+        val config = createValidConfig().let {
+            it.copy(
+                sources = mapOf(
+                    "stripe" to SourceConfig.Http(
+                        path = "/stripe",
+                        idempotencyKeyPath = "$.id",
+                        eventTypePath = "$.type"
+                    )
+                )
+            )
+        }
+
+        assertNotNull(ConfigValidator.validate(config))
+    }
+
+    @Test
+    fun `validate should accept an http source with a topic template that avoids eventType`() {
+        val config = createValidConfig().let {
+            it.copy(
+                sources = mapOf(
+                    "stripe" to SourceConfig.Http(
+                        path = "/stripe",
+                        idempotencyKeyPath = "$.id",
+                        topic = "{{ source }}.received"
+                    )
+                )
+            )
+        }
+
+        assertNotNull(ConfigValidator.validate(config))
+    }
+
+    @Test
+    fun `validate should reject a blank source topic template`() {
+        val config = createValidConfig().let {
+            it.copy(
+                sources = mapOf(
+                    "stripe" to SourceConfig.Http(
+                        path = "/stripe",
+                        idempotencyKeyPath = "$.id",
+                        eventTypePath = "$.type",
+                        topic = "  "
+                    )
+                )
+            )
+        }
+
+        assertFailsWith<IllegalArgumentException> { ConfigValidator.validate(config) }
     }
 }

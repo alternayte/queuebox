@@ -45,7 +45,8 @@ class OutboxRepositoryTest : PostgresTestBase() {
         val result = repository.claimBatch(10)
 
         assertEquals(3, result.size)
-        result.forEach { assertEquals(MessageState.Pending, it.state) }
+        // The claim is one statement, so the returned rows already carry the new state.
+        result.forEach { assertEquals(MessageState.Processing, it.state) }
     }
 
     @Test

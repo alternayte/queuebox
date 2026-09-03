@@ -94,8 +94,8 @@ class RetentionServiceTest {
         assertFalse(service.isRunning())
 
         // No cleanup should have been called
-        coVerify(exactly = 0) { outboxRepository.deleteOlderThan(any(), any()) }
-        coVerify(exactly = 0) { inboxRepository.deleteOlderThan(any(), any()) }
+        coVerify(exactly = 0) { outboxRepository.deleteOlderThan(any(), any(), any()) }
+        coVerify(exactly = 0) { inboxRepository.deleteOlderThan(any(), any(), any()) }
     }
 
     @Test
@@ -104,7 +104,7 @@ class RetentionServiceTest {
         val inboxRepository = mockk<InboxRepositoryInterface>(relaxed = true)
         val metricsCollector = mockk<MetricsCollectorInterface>(relaxed = true)
 
-        coEvery { outboxRepository.deleteOlderThan(any(), any()) } returns 0
+        coEvery { outboxRepository.deleteOlderThan(any(), any(), any()) } returns 0
 
         val service = RetentionService(
             config = createAgeBasedOutboxConfig(),
@@ -119,7 +119,7 @@ class RetentionServiceTest {
         service.stop()
 
         // Should have called deleteOlderThan for outbox
-        coVerify(atLeast = 1) { outboxRepository.deleteOlderThan(any(), any()) }
+        coVerify(atLeast = 1) { outboxRepository.deleteOlderThan(any(), any(), any()) }
     }
 
     @Test
@@ -128,7 +128,7 @@ class RetentionServiceTest {
         val inboxRepository = mockk<InboxRepositoryInterface>(relaxed = true)
         val metricsCollector = mockk<MetricsCollectorInterface>(relaxed = true)
 
-        coEvery { inboxRepository.deleteOlderThan(any(), any()) } returns 0
+        coEvery { inboxRepository.deleteOlderThan(any(), any(), any()) } returns 0
 
         val service = RetentionService(
             config = createAgeBasedInboxConfig(),
@@ -143,7 +143,7 @@ class RetentionServiceTest {
         service.stop()
 
         // Should have called deleteOlderThan for inbox
-        coVerify(atLeast = 1) { inboxRepository.deleteOlderThan(any(), any()) }
+        coVerify(atLeast = 1) { inboxRepository.deleteOlderThan(any(), any(), any()) }
     }
 
     @Test
@@ -153,8 +153,8 @@ class RetentionServiceTest {
         val metricsCollector = mockk<MetricsCollectorInterface>(relaxed = true)
 
         // First call returns some deletions, second returns 0 to stop batching
-        coEvery { outboxRepository.deleteOlderThan("sent", any()) } returns 50 andThen 0
-        coEvery { outboxRepository.deleteOlderThan("dead", any()) } returns 30 andThen 0
+        coEvery { outboxRepository.deleteOlderThan("sent", any(), any()) } returns 50 andThen 0
+        coEvery { outboxRepository.deleteOlderThan("dead", any(), any()) } returns 30 andThen 0
 
         val service = RetentionService(
             config = createAgeBasedOutboxConfig(maxAge = "7d"),
@@ -168,8 +168,8 @@ class RetentionServiceTest {
         service.stop()
 
         // Should have called deleteOlderThan for both "sent" and "dead" states
-        coVerify(atLeast = 1) { outboxRepository.deleteOlderThan("sent", any()) }
-        coVerify(atLeast = 1) { outboxRepository.deleteOlderThan("dead", any()) }
+        coVerify(atLeast = 1) { outboxRepository.deleteOlderThan("sent", any(), any()) }
+        coVerify(atLeast = 1) { outboxRepository.deleteOlderThan("dead", any(), any()) }
     }
 
     @Test
@@ -178,8 +178,8 @@ class RetentionServiceTest {
         val inboxRepository = mockk<InboxRepositoryInterface>(relaxed = true)
         val metricsCollector = mockk<MetricsCollectorInterface>(relaxed = true)
 
-        coEvery { outboxRepository.deleteExceptMostRecent("sent", 1000) } returns 50
-        coEvery { outboxRepository.deleteExceptMostRecent("dead", 1000) } returns 30
+        coEvery { outboxRepository.deleteExceptMostRecent("sent", 1000, any()) } returns 50
+        coEvery { outboxRepository.deleteExceptMostRecent("dead", 1000, any()) } returns 30
 
         val service = RetentionService(
             config = createCountBasedOutboxConfig(maxCount = 1000),
@@ -193,8 +193,8 @@ class RetentionServiceTest {
         service.stop()
 
         // Should have called deleteExceptMostRecent for both "sent" and "dead" states
-        coVerify(atLeast = 1) { outboxRepository.deleteExceptMostRecent("sent", 1000) }
-        coVerify(atLeast = 1) { outboxRepository.deleteExceptMostRecent("dead", 1000) }
+        coVerify(atLeast = 1) { outboxRepository.deleteExceptMostRecent("sent", 1000, any()) }
+        coVerify(atLeast = 1) { outboxRepository.deleteExceptMostRecent("dead", 1000, any()) }
     }
 
     @Test
@@ -213,7 +213,7 @@ class RetentionServiceTest {
             )
         )
 
-        coEvery { inboxRepository.deleteOlderThan(any(), any()) } returns 0
+        coEvery { inboxRepository.deleteOlderThan(any(), any(), any()) } returns 0
 
         val service = RetentionService(
             config = config,
@@ -227,8 +227,8 @@ class RetentionServiceTest {
         service.stop()
 
         // Should not have called any outbox delete methods
-        coVerify(exactly = 0) { outboxRepository.deleteOlderThan(any(), any()) }
-        coVerify(exactly = 0) { outboxRepository.deleteExceptMostRecent(any(), any()) }
+        coVerify(exactly = 0) { outboxRepository.deleteOlderThan(any(), any(), any()) }
+        coVerify(exactly = 0) { outboxRepository.deleteExceptMostRecent(any(), any(), any()) }
     }
 
     @Test
@@ -237,7 +237,7 @@ class RetentionServiceTest {
         val inboxRepository = mockk<InboxRepositoryInterface>(relaxed = true)
         val metricsCollector = mockk<MetricsCollectorInterface>(relaxed = true)
 
-        coEvery { inboxRepository.deleteOlderThan(any(), any()) } returns 50 andThen 0
+        coEvery { inboxRepository.deleteOlderThan(any(), any(), any()) } returns 50 andThen 0
 
         val service = RetentionService(
             config = createAgeBasedInboxConfig(maxAge = "7d"),
@@ -251,7 +251,7 @@ class RetentionServiceTest {
         service.stop()
 
         // Should have called deleteOlderThan for inbox
-        coVerify(atLeast = 1) { inboxRepository.deleteOlderThan(any(), any()) }
+        coVerify(atLeast = 1) { inboxRepository.deleteOlderThan(any(), any(), any()) }
     }
 
     @Test
@@ -272,7 +272,7 @@ class RetentionServiceTest {
         service.stop()
 
         // Should not have called deleteOlderThan for inbox (COUNT not supported)
-        coVerify(exactly = 0) { inboxRepository.deleteOlderThan(any(), any()) }
+        coVerify(exactly = 0) { inboxRepository.deleteOlderThan(any(), any(), any()) }
     }
 
     @Test
@@ -291,7 +291,7 @@ class RetentionServiceTest {
             inbox = TableRetentionConfig(policy = RetentionPolicy.DISABLED)
         )
 
-        coEvery { outboxRepository.deleteOlderThan(any(), any()) } returns 0
+        coEvery { outboxRepository.deleteOlderThan(any(), any(), any()) } returns 0
 
         val service = RetentionService(
             config = config,
@@ -305,7 +305,7 @@ class RetentionServiceTest {
         service.stop()
 
         // Should not have called any inbox delete methods
-        coVerify(exactly = 0) { inboxRepository.deleteOlderThan(any(), any()) }
+        coVerify(exactly = 0) { inboxRepository.deleteOlderThan(any(), any(), any()) }
     }
 
     @Test
@@ -315,8 +315,8 @@ class RetentionServiceTest {
         val metricsCollector = mockk<MetricsCollectorInterface>(relaxed = true)
 
         // Returns batchSize on first call, less on second to stop
-        coEvery { outboxRepository.deleteOlderThan("sent", any()) } returns 100 andThen 50 andThen 0
-        coEvery { outboxRepository.deleteOlderThan("dead", any()) } returns 0
+        coEvery { outboxRepository.deleteOlderThan("sent", any(), any()) } returns 100 andThen 50 andThen 0
+        coEvery { outboxRepository.deleteOlderThan("dead", any(), any()) } returns 0
 
         val service = RetentionService(
             config = createAgeBasedOutboxConfig(batchSize = 100),
@@ -330,7 +330,7 @@ class RetentionServiceTest {
         service.stop()
 
         // Should have called deleteOlderThan multiple times for "sent" (batching)
-        coVerify(atLeast = 2) { outboxRepository.deleteOlderThan("sent", any()) }
+        coVerify(atLeast = 2) { outboxRepository.deleteOlderThan("sent", any(), any()) }
     }
 
     @Test
@@ -340,8 +340,8 @@ class RetentionServiceTest {
         val metricsCollector = mockk<MetricsCollectorInterface>(relaxed = true)
 
         // Returns exactly batchSize multiple times, then less to stop
-        coEvery { outboxRepository.deleteOlderThan("sent", any()) } returns 100 andThen 100 andThen 100 andThen 50 andThen 0
-        coEvery { outboxRepository.deleteOlderThan("dead", any()) } returns 0
+        coEvery { outboxRepository.deleteOlderThan("sent", any(), any()) } returns 100 andThen 100 andThen 100 andThen 50 andThen 0
+        coEvery { outboxRepository.deleteOlderThan("dead", any(), any()) } returns 0
 
         val service = RetentionService(
             config = createAgeBasedOutboxConfig(batchSize = 100),
@@ -355,7 +355,7 @@ class RetentionServiceTest {
         service.stop()
 
         // Should have called deleteOlderThan at least 4 times (100, 100, 100, 50, stop)
-        coVerify(atLeast = 4) { outboxRepository.deleteOlderThan("sent", any()) }
+        coVerify(atLeast = 4) { outboxRepository.deleteOlderThan("sent", any(), any()) }
     }
 
     @Test
@@ -365,8 +365,8 @@ class RetentionServiceTest {
         val metricsCollector = mockk<MetricsCollectorInterface>(relaxed = true)
 
         // Returns less than batchSize immediately
-        coEvery { outboxRepository.deleteOlderThan("sent", any()) } returns 50
-        coEvery { outboxRepository.deleteOlderThan("dead", any()) } returns 30
+        coEvery { outboxRepository.deleteOlderThan("sent", any(), any()) } returns 50
+        coEvery { outboxRepository.deleteOlderThan("dead", any(), any()) } returns 30
 
         val service = RetentionService(
             config = createAgeBasedOutboxConfig(batchSize = 100),
@@ -380,8 +380,8 @@ class RetentionServiceTest {
         service.stop()
 
         // Should have called deleteOlderThan exactly once per state (no batching needed)
-        coVerify(atLeast = 1) { outboxRepository.deleteOlderThan("sent", any()) }
-        coVerify(atLeast = 1) { outboxRepository.deleteOlderThan("dead", any()) }
+        coVerify(atLeast = 1) { outboxRepository.deleteOlderThan("sent", any(), any()) }
+        coVerify(atLeast = 1) { outboxRepository.deleteOlderThan("dead", any(), any()) }
     }
 
     @Test
@@ -390,7 +390,7 @@ class RetentionServiceTest {
         val inboxRepository = mockk<InboxRepositoryInterface>(relaxed = true)
         val metricsCollector = mockk<MetricsCollectorInterface>(relaxed = true)
 
-        coEvery { outboxRepository.deleteOlderThan(any(), any()) } returns 50 andThen 0
+        coEvery { outboxRepository.deleteOlderThan(any(), any(), any()) } returns 50 andThen 0
 
         val service = RetentionService(
             config = createAgeBasedOutboxConfig(),
@@ -414,8 +414,8 @@ class RetentionServiceTest {
         val metricsCollector = mockk<MetricsCollectorInterface>(relaxed = true)
 
         // First call throws exception, subsequent calls succeed
-        coEvery { outboxRepository.deleteOlderThan("sent", any()) } throws RuntimeException("Database error") andThen 50 andThen 0
-        coEvery { outboxRepository.deleteOlderThan("dead", any()) } returns 0
+        coEvery { outboxRepository.deleteOlderThan("sent", any(), any()) } throws RuntimeException("Database error") andThen 50 andThen 0
+        coEvery { outboxRepository.deleteOlderThan("dead", any(), any()) } returns 0
 
         val service = RetentionService(
             config = createAgeBasedOutboxConfig(cleanupInterval = "1s"),
@@ -429,7 +429,7 @@ class RetentionServiceTest {
         service.stop()
 
         // Should have recovered and continued calling deleteOlderThan
-        coVerify(atLeast = 2) { outboxRepository.deleteOlderThan("sent", any()) }
+        coVerify(atLeast = 2) { outboxRepository.deleteOlderThan("sent", any(), any()) }
     }
 
     @Test
@@ -437,7 +437,7 @@ class RetentionServiceTest {
         val outboxRepository = mockk<OutboxRepositoryInterface>(relaxed = true)
         val inboxRepository = mockk<InboxRepositoryInterface>(relaxed = true)
 
-        coEvery { outboxRepository.deleteOlderThan(any(), any()) } returns 0
+        coEvery { outboxRepository.deleteOlderThan(any(), any(), any()) } returns 0
 
         val service = RetentionService(
             config = createAgeBasedOutboxConfig(),
@@ -460,7 +460,7 @@ class RetentionServiceTest {
         val outboxRepository = mockk<OutboxRepositoryInterface>(relaxed = true)
         val inboxRepository = mockk<InboxRepositoryInterface>(relaxed = true)
 
-        coEvery { outboxRepository.deleteOlderThan(any(), any()) } returns 50 andThen 0
+        coEvery { outboxRepository.deleteOlderThan(any(), any(), any()) } returns 50 andThen 0
 
         val service = RetentionService(
             config = createAgeBasedOutboxConfig(),
@@ -474,7 +474,7 @@ class RetentionServiceTest {
         service.stop()
 
         // Should have executed cleanup without crashing (no metrics collector)
-        coVerify(atLeast = 1) { outboxRepository.deleteOlderThan(any(), any()) }
+        coVerify(atLeast = 1) { outboxRepository.deleteOlderThan(any(), any(), any()) }
     }
 
     @Test
@@ -499,8 +499,8 @@ class RetentionServiceTest {
             )
         )
 
-        coEvery { outboxRepository.deleteOlderThan(any(), any()) } returns 50 andThen 0
-        coEvery { inboxRepository.deleteOlderThan(any(), any()) } returns 30 andThen 0
+        coEvery { outboxRepository.deleteOlderThan(any(), any(), any()) } returns 50 andThen 0
+        coEvery { inboxRepository.deleteOlderThan(any(), any(), any()) } returns 30 andThen 0
 
         val service = RetentionService(
             config = config,
@@ -514,8 +514,8 @@ class RetentionServiceTest {
         service.stop()
 
         // Should cleanup both tables
-        coVerify(atLeast = 1) { outboxRepository.deleteOlderThan(any(), any()) }
-        coVerify(atLeast = 1) { inboxRepository.deleteOlderThan(any(), any()) }
+        coVerify(atLeast = 1) { outboxRepository.deleteOlderThan(any(), any(), any()) }
+        coVerify(atLeast = 1) { inboxRepository.deleteOlderThan(any(), any(), any()) }
         verify(atLeast = 1) { metricsCollector.recordCleanupRun("outbox", any(), any()) }
         verify(atLeast = 1) { metricsCollector.recordCleanupRun("inbox", any(), any()) }
     }

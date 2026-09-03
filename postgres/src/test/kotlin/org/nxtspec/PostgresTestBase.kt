@@ -9,6 +9,7 @@ import org.jetbrains.exposed.sql.SchemaUtils
 import org.jetbrains.exposed.sql.deleteAll
 import org.jetbrains.exposed.sql.insert
 import org.jetbrains.exposed.sql.selectAll
+import org.jetbrains.exposed.sql.update
 import org.jetbrains.exposed.sql.transactions.transaction
 import org.junit.jupiter.api.AfterAll
 import org.junit.jupiter.api.AfterEach
@@ -16,17 +17,16 @@ import org.junit.jupiter.api.BeforeAll
 import org.junit.jupiter.api.TestInstance
 import org.testcontainers.containers.PostgreSQLContainer
 import org.testcontainers.containers.wait.strategy.Wait
-import org.testcontainers.junit.jupiter.Container
-import org.testcontainers.junit.jupiter.Testcontainers
 import java.time.Duration
 import java.util.UUID
 
-@Testcontainers
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 abstract class PostgresTestBase {
 
     companion object {
-        @Container
+        // Singleton container pattern. A per-class container stops after the first test class
+        // and the shared data source then points at a dead port. Ryuk removes the container
+        // when the JVM exits.
         @JvmStatic
         val postgres: PostgreSQLContainer<*> = PostgreSQLContainer("postgres:16")
             .withDatabaseName("queuebox_test")
@@ -38,27 +38,43 @@ abstract class PostgresTestBase {
                 Wait.forListeningPort()
                     .withStartupTimeout(Duration.ofMinutes(2))
             )
+            .also { it.start() }
+
+        // One data source for the whole JVM. A per-class data source lets the teardown of one
+        // class close the pool that another class still uses.
+        private var sharedDataSource: HikariDataSource? = null
+
+        @JvmStatic
+        fun sharedDataSource(): HikariDataSource = synchronized(this) {
+            sharedDataSource ?: run {
+                val config = DatabaseConfig(
+                    url = postgres.jdbcUrl,
+                    username = postgres.username,
+                    password = postgres.password,
+                    poolSize = 10
+                )
+                val created = DatabaseFactory.create(config)
+                DatabaseFactory.init(created)
+                sharedDataSource = created
+                created
+            }
+        }
     }
 
     protected lateinit var dataSource: HikariDataSource
 
     @BeforeAll
     fun setupDatabase() {
-        val config = DatabaseConfig(
-            url = postgres.jdbcUrl,
-            username = postgres.username,
-            password = postgres.password,
-            poolSize = 10
-        )
-        dataSource = DatabaseFactory.create(config)
+        dataSource = sharedDataSource()
+        // Another test class can register its own database as the Exposed default and then
+        // close it. Re-register the shared data source for this class.
         DatabaseFactory.init(dataSource)
         createTables()
     }
 
     @AfterAll
     fun teardownDatabase() {
-        dropTables()
-        DatabaseFactory.close(dataSource)
+        // The shared data source stays open for the remaining test classes.
     }
 
     @AfterEach
@@ -69,12 +85,6 @@ abstract class PostgresTestBase {
     private fun createTables() {
         transaction {
             SchemaUtils.create(OutboxTable, InboxTable)
-        }
-    }
-
-    private fun dropTables() {
-        transaction {
-            SchemaUtils.drop(OutboxTable, InboxTable)
         }
     }
 
@@ -157,6 +167,34 @@ abstract class PostgresTestBase {
                 .where { OutboxTable.id eq id }
                 .single()
             row[OutboxTable.state] to row[OutboxTable.scheduledAt]
+        }
+    }
+
+    protected fun getOutboxClaimedAt(id: UUID): Instant? {
+        return transaction {
+            OutboxTable.selectAll()
+                .where { OutboxTable.id eq id }
+                .single()[OutboxTable.claimedAt]
+        }
+    }
+
+    protected fun getInboxClaimedAt(id: UUID): Instant? {
+        return transaction {
+            InboxTable.selectAll()
+                .where { InboxTable.id eq id }
+                .single()[InboxTable.claimedAt]
+        }
+    }
+
+    protected fun setOutboxClaimedAt(id: UUID, claimedAt: Instant) {
+        transaction {
+            OutboxTable.update({ OutboxTable.id eq id }) { it[OutboxTable.claimedAt] = claimedAt }
+        }
+    }
+
+    protected fun setInboxClaimedAt(id: UUID, claimedAt: Instant) {
+        transaction {
+            InboxTable.update({ InboxTable.id eq id }) { it[InboxTable.claimedAt] = claimedAt }
         }
     }
 

@@ -6,13 +6,14 @@ import kotlinx.serialization.json.JsonElement
  * Result of routing a message to a destination.
  *
  * @property destination The resolved destination to publish to
- * @property routingKey The computed routing key for the message
+ * @property routingKey The routing key that the route resolved, or null when the route sets no
+ *   routingKeyTemplate. A null value lets the destination apply its own fallback. See F-004.
  * @property routeTransform Optional transform configured at the route level
  * @property destinationTransform Optional transform configured at the destination level
  */
 data class RoutingResult(
     val destination: Destination,
-    val routingKey: String,
+    val routingKey: String?,
     val routeTransform: TransformConfig? = null,
     val destinationTransform: TransformConfig? = null
 )
@@ -42,17 +43,19 @@ class MessageRouter(
         val matchedRoute = routes.firstOrNull { matchesPattern(topic, it.topicPattern) }
         return matchedRoute?.let {
             val destination = destinations[it.destination] ?: return null
-            val template = it.routingKeyTemplate ?: topic
-            val routingKey = if (payload != null) {
-                val missingFieldDefault = it.routingKeyMissingFieldDefault
-                val renderer = if (missingFieldDefault != null) {
-                    RoutingKeyRenderer(missingFieldDefault)
-                } else {
-                    routingKeyRenderer
+            val template = it.routingKeyTemplate
+            val routingKey = when {
+                template == null -> null
+                payload != null -> {
+                    val missingFieldDefault = it.routingKeyMissingFieldDefault
+                    val renderer = if (missingFieldDefault != null) {
+                        RoutingKeyRenderer(missingFieldDefault)
+                    } else {
+                        routingKeyRenderer
+                    }
+                    renderer.render(template, topic, payload)
                 }
-                renderer.render(template, topic, payload)
-            } else {
-                renderLegacyTemplate(template, topic)
+                else -> renderLegacyTemplate(template, topic)
             }
             RoutingResult(
                 destination = destination,

@@ -49,7 +49,8 @@ fun main() {
             maxAttempts = config.database.columnMapping.outbox.maxAttempts,
             scheduledAt = config.database.columnMapping.outbox.scheduledAt,
             createdAt = config.database.columnMapping.outbox.createdAt,
-            updatedAt = config.database.columnMapping.outbox.updatedAt
+            updatedAt = config.database.columnMapping.outbox.updatedAt,
+            claimedAt = config.database.columnMapping.outbox.claimedAt
         ),
         inbox = InboxColumnMappingData(
             id = config.database.columnMapping.inbox.id,
@@ -60,7 +61,8 @@ fun main() {
             payload = config.database.columnMapping.inbox.payload,
             state = config.database.columnMapping.inbox.state,
             createdAt = config.database.columnMapping.inbox.createdAt,
-            processedAt = config.database.columnMapping.inbox.processedAt
+            processedAt = config.database.columnMapping.inbox.processedAt,
+            claimedAt = config.database.columnMapping.inbox.claimedAt
         ),
         outboxTableName = config.database.outboxTableName,
         inboxTableName = config.database.inboxTableName
@@ -68,6 +70,7 @@ fun main() {
     val repositoryFactory = DatabaseProviderFactory.create(dbType, dataSource, columnMappingData)
     val outboxRepository = repositoryFactory.createOutboxRepository()
     val inboxRepository = repositoryFactory.createInboxRepository()
+    val transactionRunner = repositoryFactory.createTransactionRunner()
 
     // Convert config destinations to domain Destinations
     val destinations = config.destinations.mapValues { (name, destConfig) ->
@@ -107,7 +110,13 @@ fun main() {
         metricsCollector = metricsCollector,
         authResolver = authResolver
     )
-    val publishers = listOf(httpPublisher)
+    // F-003: RabbitMQ destinations are advertised, so the RabbitMQ publisher must be
+    // registered. Without it the poller marks every RabbitMQ message as dead.
+    val rabbitPublisher = RabbitPublisher(metricsCollector = metricsCollector)
+    val publishers = listOf(httpPublisher, rabbitPublisher)
+
+    // F-003: fail fast when a destination has no publisher.
+    validatePublisherCoverage(destinations, publishers)
 
     // Transform pipelines (shared engine for both outbox and inbox)
     val transformEngine = TransformEngine()
@@ -144,6 +153,17 @@ fun main() {
         transformPipeline = inboxTransformPipeline
     )
 
+    // F-002: the inbox relay moves a stored inbox message into the outbox table. The outbox
+    // machinery then routes, transforms and delivers it.
+    val inboxRelay = InboxRelay(
+        config = config.inbox.relay,
+        inboxRepository = inboxRepository,
+        outboxRepository = outboxRepository,
+        transactionRunner = transactionRunner,
+        sourceTopicTemplates = config.sources.mapValues { (_, source) -> source.topic },
+        metricsCollector = metricsCollector
+    )
+
     // RabbitMQ consumers for inbox sources
     val rabbitConsumers = config.sources
         .filterValues { it is SourceConfig.RabbitMQ }
@@ -175,6 +195,9 @@ fun main() {
     // Start retention cleanup
     retentionService.start()
 
+    // Start the inbox relay
+    inboxRelay.start()
+
     // Start RabbitMQ consumers
     runBlocking {
         rabbitConsumers.forEach { (consumer, _) -> consumer.start() }
@@ -189,8 +212,10 @@ fun main() {
                 connection.close()
             }
             outboxPoller.shutdown()
+            inboxRelay.shutdown()
             retentionService.stop()
             httpPublisher.close()
+            rabbitPublisher.close()
             tokenManager.close()
             dataSource.close()
         }

@@ -91,6 +91,7 @@ object ConfigValidator {
         // Validate source transforms and auth
         config.sources.forEach { (name, source) ->
             validateTransform(source.transform, "Source '$name'", "sources.$name.transform")
+            validateSourceTopic(name, source)
             if (source is SourceConfig.Http) {
                 validateInboxAuth(source.auth, "Source '$name'", "sources.$name.auth")
             }
@@ -112,7 +113,67 @@ object ConfigValidator {
         // Validate column mapping
         validateColumnMapping(config.database.columnMapping)
 
+        // Validate table names (F-011)
+        validateTableNames(config.database)
+
         return config
+    }
+
+    /**
+     * Valid SQL identifier: starts with a letter or an underscore, and contains only
+     * alphanumeric characters and underscores.
+     */
+    private val SQL_IDENTIFIER_REGEX = Regex("^[a-zA-Z_][a-zA-Z0-9_]*$")
+
+    /**
+     * Validates the source topic template that the inbox relay renders. See F-002.
+     *
+     * The relay marks a message dead when the template renders empty. An HTTP source that uses
+     * `{{ eventType }}` without an `eventTypePath` therefore loses every message. Reject that
+     * configuration at startup.
+     */
+    private fun validateSourceTopic(name: String, source: SourceConfig) {
+        require(source.topic.isNotBlank()) {
+            "Source '$name' topic template cannot be blank. " +
+                "Set via 'sources.$name.topic' in YAML or " +
+                "${EnvConfigLoader.yamlPathToEnvKey("sources.$name.topic")} env var."
+        }
+
+        if (source is SourceConfig.Http && source.topic.contains("eventType")) {
+            require(source.eventTypePath != null) {
+                "Source '$name' topic template '${source.topic}' uses eventType, but " +
+                    "'sources.$name.eventTypePath' is not set. The inbox relay would mark every " +
+                    "message of this source as dead. Set 'sources.$name.eventTypePath', or set a " +
+                    "'sources.$name.topic' template that does not use eventType."
+            }
+        }
+    }
+
+    /**
+     * Validates that the configured table names are safe SQL identifiers.
+     *
+     * Table names are interpolated into raw SQL strings, so an unchecked value becomes
+     * arbitrary SQL. The repositories also quote every interpolated identifier. Both
+     * defences are required.
+     */
+    private fun validateTableNames(database: DatabaseConfig) {
+        val tableNames = listOf(
+            "database.outboxTableName" to database.outboxTableName,
+            "database.inboxTableName" to database.inboxTableName
+        )
+
+        tableNames.forEach { (yamlPath, tableName) ->
+            require(tableName.isNotBlank()) {
+                "Table name '$yamlPath' cannot be blank. " +
+                    "Set via '$yamlPath' in YAML or ${EnvConfigLoader.yamlPathToEnvKey(yamlPath)} env var."
+            }
+            require(SQL_IDENTIFIER_REGEX.matches(tableName)) {
+                "Invalid table name '$tableName' for '$yamlPath'. " +
+                    "Table names must start with a letter or underscore and contain only " +
+                    "alphanumeric characters and underscores. " +
+                    "Set via '$yamlPath' in YAML or ${EnvConfigLoader.yamlPathToEnvKey(yamlPath)} env var."
+            }
+        }
     }
 
     /**
@@ -120,8 +181,7 @@ object ConfigValidator {
      * This prevents SQL injection since column names are interpolated into raw SQL strings.
      */
     private fun validateColumnMapping(mapping: ColumnMappingConfig) {
-        // Valid SQL identifier: starts with letter or underscore, contains only alphanumeric and underscores
-        val sqlIdentifierRegex = Regex("^[a-zA-Z_][a-zA-Z0-9_]*$")
+        val sqlIdentifierRegex = SQL_IDENTIFIER_REGEX
 
         // Validate outbox column names
         val outboxColumns = listOf(
@@ -135,7 +195,8 @@ object ConfigValidator {
             "maxAttempts" to mapping.outbox.maxAttempts,
             "scheduledAt" to mapping.outbox.scheduledAt,
             "createdAt" to mapping.outbox.createdAt,
-            "updatedAt" to mapping.outbox.updatedAt
+            "updatedAt" to mapping.outbox.updatedAt,
+            "claimedAt" to mapping.outbox.claimedAt
         )
 
         outboxColumns.forEach { (fieldName, columnName) ->
@@ -160,7 +221,8 @@ object ConfigValidator {
             "payload" to mapping.inbox.payload,
             "state" to mapping.inbox.state,
             "createdAt" to mapping.inbox.createdAt,
-            "processedAt" to mapping.inbox.processedAt
+            "processedAt" to mapping.inbox.processedAt,
+            "claimedAt" to mapping.inbox.claimedAt
         )
 
         inboxColumns.forEach { (fieldName, columnName) ->

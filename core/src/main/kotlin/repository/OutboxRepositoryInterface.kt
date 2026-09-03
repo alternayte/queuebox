@@ -3,6 +3,7 @@ package org.nxtspec.repository
 import kotlinx.datetime.Instant
 import org.nxtspec.OutboxMessage
 import java.util.UUID
+import kotlin.time.Duration
 
 /**
  * Interface for outbox repository operations.
@@ -11,9 +12,17 @@ import java.util.UUID
 interface OutboxRepositoryInterface {
     /**
      * Claims a batch of pending messages for processing.
-     * Atomically selects and marks messages as processing.
+     * Atomically selects and marks messages as processing, oldest first.
      */
     suspend fun claimBatch(batchSize: Int): List<OutboxMessage>
+
+    /**
+     * Inserts a message into the outbox in state 'pending'.
+     *
+     * The state of the given message is not persisted, because a new outbox row is always
+     * pending. The inbox relay uses this method to forward a stored inbox message onward.
+     */
+    suspend fun insert(message: OutboxMessage)
 
     /**
      * Marks a message as successfully sent.
@@ -41,14 +50,23 @@ interface OutboxRepositoryInterface {
     suspend fun countByState(state: String): Long
 
     /**
-     * Deletes messages in the given state older than the cutoff time.
-     * @return the number of deleted records
+     * Returns messages that stay in state 'processing' longer than the visibility timeout
+     * back to state 'pending'. The attempt count does not change.
+     * @return the number of reclaimed records
      */
-    suspend fun deleteOlderThan(state: String, cutoff: Instant): Int
+    suspend fun reclaimStale(olderThan: Duration): Int
 
     /**
-     * Deletes all messages in the given state except the most recent N.
+     * Deletes messages in the given state older than the cutoff time.
+     * @param limit the maximum number of rows to delete in one statement
      * @return the number of deleted records
      */
-    suspend fun deleteExceptMostRecent(state: String, keepCount: Int): Int
+    suspend fun deleteOlderThan(state: String, cutoff: Instant, limit: Int): Int
+
+    /**
+     * Deletes messages in the given state except the most recent N.
+     * @param limit the maximum number of rows to delete in one statement
+     * @return the number of deleted records
+     */
+    suspend fun deleteExceptMostRecent(state: String, keepCount: Int, limit: Int): Int
 }

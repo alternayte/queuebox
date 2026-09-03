@@ -8,6 +8,7 @@ import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Test
 import java.util.UUID
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
@@ -209,75 +210,21 @@ class SqlServerDynamicTablesTest : SqlServerTestBase() {
     }
 
     @Test
-    fun `escapeSqlServerColumnName should escape reserved words`() {
-        // Test reserved words that should be escaped
-        assertEquals("[key]", escapeSqlServerColumnName("key"))
-        assertEquals("[user]", escapeSqlServerColumnName("user"))
-        assertEquals("[order]", escapeSqlServerColumnName("order"))
-        assertEquals("[index]", escapeSqlServerColumnName("index"))
-        assertEquals("[table]", escapeSqlServerColumnName("table"))
-        assertEquals("[select]", escapeSqlServerColumnName("select"))
-        assertEquals("[insert]", escapeSqlServerColumnName("insert"))
-        assertEquals("[update]", escapeSqlServerColumnName("update"))
-        assertEquals("[delete]", escapeSqlServerColumnName("delete"))
-        assertEquals("[from]", escapeSqlServerColumnName("from"))
-        assertEquals("[where]", escapeSqlServerColumnName("where"))
-        assertEquals("[join]", escapeSqlServerColumnName("join"))
+    fun `quoteSqlServerIdentifier should quote every identifier`() {
+        assertEquals("[key]", quoteSqlServerIdentifier("key"))
+        assertEquals("[order]", quoteSqlServerIdentifier("order"))
+        assertEquals("[topic]", quoteSqlServerIdentifier("topic"))
+        assertEquals("[payload]", quoteSqlServerIdentifier("payload"))
+        assertEquals("[created_at]", quoteSqlServerIdentifier("created_at"))
+        assertEquals("[KEY]", quoteSqlServerIdentifier("KEY"))
+        assertEquals("[my_schema_outbox]", quoteSqlServerIdentifier("my_schema_outbox"))
     }
 
     @Test
-    fun `escapeSqlServerColumnName should not escape non-reserved words`() {
-        // Test non-reserved words that should NOT be escaped
-        assertEquals("topic", escapeSqlServerColumnName("topic"))
-        assertEquals("payload", escapeSqlServerColumnName("payload"))
-        assertEquals("state", escapeSqlServerColumnName("state"))
-        assertEquals("attempt", escapeSqlServerColumnName("attempt"))
-        assertEquals("headers", escapeSqlServerColumnName("headers"))
-        assertEquals("message_id", escapeSqlServerColumnName("message_id"))
-        assertEquals("created_at", escapeSqlServerColumnName("created_at"))
-    }
-
-    @Test
-    fun `escapeSqlServerColumnName should be case insensitive`() {
-        // Test that escaping works regardless of case
-        assertEquals("[KEY]", escapeSqlServerColumnName("KEY"))
-        assertEquals("[User]", escapeSqlServerColumnName("User"))
-        assertEquals("[ORDER]", escapeSqlServerColumnName("ORDER"))
-        assertEquals("[Table]", escapeSqlServerColumnName("Table"))
-        assertEquals("[SELECT]", escapeSqlServerColumnName("SELECT"))
-    }
-
-    @Test
-    fun `createDefaultSqlServerOutboxTable should return table with defaults`() {
-        val table = createDefaultSqlServerOutboxTable()
-
-        transaction {
-            SchemaUtils.create(table)
+    fun `quoteSqlServerIdentifier should reject a closing bracket`() {
+        assertFailsWith<IllegalArgumentException> {
+            quoteSqlServerIdentifier("outbox] ; DROP TABLE users --")
         }
-
-        val id = UUID.randomUUID()
-        val now = kotlinx.datetime.Clock.System.now()
-
-        // Insert with default state and attempt values
-        transaction {
-            table.insert {
-                it[table.id] = id
-                it[topic] = "default.topic"
-                it[payload] = "{}"
-                it[scheduledAt] = now
-                it[createdAt] = now
-                it[updatedAt] = now
-            }
-        }
-
-        val result = transaction {
-            table.selectAll().where { table.id eq id }.singleOrNull()
-        }
-
-        assertNotNull(result)
-        assertEquals("pending", result[table.state]) // Default value
-        assertEquals(0, result[table.attempt]) // Default value
-        assertEquals(5, result[table.maxAttempts]) // Default value
     }
 
     @Test

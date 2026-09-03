@@ -1,5 +1,8 @@
 .gradle
 build/
+# The hardening build status lives under docs/build/ and must stay in the repository.
+!docs/build/
+!docs/build/**
 !gradle/wrapper/gradle-wrapper.jar
 !**/src/main/**/build/
 !**/src/test/**/build/

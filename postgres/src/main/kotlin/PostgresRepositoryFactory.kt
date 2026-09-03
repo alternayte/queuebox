@@ -4,6 +4,7 @@ import org.nxtspec.repository.ColumnMappingData
 import org.nxtspec.repository.InboxRepositoryInterface
 import org.nxtspec.repository.OutboxRepositoryInterface
 import org.nxtspec.repository.RepositoryFactory
+import org.nxtspec.repository.TransactionRunner
 import javax.sql.DataSource
 
 /**
@@ -25,7 +26,8 @@ class PostgresRepositoryFactory(
         maxAttempts = columnMapping.outbox.maxAttempts,
         scheduledAt = columnMapping.outbox.scheduledAt,
         createdAt = columnMapping.outbox.createdAt,
-        updatedAt = columnMapping.outbox.updatedAt
+        updatedAt = columnMapping.outbox.updatedAt,
+        claimedAt = columnMapping.outbox.claimedAt
     )
 
     private val inboxColumnMapping = InboxColumnMapping(
@@ -37,7 +39,8 @@ class PostgresRepositoryFactory(
         payload = columnMapping.inbox.payload,
         state = columnMapping.inbox.state,
         createdAt = columnMapping.inbox.createdAt,
-        processedAt = columnMapping.inbox.processedAt
+        processedAt = columnMapping.inbox.processedAt,
+        claimedAt = columnMapping.inbox.claimedAt
     )
 
     override fun createOutboxRepository(): OutboxRepositoryInterface =
@@ -45,4 +48,6 @@ class PostgresRepositoryFactory(
 
     override fun createInboxRepository(): InboxRepositoryInterface =
         InboxRepository(inboxColumnMapping, columnMapping.inboxTableName)
+
+    override fun createTransactionRunner(): TransactionRunner = ExposedTransactionRunner()
 }

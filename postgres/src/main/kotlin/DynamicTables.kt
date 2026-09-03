@@ -29,6 +29,11 @@ class DynamicOutboxTable(
     val scheduledAt = timestamp(mapping.scheduledAt)
     val createdAt = timestamp(mapping.createdAt)
     val updatedAt = timestamp(mapping.updatedAt)
+    val claimedAt = timestamp(mapping.claimedAt).nullable()
+
+    init {
+        index(false, state, scheduledAt)
+    }
 }
 
 /**
@@ -50,10 +55,12 @@ class DynamicInboxTable(
     val state: Column<String> = varchar(mapping.state, 50).default("pending")
     val createdAt = timestamp(mapping.createdAt)
     val processedAt = timestamp(mapping.processedAt).nullable()
+    val claimedAt = timestamp(mapping.claimedAt).nullable()
 
     init {
         uniqueIndex(messageSrc, idempotencyKey)
         index(false, aggregateId, state)
+        index(false, state, createdAt)
     }
 }
 

@@ -32,6 +32,13 @@ class MetricsCollector(registry: MeterRegistry) : MetricsCollectorInterface {
     }
 
     /**
+     * Record messages that the reclaim step returned to state 'pending'.
+     */
+    override fun recordMessageReclaimed(count: Int) {
+        if (count > 0) metrics.outboxMessagesReclaimed.increment(count.toDouble())
+    }
+
+    /**
      * Record processing duration in milliseconds.
      */
     override fun recordProcessingDuration(durationMs: Long) {
@@ -57,6 +64,20 @@ class MetricsCollector(registry: MeterRegistry) : MetricsCollectorInterface {
      */
     override fun recordInboxDuplicate() {
         metrics.inboxMessagesDuplicate.increment()
+    }
+
+    /**
+     * Record an inbox message that the relay forwarded to the outbox.
+     */
+    override fun recordInboxForwarded() {
+        metrics.inboxMessagesForwarded.increment()
+    }
+
+    /**
+     * Record an inbox relay error.
+     */
+    override fun recordInboxRelayError() {
+        metrics.inboxRelayErrors.increment()
     }
 
     /**

@@ -19,6 +19,11 @@ object OutboxTable : UUIDTable("outbox") {
     val scheduledAt = timestamp("scheduled_at")
     val createdAt = timestamp("created_at")
     val updatedAt = timestamp("updated_at")
+    val claimedAt = timestamp("claimed_at").nullable()
+
+    init {
+        index(false, state, scheduledAt)
+    }
 }
 
 object InboxTable : UUIDTable("inbox") {
@@ -30,9 +35,11 @@ object InboxTable : UUIDTable("inbox") {
     val state: Column<String> = varchar("state", 50).default("pending")
     val createdAt = timestamp("created_at")
     val processedAt = timestamp("processed_at").nullable()
+    val claimedAt = timestamp("claimed_at").nullable()
 
     init {
         uniqueIndex(messageSrc, idempotencyKey)
         index(false, aggregateId, state)
+        index(false, state, createdAt)
     }
 }

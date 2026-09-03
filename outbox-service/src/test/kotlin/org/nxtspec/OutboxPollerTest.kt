@@ -62,7 +62,7 @@ class OutboxPollerTest {
         coEvery { repository.countByState("pending") } returns 5L
         every { router.route(any(), any()) } returns routingResult
         every { publisher.supports(any()) } returns true
-        coEvery { publisher.publish(any(), any()) } returns Result.success(Unit)
+        coEvery { publisher.publish(any(), any(), any()) } returns Result.success(Unit)
 
         val poller = OutboxPoller(
             config = defaultConfig,
@@ -78,7 +78,7 @@ class OutboxPollerTest {
         poller.shutdown()
 
         coVerify { repository.claimBatch(defaultConfig.batchSize) }
-        coVerify { publisher.publish(message, destination) }
+        coVerify { publisher.publish(message, destination, any()) }
     }
 
     @Test
@@ -160,7 +160,7 @@ class OutboxPollerTest {
         coEvery { repository.countByState("pending") } returns 0L
         every { router.route(any(), any()) } returns routingResult
         every { publisher.supports(any()) } returns true
-        coEvery { publisher.publish(any(), any()) } returns Result.success(Unit)
+        coEvery { publisher.publish(any(), any(), any()) } returns Result.success(Unit)
 
         val poller = OutboxPoller(
             config = defaultConfig,
@@ -194,7 +194,7 @@ class OutboxPollerTest {
         coEvery { repository.countByState("pending") } returns 0L
         every { router.route(any(), any()) } returns routingResult
         every { publisher.supports(any()) } returns true
-        coEvery { publisher.publish(any(), any()) } returns Result.failure(RuntimeException("Connection failed"))
+        coEvery { publisher.publish(any(), any(), any()) } returns Result.failure(RuntimeException("Connection failed"))
 
         val poller = OutboxPoller(
             config = defaultConfig,
@@ -228,7 +228,7 @@ class OutboxPollerTest {
         coEvery { repository.countByState("pending") } returns 0L
         every { router.route(any(), any()) } returns routingResult
         every { publisher.supports(any()) } returns true
-        coEvery { publisher.publish(any(), any()) } returns Result.failure(RuntimeException("Connection failed"))
+        coEvery { publisher.publish(any(), any(), any()) } returns Result.failure(RuntimeException("Connection failed"))
 
         val poller = OutboxPoller(
             config = defaultConfig,
@@ -265,7 +265,7 @@ class OutboxPollerTest {
         coEvery { repository.countByState("pending") } returns 0L
         every { router.route(any(), any()) } returns routingResult
         every { publisher.supports(any()) } returns true
-        coEvery { publisher.publish(any(), any()) } returns Result.success(Unit)
+        coEvery { publisher.publish(any(), any(), any()) } returns Result.success(Unit)
         coEvery { transformPipeline.transform(any(), any(), any(), any()) } returns TransformResult.Success(transformedPayload)
 
         val poller = OutboxPoller(
@@ -283,7 +283,7 @@ class OutboxPollerTest {
         poller.shutdown()
 
         coVerify { transformPipeline.transform(message.payload, transformConfig, null, any()) }
-        coVerify { publisher.publish(match { it.payload == transformedPayload }, destination) }
+        coVerify { publisher.publish(match { it.payload == transformedPayload }, destination, any()) }
     }
 
     @Test
@@ -304,7 +304,7 @@ class OutboxPollerTest {
         coEvery { repository.countByState("pending") } returns 0L
         every { router.route(any(), any()) } returns routingResult
         every { publisher.supports(any()) } returns true
-        coEvery { publisher.publish(any(), any()) } returns Result.success(Unit)
+        coEvery { publisher.publish(any(), any(), any()) } returns Result.success(Unit)
         coEvery { transformPipeline.transform(any(), any(), any(), any()) } returns TransformResult.Success(transformedPayload)
 
         val poller = OutboxPoller(
@@ -415,7 +415,7 @@ class OutboxPollerTest {
         coEvery { repository.countByState("pending") } returns 0L
         every { router.route(any(), any()) } returns routingResult
         every { publisher.supports(any()) } returns true
-        coEvery { publisher.publish(any(), any()) } returns Result.success(Unit)
+        coEvery { publisher.publish(any(), any(), any()) } returns Result.success(Unit)
 
         // No transformPipeline provided
         val poller = OutboxPoller(
@@ -433,7 +433,7 @@ class OutboxPollerTest {
         poller.shutdown()
 
         // Original message payload used (not transformed)
-        coVerify { publisher.publish(message, destination) }
+        coVerify { publisher.publish(message, destination, any()) }
     }
 
     @Test
@@ -476,7 +476,7 @@ class OutboxPollerTest {
         coEvery { repository.claimBatch(any()) } returns listOf(message) andThen emptyList()
         every { router.route(any(), any()) } returns routingResult
         every { publisher.supports(any()) } returns true
-        coEvery { publisher.publish(any(), any()) } returns Result.success(Unit)
+        coEvery { publisher.publish(any(), any(), any()) } returns Result.success(Unit)
 
         // No metricsCollector provided
         val poller = OutboxPoller(
@@ -512,7 +512,7 @@ class OutboxPollerTest {
         coEvery { repository.countByState("pending") } returns 0L
         every { router.route(any(), any()) } returns routingResult
         every { publisher.supports(any()) } returns true
-        coEvery { publisher.publish(any(), any()) } returns Result.success(Unit)
+        coEvery { publisher.publish(any(), any(), any()) } returns Result.success(Unit)
 
         val poller = OutboxPoller(
             config = defaultConfig,
@@ -600,7 +600,7 @@ class OutboxPollerTest {
         coEvery { repository.countByState("pending") } returns 0L
         every { router.route(any(), any()) } returns routingResult
         every { publisher.supports(any()) } returns true
-        coEvery { publisher.publish(any(), any()) } returns Result.success(Unit)
+        coEvery { publisher.publish(any(), any(), any()) } returns Result.success(Unit)
         coEvery { transformPipeline.transform(any(), any(), any(), any()) } returns TransformResult.Success(transformedPayload)
 
         val poller = OutboxPoller(
@@ -636,7 +636,7 @@ class OutboxPollerTest {
         coEvery { repository.countByState("pending") } returns 0L
         every { router.route(any(), any()) } returns routingResult
         every { publisher.supports(any()) } returns true
-        coEvery { publisher.publish(any(), any()) } returns Result.success(Unit)
+        coEvery { publisher.publish(any(), any(), any()) } returns Result.success(Unit)
 
         val poller = OutboxPoller(
             config = defaultConfig,
@@ -672,7 +672,7 @@ class OutboxPollerTest {
         coEvery { repository.countByState("pending") } returns 0L
         every { router.route(any(), any()) } returns routingResult
         every { publisher.supports(any()) } returns true
-        coEvery { publisher.publish(any(), any()) } returns Result.success(Unit)
+        coEvery { publisher.publish(any(), any(), any()) } returns Result.success(Unit)
 
         val poller = OutboxPoller(
             config = defaultConfig,
@@ -691,6 +691,95 @@ class OutboxPollerTest {
         // Transform pipeline should not be called
         coVerify(exactly = 0) { transformPipeline.transform(any(), any(), any(), any()) }
         // Original message should be used
-        coVerify { publisher.publish(message, destination) }
+        coVerify { publisher.publish(message, destination, any()) }
+    }
+
+    // --- F-006: stale claim recovery ---
+
+    @Test
+    fun `should reclaim stale claims on the first cycle`() = runBlocking {
+        val repository = mockk<OutboxRepositoryInterface>(relaxed = true)
+        val router = mockk<MessageRouter>(relaxed = true)
+        val metricsCollector = mockk<MetricsCollectorInterface>(relaxed = true)
+
+        coEvery { repository.claimBatch(any()) } returns emptyList()
+        coEvery { repository.reclaimStale(any()) } returns 3
+
+        val poller = OutboxPoller(
+            config = defaultConfig,
+            repository = repository,
+            router = router,
+            publishers = emptyList(),
+            retryStrategy = retryStrategy,
+            metricsCollector = metricsCollector
+        )
+
+        poller.start()
+        delay(200)
+        poller.shutdown()
+
+        coVerify(atLeast = 1) { repository.reclaimStale(any()) }
+        verify(atLeast = 1) { metricsCollector.recordMessageReclaimed(3) }
+    }
+
+    @Test
+    fun `should reclaim at most once per claim timeout fifth`() = runBlocking {
+        val repository = mockk<OutboxRepositoryInterface>(relaxed = true)
+        val router = mockk<MessageRouter>(relaxed = true)
+
+        coEvery { repository.claimBatch(any()) } returns emptyList()
+        coEvery { repository.reclaimStale(any()) } returns 0
+
+        // claimTimeoutMs of 300000 gives a reclaim interval of 60000 ms. The poll interval is
+        // 50 ms, so many poll cycles run inside one reclaim interval.
+        val poller = OutboxPoller(
+            config = defaultConfig.copy(claimTimeoutMs = 300000),
+            repository = repository,
+            router = router,
+            publishers = emptyList(),
+            retryStrategy = retryStrategy
+        )
+
+        poller.start()
+        delay(300)
+        poller.shutdown()
+
+        coVerify(exactly = 1) { repository.reclaimStale(any()) }
+        coVerify(atLeast = 2) { repository.claimBatch(any()) }
+    }
+
+    // --- F-004: the route routing key reaches the publisher ---
+
+    @Test
+    fun `should pass the routing key from the router to the publisher`() = runBlocking {
+        val repository = mockk<OutboxRepositoryInterface>(relaxed = true)
+        val router = mockk<MessageRouter>()
+        val publisher = mockk<Publisher>()
+
+        val message = createTestMessage(topic = "order.created")
+        val destination = createHttpDestination()
+        val routingResult = RoutingResult(destination, "eu.high.order.created")
+
+        coEvery { repository.claimBatch(any()) } returns listOf(message) andThen emptyList()
+        coEvery { repository.reclaimStale(any()) } returns 0
+        every { router.route(any(), any()) } returns routingResult
+        every { publisher.supports(destination) } returns true
+        coEvery { publisher.publish(any(), any(), any()) } returns Result.success(Unit)
+
+        val poller = OutboxPoller(
+            config = defaultConfig,
+            repository = repository,
+            router = router,
+            publishers = listOf(publisher),
+            retryStrategy = retryStrategy
+        )
+
+        poller.start()
+        delay(200)
+        poller.shutdown()
+
+        coVerify {
+            publisher.publish(any(), destination, PublishContext(routingKey = "eu.high.order.created"))
+        }
     }
 }

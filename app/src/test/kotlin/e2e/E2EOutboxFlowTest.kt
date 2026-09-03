@@ -94,14 +94,7 @@ class E2EOutboxFlowTest : E2ETestBase() {
         poller?.start()
 
         // 6. Wait for delivery
-        var delivered = false
-        repeat(50) { // Max 2.5 seconds
-            delay(50)
-            if (mockServer.receivedRequests.isNotEmpty()) {
-                delivered = true
-                return@repeat
-            }
-        }
+        val delivered = awaitUntil { mockServer.receivedRequests.isNotEmpty() }
 
         // 7. Verify HTTP endpoint received message
         assertTrue(delivered, "Message should be delivered to HTTP endpoint")
@@ -117,9 +110,8 @@ class E2EOutboxFlowTest : E2ETestBase() {
         assertEquals("0", receivedRequest.headers["X-Attempt"])
 
         // 8. Verify outbox message state
-        delay(100) // Allow state update to complete
-        val state = getOutboxMessageState(messageId)
-        assertEquals("sent", state, "Message state should be 'sent'")
+        awaitUntil { getOutboxMessageState(messageId) == "sent" }
+        assertEquals("sent", getOutboxMessageState(messageId), "Message state should be 'sent'")
 
         publisher.close()
     }
@@ -411,5 +403,72 @@ class E2EOutboxFlowTest : E2ETestBase() {
         }
 
         publisher.close()
+    }
+
+    // --- F-003: RabbitMQ destinations are delivered, not dead-lettered ---
+
+    @Test
+    fun `should deliver message to RabbitMQ exchange when route targets a rabbitmq destination`() = runBlocking {
+        val exchange = "e2e-outbox-exchange"
+        val queue = "e2e-outbox-queue"
+        val boundKey = "eu.order.created"
+
+        val factory = com.rabbitmq.client.ConnectionFactory().apply { setUri(amqpUrl) }
+        factory.newConnection().use { connection ->
+            connection.createChannel().use { channel ->
+                channel.exchangeDeclare(exchange, "topic", true)
+                channel.queueDeclare(queue, true, false, false, null)
+                channel.queueBind(queue, exchange, boundKey)
+            }
+        }
+
+        val rabbitDestination = Destination.RabbitMQ(
+            name = "e2e-rabbit",
+            url = amqpUrl,
+            exchange = exchange,
+            exchangeType = "topic"
+        )
+        val router = MessageRouter(
+            routes = listOf(
+                RouteConfig(
+                    topicPattern = "order.*",
+                    destination = "e2e-rabbit",
+                    routingKeyTemplate = "{{ payload.region }}.{{ topic }}"
+                )
+            ),
+            destinations = mapOf("e2e-rabbit" to rabbitDestination)
+        )
+
+        val config = OutboxConfig(pollIntervalMs = 50, batchSize = 10, retryBaseDelayMs = 100, maxAttempts = 3)
+        val rabbitPublisher = org.nxtspec.RabbitPublisher()
+
+        poller = OutboxPoller(
+            config = config,
+            repository = OutboxRepository(),
+            router = router,
+            publishers = listOf(rabbitPublisher),
+            retryStrategy = RetryStrategy(config)
+        )
+
+        val messageId = insertOutboxMessage(
+            topic = "order.created",
+            payload = JsonObject(mapOf("region" to JsonPrimitive("eu")))
+        )
+
+        poller!!.start()
+
+        awaitUntil { getOutboxMessageState(messageId) == "sent" }
+
+        assertEquals("sent", getOutboxMessageState(messageId))
+
+        factory.newConnection().use { connection ->
+            connection.createChannel().use { channel ->
+                val response = channel.basicGet(queue, true)
+                assertTrue(response != null, "The message must arrive on the bound queue")
+                assertEquals(boundKey, response!!.envelope.routingKey)
+            }
+        }
+
+        rabbitPublisher.close()
     }
 }

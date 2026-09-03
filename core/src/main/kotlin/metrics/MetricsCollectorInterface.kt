@@ -24,6 +24,11 @@ interface MetricsCollectorInterface {
     fun recordMessageDead()
 
     /**
+     * Record messages that the reclaim step returned to state 'pending'.
+     */
+    fun recordMessageReclaimed(count: Int)
+
+    /**
      * Record processing duration in milliseconds.
      */
     fun recordProcessingDuration(durationMs: Long)
@@ -49,6 +54,16 @@ interface MetricsCollectorInterface {
      * Record a duplicate inbox message detected.
      */
     fun recordInboxDuplicate()
+
+    /**
+     * Record an inbox message that the relay forwarded to the outbox.
+     */
+    fun recordInboxForwarded()
+
+    /**
+     * Record an inbox relay error.
+     */
+    fun recordInboxRelayError()
 
     // Cleanup metrics
 

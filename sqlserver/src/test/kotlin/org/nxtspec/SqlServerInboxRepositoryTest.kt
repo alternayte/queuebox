@@ -193,7 +193,7 @@ class SqlServerInboxRepositoryTest : SqlServerTestBase() {
 
         // Since we can't easily insert with old timestamps, test that future cutoff deletes all processed
         val futureCutoff = Clock.System.now() + 1.hours
-        val deleted = repository.deleteOlderThan("processed", futureCutoff)
+        val deleted = repository.deleteOlderThan("processed", futureCutoff, 1000)
 
         assertEquals(2, deleted)
         assertEquals(0, repository.countByState("processed"))

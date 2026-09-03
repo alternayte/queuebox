@@ -4,6 +4,7 @@ import kotlinx.datetime.Instant
 import org.nxtspec.InboxMessage
 import org.nxtspec.InboxResult
 import java.util.UUID
+import kotlin.time.Duration
 
 /**
  * Interface for inbox repository operations.
@@ -28,13 +29,27 @@ interface InboxRepositoryInterface {
     suspend fun markProcessed(id: UUID)
 
     /**
+     * Marks a message as dead. The relay uses this state when the message cannot be forwarded,
+     * for example when the source topic template renders empty. See F-002.
+     */
+    suspend fun markDead(id: UUID)
+
+    /**
      * Counts messages in a given state.
      */
     suspend fun countByState(state: String): Long
 
     /**
+     * Returns messages that stay in state 'processing' longer than the visibility timeout
+     * back to state 'pending'.
+     * @return the number of reclaimed records
+     */
+    suspend fun reclaimStale(olderThan: Duration): Int
+
+    /**
      * Deletes messages in the given state older than the cutoff time.
+     * @param limit the maximum number of rows to delete in one statement
      * @return the number of deleted records
      */
-    suspend fun deleteOlderThan(state: String, cutoff: Instant): Int
+    suspend fun deleteOlderThan(state: String, cutoff: Instant, limit: Int): Int
 }

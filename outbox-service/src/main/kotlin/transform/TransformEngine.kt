@@ -9,7 +9,8 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
-import java.util.concurrent.ConcurrentHashMap
+import java.util.Collections
+import java.util.LinkedHashMap
 
 /**
  * JSONata expression evaluation engine with caching and timeout protection.
@@ -22,7 +23,13 @@ import java.util.concurrent.ConcurrentHashMap
 class TransformEngine(
     private val maxCacheSize: Int = 1000
 ) {
-    private val expressionCache = ConcurrentHashMap<String, Jsonata>()
+    private val expressionCache: MutableMap<String, Jsonata> = Collections.synchronizedMap(
+        object : LinkedHashMap<String, Jsonata>(16, 0.75f, true) {
+            override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Jsonata>?): Boolean {
+                return size > maxCacheSize
+            }
+        }
+    )
 
     /**
      * Evaluates a JSONata expression against a JSON payload with context variable injection.
@@ -78,16 +85,25 @@ class TransformEngine(
     /**
      * Gets a compiled expression from cache or compiles and caches it.
      *
-     * Uses simple LRU-like eviction: removes an arbitrary entry when cache exceeds max size.
+     * The cache is a bounded, access-order LinkedHashMap. Its removeEldestEntry
+     * callback evicts the least recently used entry when the size exceeds
+     * maxCacheSize. The map itself is synchronized, so no code modifies it from
+     * inside a mapping function.
      */
     private fun getOrCompile(expression: String): Jsonata {
-        return expressionCache.computeIfAbsent(expression) { expr ->
-            // Evict an entry if cache is full (simple approximation)
-            if (expressionCache.size >= maxCacheSize) {
-                expressionCache.keys.firstOrNull()?.let { expressionCache.remove(it) }
-            }
-            Jsonata.jsonata(expr)
+        val cached = expressionCache[expression]
+        if (cached != null) {
+            return cached
         }
+        val compiled = Jsonata.jsonata(expression)
+        synchronized(expressionCache) {
+            val existing = expressionCache[expression]
+            if (existing != null) {
+                return existing
+            }
+            expressionCache[expression] = compiled
+        }
+        return compiled
     }
 
     /**

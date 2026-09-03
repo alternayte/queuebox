@@ -72,6 +72,19 @@ class QueueBoxMetrics(private val registry: MeterRegistry) {
         .tag("status", "new")
         .register(registry)
 
+    val outboxMessagesReclaimed: Counter = Counter.builder("queuebox_outbox_messages_reclaimed_total")
+        .description("Total outbox messages returned to pending after a stale claim")
+        .register(registry)
+
+    val inboxMessagesForwarded: Counter = Counter.builder("queuebox_inbox_messages_total")
+        .description("Total inbox messages by status")
+        .tag("status", "forwarded")
+        .register(registry)
+
+    val inboxRelayErrors: Counter = Counter.builder("queuebox_inbox_relay_errors_total")
+        .description("Total inbox relay errors")
+        .register(registry)
+
     val inboxMessagesDuplicate: Counter = Counter.builder("queuebox_inbox_messages_total")
         .description("Total inbox messages by status")
         .tag("status", "duplicate")

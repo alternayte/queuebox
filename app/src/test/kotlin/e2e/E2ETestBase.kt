@@ -32,8 +32,6 @@ import org.nxtspec.OutboxTable
 import org.testcontainers.containers.GenericContainer
 import org.testcontainers.containers.PostgreSQLContainer
 import org.testcontainers.containers.wait.strategy.Wait
-import org.testcontainers.junit.jupiter.Container
-import org.testcontainers.junit.jupiter.Testcontainers
 import org.testcontainers.utility.DockerImageName
 import java.net.ServerSocket
 import java.time.Duration
@@ -50,14 +48,15 @@ import java.util.concurrent.CopyOnWriteArrayList
  * - Helper methods for inserting and querying test data
  */
 @Tag("e2e")
-@Testcontainers
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 abstract class E2ETestBase {
 
     companion object {
         private const val RABBITMQ_PORT = 5672
 
-        @Container
+        // Singleton container pattern. A per-class container stops after the first test class,
+        // and the next class then talks to a dead port. Ryuk removes the containers when the
+        // JVM exits.
         @JvmStatic
         val postgres: PostgreSQLContainer<*> = PostgreSQLContainer("postgres:16")
             .withDatabaseName("queuebox_e2e")
@@ -69,8 +68,8 @@ abstract class E2ETestBase {
                 Wait.forListeningPort()
                     .withStartupTimeout(Duration.ofMinutes(2))
             )
+            .also { it.start() }
 
-        @Container
         @JvmStatic
         val rabbitMQ: GenericContainer<*> = GenericContainer(DockerImageName.parse("rabbitmq:3.12"))
             .withExposedPorts(RABBITMQ_PORT)
@@ -80,6 +79,26 @@ abstract class E2ETestBase {
                 Wait.forLogMessage(".*Server startup complete.*", 1)
                     .withStartupTimeout(Duration.ofMinutes(2))
             )
+            .also { it.start() }
+
+        // One data source for the whole JVM.
+        private var sharedDataSource: HikariDataSource? = null
+
+        @JvmStatic
+        fun sharedDataSource(): HikariDataSource = synchronized(this) {
+            sharedDataSource ?: run {
+                val config = DatabaseConfig(
+                    url = postgres.jdbcUrl,
+                    username = postgres.username,
+                    password = postgres.password,
+                    poolSize = 10
+                )
+                val created = DatabaseFactory.create(config)
+                DatabaseFactory.init(created)
+                sharedDataSource = created
+                created
+            }
+        }
     }
 
     protected lateinit var dataSource: HikariDataSource
@@ -93,21 +112,14 @@ abstract class E2ETestBase {
 
     @BeforeAll
     fun setupDatabase() {
-        val config = DatabaseConfig(
-            url = postgres.jdbcUrl,
-            username = postgres.username,
-            password = postgres.password,
-            poolSize = 10
-        )
-        dataSource = DatabaseFactory.create(config)
+        dataSource = sharedDataSource()
         DatabaseFactory.init(dataSource)
         createTables()
     }
 
     @AfterAll
     fun teardownDatabase() {
-        dropTables()
-        DatabaseFactory.close(dataSource)
+        // The shared data source stays open for the remaining test classes.
     }
 
     @AfterEach
@@ -120,12 +132,6 @@ abstract class E2ETestBase {
     private fun createTables() {
         transaction {
             SchemaUtils.create(OutboxTable, InboxTable)
-        }
-    }
-
-    private fun dropTables() {
-        transaction {
-            SchemaUtils.drop(OutboxTable, InboxTable)
         }
     }
 
@@ -262,6 +268,27 @@ abstract class E2ETestBase {
         server.start()
         mockHttpServer = server
         return server
+    }
+
+    /**
+     * Waits until the condition holds, or until the timeout expires.
+     *
+     * A `repeat` loop with `return@repeat` continues the loop instead of leaving it, so the
+     * tests use this helper.
+     *
+     * @return true when the condition held before the timeout
+     */
+    protected suspend fun awaitUntil(
+        timeoutMs: Long = 15000,
+        pollMs: Long = 50,
+        condition: () -> Boolean
+    ): Boolean {
+        val deadline = System.currentTimeMillis() + timeoutMs
+        while (System.currentTimeMillis() < deadline) {
+            if (condition()) return true
+            kotlinx.coroutines.delay(pollMs)
+        }
+        return condition()
     }
 
     /**

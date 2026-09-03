@@ -13,7 +13,11 @@ class RabbitPublisher(
 
     override fun supports(destination: Destination): Boolean = destination is Destination.RabbitMQ
 
-    override suspend fun publish(message: OutboxMessage, destination: Destination): Result<Unit> {
+    override suspend fun publish(
+        message: OutboxMessage,
+        destination: Destination,
+        context: PublishContext
+    ): Result<Unit> {
         val dest = destination as? Destination.RabbitMQ
             ?: return Result.failure(IllegalArgumentException("Not a RabbitMQ destination"))
 
@@ -30,10 +34,12 @@ class RabbitPublisher(
                     // Declare exchange idempotently
                     channel.exchangeDeclare(dest.exchange, dest.exchangeType, true)
 
-                    // Render routing key from template
-                    val routingKey = dest.routingKeyTemplate
-                        .replace("{{ topic }}", message.topic)
-                        .replace("{{topic}}", message.topic)
+                    // F-004: the routing key that the route resolved wins. The destination
+                    // template is the fallback for a route that sets no routing key.
+                    val routingKey = context.routingKey
+                        ?: dest.routingKeyTemplate
+                            .replace("{{ topic }}", message.topic)
+                            .replace("{{topic}}", message.topic)
 
                     // Build merged headers: standard headers, then destination headers, then per-message headers
                     // Per-message headers take highest precedence and can override all others

@@ -135,4 +135,22 @@ class MetricsCollectorTest {
         assertTrue(output.contains("queuebox_outbox_messages_pending"))
         assertTrue(output.contains("42.0"))
     }
+
+    // --- F-002 and F-006: the new counters ---
+
+    @Test
+    fun `should expose the reclaim and relay counters when recorded`() {
+        val registry = PrometheusMeterRegistry(PrometheusConfig.DEFAULT)
+        val collector = MetricsCollector(registry)
+
+        collector.recordMessageReclaimed(3)
+        collector.recordInboxForwarded()
+        collector.recordInboxRelayError()
+
+        val output = registry.scrape()
+
+        assertTrue(output.contains("queuebox_outbox_messages_reclaimed_total 3.0"))
+        assertTrue(output.contains("queuebox_inbox_messages_total{status=\"forwarded\"} 1.0"))
+        assertTrue(output.contains("queuebox_inbox_relay_errors_total 1.0"))
+    }
 }
