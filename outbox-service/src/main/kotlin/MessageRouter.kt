@@ -21,17 +21,25 @@ data class RoutingResult(
 /**
  * Routes messages to destinations based on topic pattern matching.
  *
- * @property routes List of route configurations defining topic-to-destination mappings
+ * @property compiledRoutes Route configurations with their topic patterns compiled once
  * @property destinations Map of destination name to Destination instances
  * @property destinationTransforms Map of destination name to optional transform config
  * @property routingKeyRenderer Renderer for routing key templates with payload field substitution
  */
 class MessageRouter(
-    private val routes: List<RouteConfig>,
+    routes: List<RouteConfig>,
     private val destinations: Map<String, Destination>,
     private val destinationTransforms: Map<String, TransformConfig?> = emptyMap(),
-    private val routingKeyRenderer: RoutingKeyRenderer = RoutingKeyRenderer()
+    private val routingKeyRenderer: RoutingKeyRenderer = RoutingKeyRenderer(),
+    patternCompiler: (String) -> Regex = ::compileTopicPattern
 ) {
+    /**
+     * Every route with its topic pattern compiled once. See F-026. A pattern compiled per message
+     * wastes time on the poller thread and lets a pathological pattern block that thread.
+     */
+    private val compiledRoutes: List<Pair<RouteConfig, Regex>> =
+        routes.map { it to patternCompiler(it.topicPattern) }
+
     /**
      * Routes a topic to its destination, including any configured transforms.
      *
@@ -40,7 +48,7 @@ class MessageRouter(
      * @return RoutingResult with destination and transforms, or null if no route matches
      */
     fun route(topic: String, payload: JsonElement? = null): RoutingResult? {
-        val matchedRoute = routes.firstOrNull { matchesPattern(topic, it.topicPattern) }
+        val matchedRoute = compiledRoutes.firstOrNull { (_, regex) -> regex.matches(topic) }?.first
         return matchedRoute?.let {
             val destination = destinations[it.destination] ?: return null
             val template = it.routingKeyTemplate
@@ -66,22 +74,46 @@ class MessageRouter(
         }
     }
 
-    private fun matchesPattern(topic: String, pattern: String): Boolean {
-        // Convert glob pattern to regex
-        // Order matters: replace "**" before "*" to avoid double conversion
-        val regex = pattern
-            .replace(".", "\\.")      // Escape literal dots
-            .replace("**", "§§§")     // Temporary placeholder for **
-            .replace("*", "[^.]+")    // Single wildcard: matches one segment
-            .replace("§§§", ".*")     // Multi-segment wildcard: matches anything
-            .toRegex()
-        return regex.matches(topic)
-    }
-
     private fun renderLegacyTemplate(template: String, topic: String): String {
         // Simple template rendering: replace {{ topic }} with actual topic
         return template
             .replace("{{ topic }}", topic)
             .replace("{{topic}}", topic)
     }
+}
+
+/**
+ * Compiles a topic glob pattern into an anchored regular expression.
+ *
+ * `*` matches one dot-separated segment. `**` matches anything. Every literal part of the pattern
+ * goes through [Regex.escape], so a metacharacter in the pattern stays literal. See F-026.
+ *
+ * @param pattern The topic glob pattern
+ * @return The anchored regular expression for the pattern
+ */
+fun compileTopicPattern(pattern: String): Regex {
+    val builder = StringBuilder()
+    var literalStart = 0
+    var index = 0
+    while (index < pattern.length) {
+        if (pattern[index] != '*') {
+            index++
+            continue
+        }
+        if (index > literalStart) {
+            builder.append(Regex.escape(pattern.substring(literalStart, index)))
+        }
+        if (index + 1 < pattern.length && pattern[index + 1] == '*') {
+            builder.append(".*")
+            index += 2
+        } else {
+            builder.append("[^.]+")
+            index += 1
+        }
+        literalStart = index
+    }
+    if (literalStart < pattern.length) {
+        builder.append(Regex.escape(pattern.substring(literalStart)))
+    }
+    return Regex("^$builder$")
 }

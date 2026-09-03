@@ -30,9 +30,8 @@ class RetentionBatchingTest {
         override suspend fun claimBatch(batchSize: Int): List<OutboxMessage> = emptyList()
         override suspend fun insert(message: OutboxMessage) = Unit
         override suspend fun markSent(id: UUID) = Unit
-        override suspend fun markFailed(id: UUID, error: String) = Unit
-        override suspend fun scheduleRetry(id: UUID, delayMs: Long) = Unit
-        override suspend fun markDead(id: UUID) = Unit
+        override suspend fun scheduleRetry(id: UUID, delayMs: Long, error: String?) = Unit
+        override suspend fun markDead(id: UUID, error: String?) = Unit
         override suspend fun countByState(state: String): Long =
             rows.count { it.state == state }.toLong()
 
@@ -81,6 +80,7 @@ class RetentionBatchingTest {
         override fun recordMessageFailed() = Unit
         override fun recordMessageDead() = Unit
         override fun recordMessageReclaimed(count: Int) = Unit
+        override fun recordProcessError() = Unit
         override fun recordProcessingDuration(durationMs: Long) = Unit
         override fun recordPublishDuration(durationMs: Long, destinationType: String) = Unit
         override fun updatePendingCount(count: Long) = Unit

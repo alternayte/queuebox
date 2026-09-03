@@ -116,30 +116,30 @@ class OutboxRepository(
         updateState(id, "sent")
     }
 
-    override suspend fun markFailed(id: UUID, error: String): Unit = newSuspendedTransaction {
+    override suspend fun scheduleRetry(id: UUID, delayMs: Long, error: String?): Unit =
+        newSuspendedTransaction {
+            val now = Clock.System.now()
+            val scheduledTime = now + delayMs.milliseconds
+            table.update({ table.id eq id }) {
+                it[table.scheduledAt] = scheduledTime
+                it[table.state] = "pending"
+                it[table.attempt] = table.attempt + 1
+                it[table.updatedAt] = now
+                it[table.claimedAt] = null
+                if (error != null) it[table.lastError] = error
+            }
+            Unit
+        }
+
+    override suspend fun markDead(id: UUID, error: String?): Unit = newSuspendedTransaction {
         val now = Clock.System.now()
         table.update({ table.id eq id }) {
-            it[table.attempt] = table.attempt + 1
-            it[table.state] = "failed"
+            it[table.state] = "dead"
             it[table.updatedAt] = now
+            it[table.claimedAt] = null
+            if (error != null) it[table.lastError] = error
         }
         Unit
-    }
-
-    override suspend fun scheduleRetry(id: UUID, delayMs: Long): Unit = newSuspendedTransaction {
-        val now = Clock.System.now()
-        val scheduledTime = now + delayMs.milliseconds
-        table.update({ table.id eq id }) {
-            it[table.scheduledAt] = scheduledTime
-            it[table.state] = "pending"
-            it[table.attempt] = table.attempt + 1
-            it[table.updatedAt] = now
-        }
-        Unit
-    }
-
-    override suspend fun markDead(id: UUID) = newSuspendedTransaction {
-        updateState(id, "dead")
     }
 
     override suspend fun countByState(state: String): Long = newSuspendedTransaction {

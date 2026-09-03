@@ -107,7 +107,7 @@ class OutboxPollerTest {
         delay(150)
         poller.shutdown()
 
-        coVerify { repository.markDead(message.id) }
+        coVerify { repository.markDead(message.id, any()) }
         verify { metricsCollector.recordMessageDead() }
         verify { metricsCollector.recordProcessingDuration(any()) }
     }
@@ -141,7 +141,7 @@ class OutboxPollerTest {
         delay(150)
         poller.shutdown()
 
-        coVerify { repository.markDead(message.id) }
+        coVerify { repository.markDead(message.id, any()) }
         verify { metricsCollector.recordMessageDead() }
     }
 
@@ -209,7 +209,7 @@ class OutboxPollerTest {
         delay(150)
         poller.shutdown()
 
-        coVerify { repository.scheduleRetry(message.id, any()) }
+        coVerify { repository.scheduleRetry(message.id, any(), any()) }
         verify { metricsCollector.recordMessageFailed() }
     }
 
@@ -243,7 +243,7 @@ class OutboxPollerTest {
         delay(150)
         poller.shutdown()
 
-        coVerify { repository.markDead(message.id) }
+        coVerify { repository.markDead(message.id, any()) }
         verify { metricsCollector.recordMessageDead() }
     }
 
@@ -358,7 +358,7 @@ class OutboxPollerTest {
         delay(150)
         poller.shutdown()
 
-        coVerify { repository.scheduleRetry(message.id, any()) }
+        coVerify { repository.scheduleRetry(message.id, any(), any()) }
         verify { metricsCollector.recordMessageFailed() }
     }
 
@@ -395,7 +395,7 @@ class OutboxPollerTest {
         delay(150)
         poller.shutdown()
 
-        coVerify { repository.markDead(message.id) }
+        coVerify { repository.markDead(message.id, any()) }
         verify { metricsCollector.recordMessageDead() }
     }
 
@@ -781,5 +781,172 @@ class OutboxPollerTest {
         coVerify {
             publisher.publish(any(), destination, PublishContext(routingKey = "eu.high.order.created"))
         }
+    }
+
+    // --- F-028: shutdown must be bounded ---
+
+    @Test
+    fun `shutdown should return within the timeout when a publisher never returns`() = runBlocking {
+        val repository = mockk<OutboxRepositoryInterface>(relaxed = true)
+        val router = mockk<MessageRouter>()
+        val publisher = mockk<Publisher>()
+
+        val message = createTestMessage()
+        val destination = createHttpDestination()
+
+        coEvery { repository.claimBatch(any()) } returns listOf(message) andThen emptyList()
+        coEvery { repository.reclaimStale(any()) } returns 0
+        every { router.route(any(), any()) } returns RoutingResult(destination, null)
+        every { publisher.supports(destination) } returns true
+        coEvery { publisher.publish(any(), any(), any()) } coAnswers {
+            kotlinx.coroutines.delay(Long.MAX_VALUE)
+            Result.success(Unit)
+        }
+
+        val poller = OutboxPoller(
+            config = defaultConfig.copy(shutdownTimeoutMs = 1000),
+            repository = repository,
+            router = router,
+            publishers = listOf(publisher),
+            retryStrategy = retryStrategy
+        )
+
+        poller.start()
+        delay(200)
+
+        // withTimeoutOrNull makes an unbounded shutdown a failure instead of a hang.
+        var elapsed = 0L
+        val returned = kotlinx.coroutines.withTimeoutOrNull(6000) {
+            elapsed = kotlin.system.measureTimeMillis { poller.shutdown() }
+            true
+        }
+
+        assertTrue(returned == true, "shutdown() did not return. It waited for the publisher.")
+        assertTrue(elapsed < 5000, "shutdown() must return within the timeout. Took ${elapsed}ms")
+        assertFalse(poller.isRunning())
+    }
+
+    // --- F-013: one failing message must not abort the batch ---
+
+    @Test
+    fun `should deliver the rest of the batch when one message fails`() = runBlocking {
+        val repository = mockk<OutboxRepositoryInterface>(relaxed = true)
+        val router = mockk<MessageRouter>()
+        val publisher = mockk<Publisher>()
+        val metricsCollector = mockk<MetricsCollectorInterface>(relaxed = true)
+
+        val messages = (1..5).map { createTestMessage(topic = "test.topic.$it") }
+        val failing = messages[2]
+        val destination = createHttpDestination()
+
+        coEvery { repository.claimBatch(any()) } returns messages andThen emptyList()
+        coEvery { repository.reclaimStale(any()) } returns 0
+        every { router.route(any(), any()) } answers {
+            if (firstArg<String>() == failing.topic) {
+                throw IllegalStateException("router exploded")
+            }
+            RoutingResult(destination, null)
+        }
+        every { publisher.supports(destination) } returns true
+        coEvery { publisher.publish(any(), any(), any()) } returns Result.success(Unit)
+
+        val poller = OutboxPoller(
+            config = defaultConfig.copy(concurrency = 1),
+            repository = repository,
+            router = router,
+            publishers = listOf(publisher),
+            retryStrategy = retryStrategy,
+            metricsCollector = metricsCollector
+        )
+
+        poller.start()
+        delay(400)
+        poller.shutdown()
+
+        messages.filter { it.id != failing.id }.forEach { message ->
+            coVerify { repository.markSent(message.id) }
+        }
+        coVerify { repository.scheduleRetry(failing.id, any(), any()) }
+        verify(atLeast = 1) { metricsCollector.recordProcessError() }
+    }
+
+    // --- F-014: the batch publishes concurrently ---
+
+    private class SlowPublisher(private val latencyMs: Long) : Publisher {
+        val published = java.util.concurrent.atomic.AtomicInteger(0)
+        override fun supports(destination: Destination): Boolean = true
+        override suspend fun publish(
+            message: OutboxMessage,
+            destination: Destination,
+            context: PublishContext
+        ): Result<Unit> {
+            delay(latencyMs)
+            published.incrementAndGet()
+            return Result.success(Unit)
+        }
+    }
+
+    @Test
+    fun `should publish a batch concurrently`() = runBlocking {
+        val repository = mockk<OutboxRepositoryInterface>(relaxed = true)
+        val router = mockk<MessageRouter>()
+
+        val messages = (1..10).map { createTestMessage() }
+        val destination = createHttpDestination()
+        val publisher = SlowPublisher(latencyMs = 200)
+
+        coEvery { repository.claimBatch(any()) } returns messages andThen emptyList()
+        coEvery { repository.reclaimStale(any()) } returns 0
+        every { router.route(any(), any()) } returns RoutingResult(destination, null)
+
+        val poller = OutboxPoller(
+            config = defaultConfig.copy(concurrency = 8),
+            repository = repository,
+            router = router,
+            publishers = listOf(publisher),
+            retryStrategy = retryStrategy
+        )
+
+        val elapsed = kotlin.system.measureTimeMillis {
+            poller.start()
+            while (publisher.published.get() < 10) {
+                delay(10)
+            }
+        }
+        poller.shutdown()
+
+        assertTrue(
+            elapsed < 1000,
+            "Ten messages with 200 ms latency must finish in under one second. Took ${elapsed}ms"
+        )
+    }
+
+    // --- F-015: the pending gauge query is rate limited ---
+
+    @Test
+    fun `should query the pending count at most once per gauge interval`() = runBlocking {
+        val repository = mockk<OutboxRepositoryInterface>(relaxed = true)
+        val router = mockk<MessageRouter>(relaxed = true)
+        val metricsCollector = mockk<MetricsCollectorInterface>(relaxed = true)
+
+        coEvery { repository.claimBatch(any()) } returns emptyList()
+        coEvery { repository.reclaimStale(any()) } returns 0
+        coEvery { repository.countByState("pending") } returns 0
+
+        val poller = OutboxPoller(
+            config = defaultConfig.copy(pollIntervalMs = 20, pendingGaugeIntervalMs = 5000),
+            repository = repository,
+            router = router,
+            publishers = emptyList(),
+            retryStrategy = retryStrategy,
+            metricsCollector = metricsCollector
+        )
+
+        poller.start()
+        delay(500)
+        poller.shutdown()
+
+        // The poll interval is 20 ms, so about 25 cycles ran inside one gauge interval.
+        coVerify(exactly = 1) { repository.countByState("pending") }
     }
 }

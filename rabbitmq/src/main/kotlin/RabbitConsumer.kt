@@ -7,8 +7,9 @@ import com.rabbitmq.client.Envelope
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.cancel
+import kotlinx.coroutines.job
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.datetime.Clock
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -27,6 +28,13 @@ data class RabbitConsumerConfig(
     val aggregateIdPath: String? = null
 )
 
+private sealed interface AckCommand {
+    val deliveryTag: Long
+
+    data class Ack(override val deliveryTag: Long) : AckCommand
+    data class Nack(override val deliveryTag: Long, val requeue: Boolean) : AckCommand
+}
+
 class RabbitConsumer(
     private val connection: RabbitConnection,
     private val storeMessage: suspend (InboxMessage) -> InboxResult,
@@ -37,12 +45,35 @@ class RabbitConsumer(
     private val sourceTransform: TransformConfig? = null
 ) {
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+
+    // F-018: an AMQP channel is not thread safe. One actor coroutine owns the channel and
+    // performs every acknowledgement. The message coroutines only send a command.
+    private val ackScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    private var ackCommands: kotlinx.coroutines.channels.Channel<AckCommand>? = null
+    private var ackActor: kotlinx.coroutines.Job? = null
+
+    private var consumerTag: String? = null
     private var channel: Channel? = null
     private val json = Json { ignoreUnknownKeys = true }
 
+    /** True while the AMQP channel is open. Used by the tests for F-018. */
+    val isChannelOpen: Boolean
+        get() = channel?.isOpen == true
+
     suspend fun start() {
-        channel = connection.getChannel().apply {
+        val openChannel = connection.getChannel().apply {
             basicQos(config.prefetchCount)
+        }
+        channel = openChannel
+
+        val commands = kotlinx.coroutines.channels.Channel<AckCommand>(
+            kotlinx.coroutines.channels.Channel.UNLIMITED
+        )
+        ackCommands = commands
+        ackActor = ackScope.launch {
+            for (command in commands) {
+                applyAck(openChannel, command)
+            }
         }
 
         val consumer = object : DefaultConsumer(channel) {
@@ -58,7 +89,27 @@ class RabbitConsumer(
             }
         }
 
-        channel?.basicConsume(config.queueName, false, consumer)
+        consumerTag = openChannel.basicConsume(config.queueName, false, consumer)
+    }
+
+    private fun applyAck(openChannel: Channel, command: AckCommand) {
+        try {
+            when (command) {
+                is AckCommand.Ack -> openChannel.basicAck(command.deliveryTag, false)
+                is AckCommand.Nack ->
+                    openChannel.basicNack(command.deliveryTag, false, command.requeue)
+            }
+        } catch (e: Exception) {
+            println("Failed to acknowledge delivery ${command.deliveryTag}: ${e.message}")
+        }
+    }
+
+    private suspend fun sendAck(deliveryTag: Long) {
+        ackCommands?.send(AckCommand.Ack(deliveryTag))
+    }
+
+    private suspend fun sendNack(deliveryTag: Long, requeue: Boolean) {
+        ackCommands?.send(AckCommand.Nack(deliveryTag, requeue))
     }
 
     private suspend fun processMessage(
@@ -97,7 +148,7 @@ class RabbitConsumer(
                     is InboxTransformResult.Rejected -> {
                         // NACK without requeue for transform rejection
                         println("Transform rejected message ${envelope.deliveryTag}: ${result.reason}")
-                        channel?.basicNack(envelope.deliveryTag, false, false)
+                        sendNack(envelope.deliveryTag, false)
                         return
                     }
                 }
@@ -117,21 +168,21 @@ class RabbitConsumer(
             when (val result = storeMessage(message)) {
                 is InboxResult.Stored -> {
                     metricsCollector?.recordInboxReceived()
-                    channel?.basicAck(envelope.deliveryTag, false)
+                    sendAck(envelope.deliveryTag)
                 }
                 is InboxResult.Duplicate -> {
                     metricsCollector?.recordInboxDuplicate()
-                    channel?.basicAck(envelope.deliveryTag, false)
+                    sendAck(envelope.deliveryTag)
                 }
                 is InboxResult.Error -> {
                     // Nack and requeue on storage failure
                     println("Storage error for message ${envelope.deliveryTag}: ${result.message}")
-                    channel?.basicNack(envelope.deliveryTag, false, true)
+                    sendNack(envelope.deliveryTag, true)
                 }
             }
         } catch (e: Exception) {
             println("Failed to process message ${envelope.deliveryTag}: ${e.message}")
-            channel?.basicNack(envelope.deliveryTag, false, true)
+            sendNack(envelope.deliveryTag, true)
         }
     }
 
@@ -176,9 +227,44 @@ class RabbitConsumer(
         return properties.headers?.get("x-aggregate-id")?.toString()
     }
 
+    /**
+     * F-019: cancel the consumer tag first, then wait for the work that is already in flight,
+     * then drain the acknowledgements, then close the channel. Every message that reached the
+     * store is acknowledged before the channel closes.
+     */
     suspend fun stop() {
-        scope.cancel()
-        channel?.close()
+        val openChannel = channel
+        consumerTag?.let { tag ->
+            try {
+                openChannel?.basicCancel(tag)
+            } catch (e: Exception) {
+                println("Failed to cancel consumer $tag: ${e.message}")
+            }
+        }
+        consumerTag = null
+
+        withTimeoutOrNull(STOP_TIMEOUT_MILLIS) {
+            // A delivery that the broker already sent can still start a job. Two passes join
+            // the jobs that start while the first pass runs.
+            repeat(2) {
+                scope.coroutineContext.job.children.toList().forEach { it.join() }
+            }
+        }
+
+        ackCommands?.close()
+        withTimeoutOrNull(STOP_TIMEOUT_MILLIS) { ackActor?.join() }
+        ackCommands = null
+        ackActor = null
+
+        try {
+            openChannel?.close()
+        } catch (e: Exception) {
+            println("Failed to close the channel: ${e.message}")
+        }
         channel = null
+    }
+
+    private companion object {
+        const val STOP_TIMEOUT_MILLIS = 30_000L
     }
 }

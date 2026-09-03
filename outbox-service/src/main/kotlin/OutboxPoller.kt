@@ -1,6 +1,8 @@
 package org.nxtspec
 
 import kotlinx.coroutines.*
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import org.nxtspec.metrics.MetricsCollectorInterface
 import org.nxtspec.repository.OutboxRepositoryInterface
 import org.nxtspec.transform.TransformContext
@@ -20,6 +22,12 @@ class OutboxPoller(
 ) {
     private val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
     private val running = AtomicBoolean(true)
+
+    // F-015: the moment of the last pending count query.
+    private var lastPendingGaugeAtMs = 0L
+
+    // Number of messages that the poller currently publishes. Reported on a shutdown timeout.
+    private val inFlight = java.util.concurrent.atomic.AtomicInteger(0)
 
     // F-006: the reclaim step runs at most once per claimTimeoutMs / 5.
     private val reclaimIntervalMs = (config.claimTimeoutMs / 5).coerceAtLeast(1)
@@ -46,14 +54,52 @@ class OutboxPoller(
 
         val messages = repository.claimBatch(config.batchSize)
 
-        // Update pending count metric
-        metricsCollector?.let {
-            val pendingCount = repository.countByState("pending")
-            it.updatePendingCount(pendingCount)
-        }
+        updatePendingGauge()
 
-        messages.forEach { message ->
+        if (messages.isEmpty()) return
+
+        // F-014: publish up to `concurrency` messages at the same time. One slow destination no
+        // longer stalls the whole batch.
+        val semaphore = Semaphore(config.concurrency)
+        coroutineScope {
+            messages.forEach { message ->
+                launch {
+                    semaphore.withPermit {
+                        // F-013: one failing message must not abort the rest of the batch.
+                        processMessageSafely(message)
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * F-015: the pending count feeds a gauge only, so it runs at most once per
+     * `outbox.pendingGaugeIntervalMs`.
+     */
+    private suspend fun updatePendingGauge() {
+        val collector = metricsCollector ?: return
+        val now = System.currentTimeMillis()
+        if (now - lastPendingGaugeAtMs < config.pendingGaugeIntervalMs) return
+        lastPendingGaugeAtMs = now
+        collector.updatePendingCount(repository.countByState("pending"))
+    }
+
+    /**
+     * F-013: isolates one message. An exception from the repository, the router or the transform
+     * applies the retry strategy to that message only, and the batch continues.
+     */
+    private suspend fun processMessageSafely(message: OutboxMessage) {
+        inFlight.incrementAndGet()
+        try {
             processMessage(message)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            metricsCollector?.recordProcessError()
+            runCatching { handlePublishFailure(message, e) }
+        } finally {
+            inFlight.decrementAndGet()
         }
     }
 
@@ -78,7 +124,7 @@ class OutboxPoller(
         val routingResult = router.route(message.topic, message.payload)
         if (routingResult == null) {
             // No route found, mark as dead
-            repository.markDead(message.id)
+            repository.markDead(message.id, "No route matches topic '${message.topic}'")
             metricsCollector?.recordMessageDead()
             recordProcessingDuration(startTime)
             return
@@ -87,7 +133,10 @@ class OutboxPoller(
         val publisher = publishers.find { it.supports(routingResult.destination) }
         if (publisher == null) {
             // No publisher supports this destination, mark as dead
-            repository.markDead(message.id)
+            repository.markDead(
+                message.id,
+                "No publisher supports destination '${routingResult.destination}'"
+            )
             metricsCollector?.recordMessageDead()
             recordProcessingDuration(startTime)
             return
@@ -117,7 +166,7 @@ class OutboxPoller(
                     return
                 }
                 is TransformResult.DeadLetter -> {
-                    repository.markDead(message.id)
+                    repository.markDead(message.id, "Transform dead-lettered the message")
                     metricsCollector?.recordMessageDead()
                     recordProcessingDuration(startTime)
                     return
@@ -148,23 +197,44 @@ class OutboxPoller(
         metricsCollector?.recordProcessingDuration(duration)
     }
 
+    /**
+     * F-016: persists why the delivery failed. F-017: `scheduleRetry` is the only method that
+     * increments the attempt count.
+     */
     private suspend fun handlePublishFailure(message: OutboxMessage, error: Throwable) {
+        val lastError = ErrorSanitizer.sanitize(error)
         if (retryStrategy.shouldRetry(message.attempt, message.maxAttempts)) {
             val delay = retryStrategy.calculateDelay(message.attempt)
-            repository.scheduleRetry(message.id, delay)
+            repository.scheduleRetry(message.id, delay, lastError)
             metricsCollector?.recordMessageFailed()
         } else {
-            repository.markDead(message.id)
+            repository.markDead(message.id, lastError)
             metricsCollector?.recordMessageDead()
         }
     }
 
     fun isRunning(): Boolean = running.get()
 
+    /**
+     * Stops the poll loop.
+     *
+     * F-028: the wait for the in-flight messages is bounded by `outbox.shutdownTimeoutMs`. A
+     * message that is still in flight after the timeout stays in state 'processing', and the
+     * F-006 reclaim returns it to 'pending'.
+     */
     suspend fun shutdown() {
         running.set(false)
-        // Wait for in-flight processing to complete
-        scope.coroutineContext.job.children.forEach { it.join() }
+        val finished = withTimeoutOrNull(config.shutdownTimeoutMs) {
+            scope.coroutineContext.job.children.forEach { it.join() }
+            true
+        }
+        if (finished == null) {
+            val abandoned = inFlight.get()
+            println(
+                "Shutdown timeout of ${config.shutdownTimeoutMs}ms elapsed. " +
+                    "Abandoned $abandoned in-flight message(s). The reclaim step recovers them."
+            )
+        }
         scope.cancel()
     }
 }

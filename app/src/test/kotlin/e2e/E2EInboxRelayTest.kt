@@ -189,9 +189,8 @@ class E2EInboxRelayTest : E2ETestBase() {
                     throw IllegalStateException("insert failed")
                 }
                 override suspend fun markSent(id: UUID) = Unit
-                override suspend fun markFailed(id: UUID, error: String) = Unit
-                override suspend fun scheduleRetry(id: UUID, delayMs: Long) = Unit
-                override suspend fun markDead(id: UUID) = Unit
+                        override suspend fun scheduleRetry(id: UUID, delayMs: Long, error: String?) = Unit
+                override suspend fun markDead(id: UUID, error: String?) = Unit
                 override suspend fun countByState(state: String): Long = 0
                 override suspend fun reclaimStale(olderThan: kotlin.time.Duration): Int = 0
                 override suspend fun deleteOlderThan(

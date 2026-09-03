@@ -170,6 +170,14 @@ abstract class PostgresTestBase {
         }
     }
 
+    protected fun getOutboxLastError(id: UUID): String? {
+        return transaction {
+            OutboxTable.selectAll()
+                .where { OutboxTable.id eq id }
+                .single()[OutboxTable.lastError]
+        }
+    }
+
     protected fun getOutboxClaimedAt(id: UUID): Instant? {
         return transaction {
             OutboxTable.selectAll()

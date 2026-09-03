@@ -29,6 +29,7 @@ class SqlServerDynamicOutboxTable(
     val createdAt = timestamp(mapping.createdAt)
     val updatedAt = timestamp(mapping.updatedAt)
     val claimedAt = timestamp(mapping.claimedAt).nullable()
+    val lastError: Column<String?> = text(mapping.lastError).nullable()
 
     init {
         // Supports the claim seek: state = 'pending' AND scheduled_at <= now().

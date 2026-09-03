@@ -50,7 +50,8 @@ fun main() {
             scheduledAt = config.database.columnMapping.outbox.scheduledAt,
             createdAt = config.database.columnMapping.outbox.createdAt,
             updatedAt = config.database.columnMapping.outbox.updatedAt,
-            claimedAt = config.database.columnMapping.outbox.claimedAt
+            claimedAt = config.database.columnMapping.outbox.claimedAt,
+            lastError = config.database.columnMapping.outbox.lastError
         ),
         inbox = InboxColumnMappingData(
             id = config.database.columnMapping.inbox.id,
@@ -223,7 +224,15 @@ fun main() {
     })
 
     // Start server
-    embeddedServer(Netty, config.server.httpPort) {
+    embeddedServer(
+        factory = Netty,
+        environment = applicationEnvironment { },
+        configure = {
+            connector { port = config.server.httpPort }
+            // Bound the buffer that the engine allocates for one request chunk. See F-023.
+            maxChunkSize = minOf(config.inbox.maxBodyBytes, maxChunkSize.toLong()).toInt()
+        }
+    ) {
         configureRouting()
         configureInboxRoutes(config.inbox, config.sources, inboxHandler)
         configureHealthRoutes(healthManager)

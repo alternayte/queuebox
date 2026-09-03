@@ -37,7 +37,8 @@ data class OutboxColumnMappingData(
     val scheduledAt: String = "scheduled_at",
     val createdAt: String = "created_at",
     val updatedAt: String = "updated_at",
-    val claimedAt: String = "claimed_at"
+    val claimedAt: String = "claimed_at",
+    val lastError: String = "last_error"
 )
 
 /**

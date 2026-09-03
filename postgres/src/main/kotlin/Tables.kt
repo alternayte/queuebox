@@ -20,6 +20,7 @@ object OutboxTable : UUIDTable("outbox") {
     val createdAt = timestamp("created_at")
     val updatedAt = timestamp("updated_at")
     val claimedAt = timestamp("claimed_at").nullable()
+    val lastError: Column<String?> = text("last_error").nullable()
 
     init {
         index(false, state, scheduledAt)

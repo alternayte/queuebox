@@ -55,6 +55,22 @@ class RabbitPublisherIntegrationTest {
         }
     }
 
+    /**
+     * Declare the exchange and bind a queue. F-022 makes an unroutable publish fail, so a
+     * test that expects success must give the message a route.
+     */
+    private fun bindQueue(exchange: String, exchangeType: String, routingKey: String) {
+        val factory = ConnectionFactory().apply { setUri(amqpUrl) }
+        factory.newConnection().use { conn ->
+            conn.createChannel().use { channel ->
+                channel.exchangeDeclare(exchange, exchangeType, true)
+                val queue = "bind-${UUID.randomUUID()}"
+                channel.queueDeclare(queue, false, false, false, null)
+                channel.queueBind(queue, exchange, routingKey)
+            }
+        }
+    }
+
     @Test
     fun `publish message successfully with confirms`() = runBlocking {
         val destination = Destination.RabbitMQ(
@@ -64,6 +80,8 @@ class RabbitPublisherIntegrationTest {
             exchangeType = "topic",
             routingKeyTemplate = "{{ topic }}"
         )
+
+        bindQueue("test-exchange", "topic", "orders.created")
 
         val message = OutboxMessage(
             id = UUID.randomUUID(),
@@ -85,6 +103,8 @@ class RabbitPublisherIntegrationTest {
             exchangeType = "topic",
             routingKeyTemplate = "events.{{ topic }}.v1"
         )
+
+        bindQueue("routing-exchange", "topic", "events.user.signup.v1")
 
         val message = OutboxMessage(
             id = UUID.randomUUID(),
@@ -112,6 +132,8 @@ class RabbitPublisherIntegrationTest {
             payload = JsonObject(mapOf("msg" to JsonPrimitive("first")))
         )
 
+        bindQueue("reuse-exchange", "topic", "#")
+
         val message2 = OutboxMessage(
             id = UUID.randomUUID(),
             topic = "test2",
@@ -133,6 +155,8 @@ class RabbitPublisherIntegrationTest {
             exchangeType = "direct",
             routingKeyTemplate = "{{topic}}"
         )
+
+        bindQueue("direct-exchange", "direct", "direct-key")
 
         val message = OutboxMessage(
             id = UUID.randomUUID(),
@@ -212,10 +236,10 @@ class RabbitPublisherIntegrationTest {
             payload = JsonObject(mapOf("data" to JsonPrimitive("test")))
         )
 
-        // This should succeed because RabbitPublisher auto-declares the exchange
-        val result = publisher.publish(message, destination)
-
-        assertTrue(result.isSuccess, "Publish should succeed even when exchange doesn't exist - RabbitPublisher should auto-declare it")
+        // The publisher declares the exchange when it opens the channel. F-022 makes this
+        // first publish fail, because the new exchange has no binding yet.
+        val firstResult = publisher.publish(message, destination)
+        assertTrue(firstResult.isFailure, "An unroutable publish must fail")
 
         // Verify the exchange was actually created
         val factory = ConnectionFactory().apply { setUri(amqpUrl) }
@@ -227,5 +251,16 @@ class RabbitPublisherIntegrationTest {
                 assertTrue(true, "Exchange should exist after publish")
             }
         }
+
+        // Bind a queue, then publish again. The auto-declared exchange now routes the message.
+        bindQueue(uniqueExchange, "topic", "test.topic")
+        val secondResult = publisher.publish(
+            message.copy(id = UUID.randomUUID()),
+            destination
+        )
+        assertTrue(
+            secondResult.isSuccess,
+            "Publish should succeed: ${secondResult.exceptionOrNull()?.message}"
+        )
     }
 }

@@ -185,6 +185,17 @@ abstract class E2ETestBase {
     }
 
     /**
+     * Get the persisted failure reason for an outbox message.
+     */
+    protected fun getOutboxLastError(id: UUID): String? {
+        return transaction {
+            OutboxTable.selectAll()
+                .where { OutboxTable.id eq id }
+                .single()[OutboxTable.lastError]
+        }
+    }
+
+    /**
      * Get state and attempt count for an outbox message.
      */
     protected fun getOutboxMessageStateAndAttempt(id: UUID): Pair<String, Int> {

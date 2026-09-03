@@ -27,7 +27,8 @@ class SqlServerRepositoryFactory(
         scheduledAt = columnMapping.outbox.scheduledAt,
         createdAt = columnMapping.outbox.createdAt,
         updatedAt = columnMapping.outbox.updatedAt,
-        claimedAt = columnMapping.outbox.claimedAt
+        claimedAt = columnMapping.outbox.claimedAt,
+        lastError = columnMapping.outbox.lastError
     )
 
     private val inboxColumnMapping = InboxColumnMapping(

@@ -39,6 +39,13 @@ class MetricsCollector(registry: MeterRegistry) : MetricsCollectorInterface {
     }
 
     /**
+     * Record an error that stopped the processing of one outbox message.
+     */
+    override fun recordProcessError() {
+        metrics.outboxProcessErrors.increment()
+    }
+
+    /**
      * Record processing duration in milliseconds.
      */
     override fun recordProcessingDuration(durationMs: Long) {

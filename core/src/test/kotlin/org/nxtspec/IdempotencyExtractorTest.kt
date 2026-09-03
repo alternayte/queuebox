@@ -1,9 +1,11 @@
 package org.nxtspec
 
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonElement
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class IdempotencyExtractorTest {
@@ -167,5 +169,72 @@ class IdempotencyExtractorTest {
 
         assertTrue(result.isSuccess)
         assertEquals("addr-2", result.getOrNull())
+    }
+
+    // --- F-025: one JSON parse per message ---
+
+    @Test
+    fun `should parse the payload once for many paths`() {
+        var parseCount = 0
+        val counting = IdempotencyExtractor { payload ->
+            parseCount++
+            com.jayway.jsonpath.JsonPath.parse(Json.encodeToString(JsonElement.serializer(), payload))
+        }
+        val payload = Json.parseToJsonElement(
+            """{"id": "a", "b": "2", "c": "3", "d": "4", "e": "5"}"""
+        )
+
+        val values = counting.extractAll(
+            payload,
+            mapOf(
+                "one" to "$.id",
+                "two" to "$.b",
+                "three" to "$.c",
+                "four" to "$.d",
+                "five" to "$.e"
+            )
+        )
+
+        assertEquals(1, parseCount)
+        assertEquals("a", values["one"])
+        assertEquals("5", values["five"])
+    }
+
+    @Test
+    fun `should parse the payload once for one path`() {
+        var parseCount = 0
+        val counting = IdempotencyExtractor { payload ->
+            parseCount++
+            com.jayway.jsonpath.JsonPath.parse(Json.encodeToString(JsonElement.serializer(), payload))
+        }
+        val payload = Json.parseToJsonElement("""{"id": "a"}""")
+
+        counting.extractAll(payload, mapOf("one" to "$.id"))
+
+        assertEquals(1, parseCount)
+    }
+
+    @Test
+    fun `should return null for a path that is not found`() {
+        val payload = Json.parseToJsonElement("""{"id": "a"}""")
+
+        val values = extractor.extractAll(payload, mapOf("one" to "$.id", "two" to "$.missing"))
+
+        assertEquals("a", values["one"])
+        assertNull(values["two"])
+    }
+
+    @Test
+    fun `should not parse the payload when no path is configured`() {
+        var parseCount = 0
+        val counting = IdempotencyExtractor { payload ->
+            parseCount++
+            com.jayway.jsonpath.JsonPath.parse(Json.encodeToString(JsonElement.serializer(), payload))
+        }
+
+        val values = counting.extractAll(Json.parseToJsonElement("""{"id": "a"}"""), emptyMap())
+
+        assertEquals(0, parseCount)
+        assertTrue(values.isEmpty())
     }
 }

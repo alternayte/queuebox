@@ -92,6 +92,7 @@ object ConfigValidator {
                 "Route[$index] must have a non-empty topicPattern. " +
                     "Set via 'routes[$index].topicPattern' in YAML or QUEUEBOX_ROUTES_${index}_TOPICPATTERN env var."
             }
+            validateTopicPattern(route.topicPattern, index)
             require(route.destination.isNotBlank()) {
                 "Route[$index] must have a non-empty destination. " +
                     "Set via 'routes[$index].destination' in YAML or QUEUEBOX_ROUTES_${index}_DESTINATION env var."
@@ -155,6 +156,28 @@ object ConfigValidator {
      * `{{ eventType }}` without an `eventTypePath` therefore loses every message. Reject that
      * configuration at startup.
      */
+    /**
+     * Validates a route topic pattern. See F-026.
+     *
+     * A pattern accepts letters, digits, and the characters `_`, `-`, `.` and `*`. The router
+     * treats every other character as a literal, so a pattern that holds one is a configuration
+     * mistake. A run of more than two `*` has no meaning.
+     */
+    private fun validateTopicPattern(pattern: String, index: Int) {
+        require(TOPIC_PATTERN_CHARS.matches(pattern)) {
+            "Route[$index] has an invalid topicPattern: '$pattern'. A topic pattern accepts " +
+                "letters, digits, '_', '-', '.' and '*'. " +
+                "Set via 'routes[$index].topicPattern' in YAML or QUEUEBOX_ROUTES_${index}_TOPICPATTERN env var."
+        }
+        require(!pattern.contains("***")) {
+            "Route[$index] has an invalid topicPattern: '$pattern'. Use '*' for one segment and " +
+                "'**' for any number of segments. " +
+                "Set via 'routes[$index].topicPattern' in YAML or QUEUEBOX_ROUTES_${index}_TOPICPATTERN env var."
+        }
+    }
+
+    private val TOPIC_PATTERN_CHARS = Regex("^[A-Za-z0-9_.*-]+$")
+
     private fun validateSourceTopic(name: String, source: SourceConfig) {
         require(source.topic.isNotBlank()) {
             "Source '$name' topic template cannot be blank. " +
@@ -219,7 +242,8 @@ object ConfigValidator {
             "scheduledAt" to mapping.outbox.scheduledAt,
             "createdAt" to mapping.outbox.createdAt,
             "updatedAt" to mapping.outbox.updatedAt,
-            "claimedAt" to mapping.outbox.claimedAt
+            "claimedAt" to mapping.outbox.claimedAt,
+            "lastError" to mapping.outbox.lastError
         )
 
         outboxColumns.forEach { (fieldName, columnName) ->

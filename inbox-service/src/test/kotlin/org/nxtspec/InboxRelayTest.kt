@@ -63,9 +63,8 @@ class InboxRelayTest {
         }
 
         override suspend fun markSent(id: UUID) = Unit
-        override suspend fun markFailed(id: UUID, error: String) = Unit
-        override suspend fun scheduleRetry(id: UUID, delayMs: Long) = Unit
-        override suspend fun markDead(id: UUID) = Unit
+        override suspend fun scheduleRetry(id: UUID, delayMs: Long, error: String?) = Unit
+        override suspend fun markDead(id: UUID, error: String?) = Unit
         override suspend fun countByState(state: String): Long = 0
         override suspend fun reclaimStale(olderThan: Duration): Int = 0
         override suspend fun deleteOlderThan(state: String, cutoff: Instant, limit: Int): Int = 0
@@ -83,6 +82,7 @@ class InboxRelayTest {
         override fun recordMessageFailed() = Unit
         override fun recordMessageDead() = Unit
         override fun recordMessageReclaimed(count: Int) = Unit
+        override fun recordProcessError() = Unit
         override fun recordProcessingDuration(durationMs: Long) = Unit
         override fun recordPublishDuration(durationMs: Long, destinationType: String) = Unit
         override fun updatePendingCount(count: Long) = Unit

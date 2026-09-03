@@ -376,4 +376,72 @@ class MessageRouterTest {
         assertNotNull(result)
         assertEquals("routed.order.created.events", result.routingKey)
     }
+
+    // --- F-026: precompiled, escaped and anchored topic patterns ---
+
+    @Test
+    fun `should match topic that contains regex metacharacters`() {
+        val router = createRouter("order.a+b" to "plus-dest")
+
+        assertNotNull(router.route("order.a+b"))
+        assertNull(router.route("order.aab"))
+        assertNull(router.route("order.ab"))
+    }
+
+    @Test
+    fun `should match topic that contains parentheses and brackets`() {
+        val parens = createRouter("order.(x)" to "paren-dest")
+        assertNotNull(parens.route("order.(x)"))
+        assertNull(parens.route("order.x"))
+
+        val brackets = createRouter("order.[y]" to "bracket-dest")
+        assertNotNull(brackets.route("order.[y]"))
+        assertNull(brackets.route("order.y"))
+    }
+
+    @Test
+    fun `should match topic that contains the legacy placeholder token`() {
+        val literal = createRouter("order.\u00A7\u00A7\u00A7" to "token-dest")
+        assertNotNull(literal.route("order.\u00A7\u00A7\u00A7"))
+        assertNull(literal.route("order.anything.else"))
+
+        val withWildcard = createRouter("\u00A7\u00A7\u00A7.**" to "token-glob-dest")
+        assertNotNull(withWildcard.route("\u00A7\u00A7\u00A7.a.b"))
+        assertNull(withWildcard.route("other.a.b"))
+    }
+
+    @Test
+    fun `should anchor the pattern so a partial match is rejected`() {
+        val router = createRouter("order.created" to "dest")
+
+        assertNull(router.route("prefix.order.created"))
+        assertNull(router.route("order.created.suffix"))
+    }
+
+    @Test
+    fun `should compile each topic pattern once for many routed messages`() {
+        var compileCount = 0
+        val destinations = mapOf(
+            "dest" to Destination.Http(name = "dest", baseUrl = "http://localhost:8080")
+        )
+        val routes = listOf(
+            RouteConfig(topicPattern = "order.*", destination = "dest"),
+            RouteConfig(topicPattern = "user.**", destination = "dest")
+        )
+        val router = MessageRouter(
+            routes = routes,
+            destinations = destinations,
+            patternCompiler = { pattern ->
+                compileCount++
+                compileTopicPattern(pattern)
+            }
+        )
+
+        repeat(100) { index ->
+            router.route("order.created.$index")
+            router.route("user.updated.$index")
+        }
+
+        assertEquals(2, compileCount)
+    }
 }

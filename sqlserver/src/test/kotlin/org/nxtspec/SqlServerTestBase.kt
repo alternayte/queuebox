@@ -170,6 +170,14 @@ abstract class SqlServerTestBase {
         }
     }
 
+    protected fun getOutboxLastError(id: UUID): String? {
+        return transaction {
+            SqlServerOutboxTable.selectAll()
+                .where { SqlServerOutboxTable.id eq id }
+                .single()[SqlServerOutboxTable.lastError]
+        }
+    }
+
     protected fun getOutboxClaimedAt(id: UUID): Instant? {
         return transaction {
             SqlServerOutboxTable.selectAll()

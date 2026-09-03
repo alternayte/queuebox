@@ -18,6 +18,7 @@ dependencies {
     // Ktor server
     implementation(libs.bundles.ktorServerEcosystem)
     implementation(libs.ktor.server.double.receive)
+    implementation(libs.ktor.server.rate.limit)
 
     // Kotlinx ecosystem (coroutines, serialization, datetime)
     implementation(libs.bundles.kotlinxEcosystem)

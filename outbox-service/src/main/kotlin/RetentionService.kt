@@ -54,7 +54,7 @@ class RetentionService(
                 } catch (e: Exception) {
                     println("Cleanup error for $table: ${e.message}")
                 }
-                delay(interval.inWholeMilliseconds)
+                interruptibleDelay(interval.inWholeMilliseconds)
             }
         }
     }
@@ -140,12 +140,37 @@ class RetentionService(
         return totalDeleted
     }
 
+    /**
+     * Waits in short slices, so a stop does not have to wait for the whole cleanup interval.
+     * See F-027.
+     */
+    private suspend fun interruptibleDelay(totalMs: Long) {
+        var remaining = totalMs
+        while (remaining > 0 && running.get()) {
+            val slice = minOf(remaining, WAIT_SLICE_MS)
+            delay(slice)
+            remaining -= slice
+        }
+    }
+
     fun isRunning(): Boolean = running.get()
 
+    /**
+     * Stops the cleanup loops.
+     *
+     * F-027: the wait is bounded. A loop that sits in its interval wakes within one wait slice.
+     * A cleanup that runs longer than the timeout is cancelled.
+     */
     suspend fun stop() {
         running.set(false)
-        // Wait for in-flight cleanup to complete
-        scope.coroutineContext.job.children.forEach { it.join() }
+        withTimeoutOrNull(STOP_TIMEOUT_MS) {
+            scope.coroutineContext.job.children.forEach { it.join() }
+        }
         scope.cancel()
+    }
+
+    companion object {
+        private const val WAIT_SLICE_MS = 100L
+        private const val STOP_TIMEOUT_MS = 1500L
     }
 }

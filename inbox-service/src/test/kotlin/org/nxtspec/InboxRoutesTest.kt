@@ -4,6 +4,7 @@ import io.ktor.client.request.*
 import io.ktor.client.statement.*
 import io.ktor.http.*
 import io.ktor.serialization.kotlinx.json.*
+import io.ktor.server.application.install
 import io.ktor.server.plugins.contentnegotiation.*
 import io.ktor.server.request.*
 import io.ktor.server.response.*
@@ -15,6 +16,7 @@ import io.mockk.mockk
 import kotlinx.serialization.json.Json
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 class InboxRoutesTest {
@@ -341,6 +343,130 @@ class InboxRoutesTest {
                 it.payload.toString().contains("cus_abc") &&
                 it.payload.toString().contains("1000")
             })
+        }
+    }
+
+    @Test
+    fun `should return 413 when body is one byte over the limit`() = testApplication {
+        val mockRepository = mockk<InboxRepository>(relaxed = true)
+        val extractor = IdempotencyExtractor()
+        val handler = InboxHandler(mockRepository, extractor)
+        coEvery { mockRepository.store(any()) } returns InboxResult.Stored
+
+        val config = InboxConfig(basePath = "/inbox", maxBodyBytes = 1024)
+        val sources = mapOf(
+            "stripe" to SourceConfig.Http(path = "/stripe", idempotencyKeyPath = "$.id")
+        )
+
+        application {
+            this.install(ContentNegotiation) { json() }
+            configureInboxRoutes(config, sources, handler)
+        }
+
+        // One byte over the limit.
+        val filler = "x".repeat(1025 - """{"id":"evt_123","p":""}""".length)
+        val body = """{"id":"evt_123","p":"$filler"}"""
+        assertEquals(1025, body.toByteArray().size)
+
+        val response = client.post("/inbox/stripe") {
+            contentType(ContentType.Application.Json)
+            setBody(body)
+        }
+
+        assertEquals(HttpStatusCode.PayloadTooLarge, response.status)
+        // The body is never read, so the handler never runs.
+        coVerify(exactly = 0) { mockRepository.store(any()) }
+    }
+
+    @Test
+    fun `should return 200 when body is exactly at the limit`() = testApplication {
+        val mockRepository = mockk<InboxRepository>(relaxed = true)
+        val extractor = IdempotencyExtractor()
+        val handler = InboxHandler(mockRepository, extractor)
+        coEvery { mockRepository.store(any()) } returns InboxResult.Stored
+
+        val config = InboxConfig(basePath = "/inbox", maxBodyBytes = 1024)
+        val sources = mapOf(
+            "stripe" to SourceConfig.Http(path = "/stripe", idempotencyKeyPath = "$.id")
+        )
+
+        application {
+            this.install(ContentNegotiation) { json() }
+            configureInboxRoutes(config, sources, handler)
+        }
+
+        val filler = "x".repeat(1024 - """{"id":"evt_123","p":""}""".length)
+        val body = """{"id":"evt_123","p":"$filler"}"""
+        assertEquals(1024, body.toByteArray().size)
+
+        val response = client.post("/inbox/stripe") {
+            contentType(ContentType.Application.Json)
+            setBody(body)
+        }
+
+        assertEquals(HttpStatusCode.OK, response.status)
+    }
+
+    @Test
+    fun `should return 429 with Retry-After on the 61st request in a minute`() = testApplication {
+        val mockRepository = mockk<InboxRepository>(relaxed = true)
+        val extractor = IdempotencyExtractor()
+        val handler = InboxHandler(mockRepository, extractor)
+        coEvery { mockRepository.store(any()) } returns InboxResult.Stored
+
+        val config = InboxConfig(basePath = "/inbox")
+        val sources = mapOf(
+            "stripe" to SourceConfig.Http(
+                path = "/stripe",
+                idempotencyKeyPath = "$.id",
+                rateLimit = RateLimitConfig(requestsPerMinute = 60)
+            )
+        )
+
+        application {
+            this.install(ContentNegotiation) { json() }
+            configureInboxRoutes(config, sources, handler)
+        }
+
+        repeat(60) { index ->
+            val ok = client.post("/inbox/stripe") {
+                contentType(ContentType.Application.Json)
+                setBody("""{"id": "evt_$index"}""")
+            }
+            assertEquals(HttpStatusCode.OK, ok.status, "request ${index + 1} must pass")
+        }
+
+        val limited = client.post("/inbox/stripe") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"id": "evt_61"}""")
+        }
+
+        assertEquals(HttpStatusCode.TooManyRequests, limited.status)
+        assertNotNull(limited.headers[HttpHeaders.RetryAfter])
+    }
+
+    @Test
+    fun `should not rate limit a source without a rate limit configured`() = testApplication {
+        val mockRepository = mockk<InboxRepository>(relaxed = true)
+        val extractor = IdempotencyExtractor()
+        val handler = InboxHandler(mockRepository, extractor)
+        coEvery { mockRepository.store(any()) } returns InboxResult.Stored
+
+        application {
+            this.install(ContentNegotiation) { json() }
+            configureInboxRoutes(
+                InboxConfig(basePath = "/inbox"),
+                mapOf("stripe" to SourceConfig.Http(path = "/stripe", idempotencyKeyPath = "$.id")),
+                handler
+            )
+        }
+
+        repeat(70) { index ->
+            val response = client.post("/inbox/stripe") {
+                contentType(ContentType.Application.Json)
+                setBody("""{"id": "evt_$index"}""")
+            }
+            assertEquals(HttpStatusCode.OK, response.status)
         }
     }
 }

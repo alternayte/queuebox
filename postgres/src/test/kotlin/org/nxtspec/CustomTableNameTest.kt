@@ -21,14 +21,19 @@ class CustomTableNameTest : PostgresTestBase() {
     private val outboxTable = DynamicOutboxTable(OutboxColumnMapping(), "my_schema_outbox")
     private val inboxTable = DynamicInboxTable(InboxColumnMapping(), "my_schema_inbox")
 
+    // F-032: reserved words as column names must work, because the feature is documented as
+    // supporting an existing schema.
+    private val reservedMapping = OutboxColumnMapping(topic = "user", key = "order")
+    private val reservedTable = DynamicOutboxTable(reservedMapping, "reserved_outbox")
+
     @BeforeAll
     fun createCustomTables() {
-        transaction { SchemaUtils.create(outboxTable, inboxTable) }
+        transaction { SchemaUtils.create(outboxTable, inboxTable, reservedTable) }
     }
 
     @AfterAll
     fun dropCustomTables() {
-        transaction { SchemaUtils.drop(outboxTable, inboxTable) }
+        transaction { SchemaUtils.drop(outboxTable, inboxTable, reservedTable) }
     }
 
     @Test
@@ -78,5 +83,32 @@ class CustomTableNameTest : PostgresTestBase() {
 
         repository.markProcessed(claimed.single().id)
         assertEquals(1L, repository.countByState("processed"))
+    }
+
+    @Test
+    fun `outbox works when the column mapping uses reserved words`() = runBlocking {
+        val repository = OutboxRepository(reservedMapping, "reserved_outbox")
+
+        repository.insert(
+            OutboxMessage(
+                topic = "order.created",
+                key = "order-1",
+                payload = JsonObject(mapOf("amount" to JsonPrimitive(10)))
+            )
+        )
+
+        val claimed = repository.claimBatch(10)
+
+        assertEquals(1, claimed.size)
+        assertEquals("order.created", claimed.single().topic)
+        assertEquals("order-1", claimed.single().key)
+
+        repository.scheduleRetry(claimed.single().id, 0, "HTTP 500")
+        assertEquals(1L, repository.countByState("pending"))
+
+        val reclaimed = repository.claimBatch(10)
+        assertEquals(1, reclaimed.size)
+        repository.markDead(reclaimed.single().id, "gave up")
+        assertEquals(1L, repository.countByState("dead"))
     }
 }

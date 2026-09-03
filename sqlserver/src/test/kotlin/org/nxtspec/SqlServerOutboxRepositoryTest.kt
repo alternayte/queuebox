@@ -105,14 +105,15 @@ class SqlServerOutboxRepositoryTest : SqlServerTestBase() {
     }
 
     @Test
-    fun `markFailed updates state to failed and increments attempt`() = runTest {
-        val id = insertOutboxMessage(state = "processing", attempt = 1)
+    fun `scheduleRetry persists the last error and increments the attempt once`() = runTest {
+        val id = insertOutboxMessage(state = "processing")
 
-        repository.markFailed(id, "Connection timeout")
+        repository.scheduleRetry(id, 1000, "HTTP 500 from destination")
 
         val (state, attempt) = getOutboxMessageStateAndAttempt(id)
-        assertEquals("failed", state)
-        assertEquals(2, attempt)
+        assertEquals("pending", state)
+        assertEquals(1, attempt)
+        assertEquals("HTTP 500 from destination", getOutboxLastError(id))
     }
 
     @Test
@@ -120,7 +121,7 @@ class SqlServerOutboxRepositoryTest : SqlServerTestBase() {
         val id = insertOutboxMessage(state = "failed", attempt = 1)
         val beforeSchedule = Clock.System.now()
 
-        repository.scheduleRetry(id, 60000) // 60 seconds
+        repository.scheduleRetry(id, 60000, null) // 60 seconds
 
         val (state, scheduledAt) = getOutboxStateAndScheduledAt(id)
         assertEquals("pending", state)
@@ -131,7 +132,7 @@ class SqlServerOutboxRepositoryTest : SqlServerTestBase() {
     fun `markDead updates state to dead`() = runTest {
         val id = insertOutboxMessage(state = "failed", attempt = 5)
 
-        repository.markDead(id)
+        repository.markDead(id, null)
 
         assertEquals("dead", getOutboxMessageState(id))
     }

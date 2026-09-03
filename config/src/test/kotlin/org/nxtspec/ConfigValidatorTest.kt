@@ -294,6 +294,56 @@ class ConfigValidatorTest {
         assertNotNull(validated)
     }
 
+    // === Topic Pattern Validation (F-026) ===
+
+    @Test
+    fun `should pass when topic pattern uses allowed characters`() {
+        val config = createValidConfig().copy(
+            routes = listOf(
+                RouteConfig(topicPattern = "order.*", destination = "webhook-api"),
+                RouteConfig(topicPattern = "order_v2.**", destination = "webhook-api"),
+                RouteConfig(topicPattern = "order-v2.created", destination = "webhook-api"),
+                RouteConfig(topicPattern = "**", destination = "webhook-api")
+            )
+        )
+        val validated = ConfigValidator.validate(config)
+        assertNotNull(validated)
+    }
+
+    @Test
+    fun `should fail when topic pattern contains a regex metacharacter`() {
+        val config = createValidConfig().copy(
+            routes = listOf(RouteConfig(topicPattern = "order.(a+)", destination = "webhook-api"))
+        )
+        val exception = assertFailsWith<IllegalArgumentException> {
+            ConfigValidator.validate(config)
+        }
+        assertContains(exception.message!!, "topicPattern")
+        assertContains(exception.message!!, "order.(a+)")
+    }
+
+    @Test
+    fun `should fail when topic pattern contains whitespace`() {
+        val config = createValidConfig().copy(
+            routes = listOf(RouteConfig(topicPattern = "order created", destination = "webhook-api"))
+        )
+        val exception = assertFailsWith<IllegalArgumentException> {
+            ConfigValidator.validate(config)
+        }
+        assertContains(exception.message!!, "topicPattern")
+    }
+
+    @Test
+    fun `should fail when topic pattern has more than two consecutive wildcards`() {
+        val config = createValidConfig().copy(
+            routes = listOf(RouteConfig(topicPattern = "order.***", destination = "webhook-api"))
+        )
+        val exception = assertFailsWith<IllegalArgumentException> {
+            ConfigValidator.validate(config)
+        }
+        assertContains(exception.message!!, "topicPattern")
+    }
+
     @Test
     fun `should pass when no routes configured`() {
         val config = createValidConfig().copy(routes = emptyList())

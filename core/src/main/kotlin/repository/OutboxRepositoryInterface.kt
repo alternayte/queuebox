@@ -30,19 +30,19 @@ interface OutboxRepositoryInterface {
     suspend fun markSent(id: UUID)
 
     /**
-     * Marks a message as failed with an error description.
-     */
-    suspend fun markFailed(id: UUID, error: String)
-
-    /**
      * Schedules a message for retry after a delay.
+     *
+     * F-017: this is the only method that increments the attempt count.
+     * F-016: the error is persisted, so an operator can see why the delivery failed. The caller
+     * redacts and truncates the text.
      */
-    suspend fun scheduleRetry(id: UUID, delayMs: Long)
+    suspend fun scheduleRetry(id: UUID, delayMs: Long, error: String? = null)
 
     /**
-     * Marks a message as dead (exceeded max retries).
+     * Marks a message as dead, because it exceeded the maximum attempts or because it cannot be
+     * routed. The attempt count does not change.
      */
-    suspend fun markDead(id: UUID)
+    suspend fun markDead(id: UUID, error: String? = null)
 
     /**
      * Counts messages in a given state.

@@ -72,6 +72,10 @@ class QueueBoxMetrics(private val registry: MeterRegistry) {
         .tag("status", "new")
         .register(registry)
 
+    val outboxProcessErrors: Counter = Counter.builder("queuebox_outbox_process_errors_total")
+        .description("Total errors that stopped the processing of one outbox message")
+        .register(registry)
+
     val outboxMessagesReclaimed: Counter = Counter.builder("queuebox_outbox_messages_reclaimed_total")
         .description("Total outbox messages returned to pending after a stale claim")
         .register(registry)

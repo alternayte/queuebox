@@ -228,6 +228,44 @@ retention:
     batchSize: 1000
 ```
 
+### Request Limits
+
+QueueBox protects the inbox endpoints against a large body and against a request flood.
+
+| Field | Default | Description |
+|-------|---------|-------------|
+| `inbox.maxBodyBytes` | `1048576` | Maximum accepted request body size in bytes. A larger body gets `413 Payload Too Large`. QueueBox rejects the body before it reads it. |
+| `sources.<name>.rateLimit.requestsPerMinute` | none | Maximum number of requests per minute for one source. A request over the limit gets `429 Too Many Requests` with a `Retry-After` header. Omit the field to disable the rate limit for that source. |
+
+```yaml
+database:
+  url: jdbc:postgresql://localhost:5432/queuebox
+  username: queuebox
+  password: ${DB_PASSWORD}
+
+inbox:
+  maxBodyBytes: 1048576                   # Reject a larger body with 413
+
+destinations:
+  my-api:
+    type: http
+    baseUrl: https://api.example.com
+    path: /webhooks
+
+routes:
+  - topicPattern: "order.*"
+    destination: my-api
+
+sources:
+  stripe:
+    type: http
+    path: /stripe
+    idempotencyKeyPath: $.id
+    eventTypePath: $.type
+    rateLimit:
+      requestsPerMinute: 60               # The 61st request in a minute gets 429
+```
+
 ### Required Fields Reference
 
 #### Core Required Fields
@@ -702,6 +740,11 @@ truth for the supported placeholder forms.
 publisher uses the result. A RabbitMQ destination also has its own `routingKeyTemplate`, which
 supports `{{ topic }}` only. That destination template applies only when the matched route sets
 no `routingKeyTemplate`.
+
+**RabbitMQ throughput.** The publisher awaits one broker confirm per message. A measured run gave
+1038 messages per second for 1000 messages on one destination. The test
+`rabbitmq/src/test/kotlin/RabbitPublisherThroughputTest.kt` produced this figure on a developer
+laptop, with the broker in a local container.
 
 ## Metrics
 

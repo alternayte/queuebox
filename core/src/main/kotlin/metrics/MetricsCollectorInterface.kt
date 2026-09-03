@@ -29,6 +29,11 @@ interface MetricsCollectorInterface {
     fun recordMessageReclaimed(count: Int)
 
     /**
+     * Record an error that stopped the processing of one outbox message.
+     */
+    fun recordProcessError()
+
+    /**
      * Record processing duration in milliseconds.
      */
     fun recordProcessingDuration(durationMs: Long)

@@ -519,4 +519,42 @@ class RetentionServiceTest {
         verify(atLeast = 1) { metricsCollector.recordCleanupRun("outbox", any(), any()) }
         verify(atLeast = 1) { metricsCollector.recordCleanupRun("inbox", any(), any()) }
     }
+
+    // --- F-027: stop must not wait for the cleanup interval ---
+
+    @Test
+    fun `stop should return quickly when the cleanup interval is long`() = runBlocking {
+        val outboxRepository = mockk<OutboxRepositoryInterface>(relaxed = true)
+        val inboxRepository = mockk<InboxRepositoryInterface>(relaxed = true)
+
+        coEvery { outboxRepository.deleteOlderThan(any(), any(), any()) } returns 0
+
+        val service = RetentionService(
+            config = RetentionConfig(
+                enabled = true,
+                outbox = TableRetentionConfig(
+                    policy = RetentionPolicy.AGE,
+                    maxAge = "7d",
+                    cleanupInterval = "1h"
+                ),
+                inbox = TableRetentionConfig(policy = RetentionPolicy.DISABLED)
+            ),
+            outboxRepository = outboxRepository,
+            inboxRepository = inboxRepository
+        )
+
+        service.start()
+        delay(200)
+
+        // withTimeoutOrNull makes an unbounded stop a failure instead of a hang.
+        var elapsed = 0L
+        val returned = kotlinx.coroutines.withTimeoutOrNull(4000) {
+            elapsed = kotlin.system.measureTimeMillis { service.stop() }
+            true
+        }
+
+        assertTrue(returned == true, "stop() did not return. It waited for the cleanup interval.")
+        assertTrue(elapsed < 2000, "stop() must return in under two seconds. Took ${elapsed}ms")
+        assertFalse(service.isRunning())
+    }
 }

@@ -8,7 +8,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
-class RabbitConnection(private val url: String) {
+open class RabbitConnection(private val url: String) {
     private val factory = ConnectionFactory().apply {
         setUri(url)
         isAutomaticRecoveryEnabled = true
@@ -18,7 +18,7 @@ class RabbitConnection(private val url: String) {
     private var connection: Connection? = null
     private val connectionLock = Mutex()
 
-    suspend fun getChannel(): Channel = connectionLock.withLock {
+    open suspend fun getChannel(): Channel = connectionLock.withLock {
         if (connection == null || !connection!!.isOpen) {
             connection = withContext(Dispatchers.IO) {
                 factory.newConnection()

@@ -16,6 +16,7 @@ import org.nxtspec.RetryStrategy
 import org.nxtspec.RouteConfig
 import org.nxtspec.http.HttpPublisher
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /**
@@ -470,5 +471,104 @@ class E2EOutboxFlowTest : E2ETestBase() {
         }
 
         rabbitPublisher.close()
+    }
+
+    // --- F-016: the failure reason is persisted and redacted ---
+
+    @Test
+    fun `should persist a redacted last error when the destination returns 500`() = runBlocking {
+        val mockServer = startMockHttpServer(
+            responseCode = HttpStatusCode.InternalServerError,
+            responseBody = """{"error":"boom"}"""
+        )
+
+        val secret = "Bearer super-secret-token"
+        val destination = Destination.Http(
+            name = "test-http",
+            baseUrl = mockServer.baseUrl,
+            path = "/webhook",
+            timeoutMs = 5000,
+            headers = mapOf("Authorization" to secret)
+        )
+        val router = MessageRouter(
+            routes = listOf(RouteConfig(topicPattern = "order.*", destination = "test-http")),
+            destinations = mapOf("test-http" to destination)
+        )
+
+        val config = OutboxConfig(
+            pollIntervalMs = 50,
+            batchSize = 10,
+            retryBaseDelayMs = 50,
+            maxAttempts = 2
+        )
+        poller = OutboxPoller(
+            config = config,
+            repository = OutboxRepository(),
+            router = router,
+            publishers = listOf(HttpPublisher()),
+            retryStrategy = RetryStrategy(config)
+        )
+
+        val messageId = insertOutboxMessage(
+            topic = "order.created",
+            payload = JsonObject(mapOf("orderId" to JsonPrimitive("order-1"))),
+            maxAttempts = 2
+        )
+
+        poller!!.start()
+        awaitUntil { getOutboxLastError(messageId) != null }
+
+        val lastError = getOutboxLastError(messageId)
+        assertTrue(lastError != null, "The failure reason must be persisted")
+        assertTrue(lastError!!.contains("500"), "The error must name the status code: $lastError")
+        assertFalse(
+            lastError.contains("super-secret-token"),
+            "The error must not carry the Authorization value: $lastError"
+        )
+    }
+
+    // --- F-017: exactly one attempt per failed delivery ---
+
+    @Test
+    fun `should increase the attempt by exactly one per failed delivery`() = runBlocking {
+        val mockServer = startMockHttpServer(responseCode = HttpStatusCode.InternalServerError)
+
+        val destination = Destination.Http(
+            name = "test-http",
+            baseUrl = mockServer.baseUrl,
+            path = "/webhook",
+            timeoutMs = 5000
+        )
+        val router = MessageRouter(
+            routes = listOf(RouteConfig(topicPattern = "order.*", destination = "test-http")),
+            destinations = mapOf("test-http" to destination)
+        )
+
+        val config = OutboxConfig(
+            pollIntervalMs = 30,
+            batchSize = 10,
+            retryBaseDelayMs = 10,
+            maxAttempts = 5
+        )
+        poller = OutboxPoller(
+            config = config,
+            repository = OutboxRepository(),
+            router = router,
+            publishers = listOf(HttpPublisher()),
+            retryStrategy = RetryStrategy(config)
+        )
+
+        val messageId = insertOutboxMessage(
+            topic = "order.created",
+            payload = JsonObject(emptyMap()),
+            maxAttempts = 5
+        )
+
+        poller!!.start()
+        awaitUntil { getOutboxMessageState(messageId) == "dead" }
+
+        val (state, attempt) = getOutboxMessageStateAndAttempt(messageId)
+        assertEquals("dead", state)
+        assertEquals(5, attempt, "Five failed deliveries must leave the attempt count at five")
     }
 }
