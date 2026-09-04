@@ -40,11 +40,19 @@ object ErrorSanitizer {
         key.split('-', '_', '.').joinToString("[-_.]?") { Regex.escape(it) }
 
     // Matches "<key><separator><value>". The key can carry a closing quote, as it does in JSON.
-    // The separator is ':' or '='. The value can be quoted. The value ends at a comma, a
-    // semicolon, a closing brace, a quote or a line end.
+    //
+    // The key accepts a prefix, so an environment variable such as "PGPASSWORD" matches. The key
+    // still ends on a word boundary, so "passwordless" does not match.
+    //
+    // The separator is ':' or '='. A quoted value ends at its closing quote, so a comma inside
+    // the quotes cannot cut the redaction short. An unquoted value ends at whitespace or at a
+    // separator character. An unquoted value can start with an authentication scheme name, so
+    // "Authorization: Bearer <token>" redacts the token as well.
     private val secretPattern: Regex = Regex(
-        "(?i)\\b(" + SECRET_KEYS.joinToString("|") { keyAlternative(it) } +
-            ")\\b\"?\\s*[:=]+\\s*\"?[^,;}\\n\"]*\"?"
+        "(?i)([A-Za-z0-9_]*(?:" + SECRET_KEYS.joinToString("|") { keyAlternative(it) } +
+            "))\\b\"?\\s*[:=]+\\s*" +
+            "(?:\"(?:\\\\.|[^\"\\\\\\n])*\"?|'(?:\\\\.|[^'\\\\\\n])*'?|" +
+            "(?:(?:" + AUTH_SCHEMES.joinToString("|") + ")\\s+)?[^\\s,;}\\]&\\n\"]*)"
     )
 
     // Matches a bare authentication scheme and the token that follows it.
@@ -53,9 +61,23 @@ object ErrorSanitizer {
     )
 
     // Matches the user information of a URL. `CredentialMasking.maskUrl` rejects a password that
-    // holds a space, and a broker reports such a URL in its error text. This pattern accepts the
-    // space, and it still stops at a path separator, so it cannot span two URLs.
-    private val userInfoPattern: Regex = Regex("([a-zA-Z][a-zA-Z0-9+.\\-]*://)[^/@\\n]+?@")
+    // holds a space, and a broker reports such a URL in its error text. This pattern accepts one
+    // space.
+    //
+    // The pattern ends at the LAST at sign of the authority, so a password with an at sign
+    // cannot leak its tail. A slash is accepted only after the ':' of the password, so a path
+    // that holds an at sign keeps its host. The host that follows carries no at sign, so the
+    // pattern cannot run past one authority into a later word.
+    //
+    // The alternation is deliberate. An optional group makes the Java engine keep the FIRST '@',
+    // and a password with an '@' then leaks its tail.
+    private const val PASSWORD_RUN = "(?:(?!://)\\S)*"
+
+    private val userInfoPattern: Regex = Regex(
+        "([a-zA-Z][a-zA-Z0-9+.\\-]*://)" +
+            "(?:[^\\s/@]*:(?:$PASSWORD_RUN $PASSWORD_RUN|$PASSWORD_RUN)|[^\\s/@]*)" +
+            "@(?=[^/?#\\s@]*(?:[/?#\\s]|$))"
+    )
 
     /**
      * Redacts the secret values in the text and truncates the result.

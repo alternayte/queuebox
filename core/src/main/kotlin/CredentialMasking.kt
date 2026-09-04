@@ -34,8 +34,18 @@ object CredentialMasking {
         SECRET_HEADER_NAMES.any { name.equals(it, ignoreCase = true) } ||
             SECRET_HEADER_PARTS.any { name.contains(it, ignoreCase = true) }
 
-    // Matches "<scheme>://<user information>@" and keeps the scheme.
-    private val USER_INFO = Regex("([a-zA-Z][a-zA-Z0-9+.-]*://)[^/@\\s]+@")
+    // Matches "<scheme>://<user information>@" and keeps the scheme. The user information can
+    // hold a slash after the ':' of the password, and an at sign, so the pattern ends at the LAST
+    // at sign of the authority. The host that follows carries no at sign, so the pattern stays
+    // inside one authority. A path that holds an at sign keeps its host.
+    //
+    // The alternation is deliberate. An optional group makes the Java engine keep the FIRST at
+    // sign, and a password with an at sign then leaks its tail.
+    private val USER_INFO = Regex(
+        "([a-zA-Z][a-zA-Z0-9+.-]*://)" +
+            "(?:[^\\s/@]*:(?:(?!://)\\S)*|[^\\s/@]*)" +
+            "@(?=[^/?#\\s@]*(?:[/?#\\s]|$))"
+    )
 
     // Matches a password query parameter, whatever its separator.
     private val PASSWORD_PARAMETER = Regex("(?i)([?&;](?:password|pwd|secret|token))=[^&;\\s]*")

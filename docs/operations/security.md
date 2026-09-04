@@ -173,8 +173,10 @@ configuration at the path.
 
 ### Secrets never appear in a log line
 
-Every field of type `Secret` returns `Secret(***)` from `toString`, so a log line, an exception
-message, or a crash dump that prints a configuration object cannot leak it. A field whose whole
+Every field of type `Secret` returns a mask from `toString`, so a log line, an exception
+message, or a crash dump that prints a configuration object cannot leak it. The mask is
+`Secret(***)` for a value that is not empty, and `Secret(empty)` for an empty value. The empty
+mask tells an operator that the credential is absent, and it reveals no value. A field whose whole
 value is not a credential, such as a JDBC URL or an AMQP URI, is masked instead by
 `CredentialMasking` in the `toString` of the class that holds it. `ConfigSecretTest` loads a configuration that sets every credential field and asserts
 that no printed form carries a value.

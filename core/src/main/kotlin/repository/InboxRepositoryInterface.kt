@@ -35,6 +35,16 @@ interface InboxRepositoryInterface {
     suspend fun markDead(id: UUID)
 
     /**
+     * Marks a message dead by its natural key.
+     *
+     * A RabbitMQ redelivery of a rejected message gets a new row identifier, but the store
+     * answers `Duplicate`, because the pair (source, idempotencyKey) already exists. The
+     * consumer therefore has no row identifier, and it must address the stored row by the
+     * natural key. See the second review gate, defect 1.
+     */
+    suspend fun markDeadByKey(source: String, idempotencyKey: String)
+
+    /**
      * Counts messages in a given state.
      */
     suspend fun countByState(state: String): Long

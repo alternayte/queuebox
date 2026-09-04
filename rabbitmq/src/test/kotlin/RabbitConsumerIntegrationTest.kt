@@ -10,7 +10,6 @@ import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Tag
 import org.junit.jupiter.api.Test
-import org.junit.jupiter.api.assertDoesNotThrow
 import org.nxtspec.transform.InboxTransformPipeline
 import org.nxtspec.transform.InboxTransformResult
 import org.testcontainers.containers.GenericContainer
@@ -53,8 +52,8 @@ class RabbitConsumerIntegrationTest {
     private val storedMessages = CopyOnWriteArrayList<InboxMessage>()
     private val storedIdempotencyKeys = mutableSetOf<String>()
 
-    // Identifiers that the consumer marked dead.
-    private val deadIds = CopyOnWriteArrayList<UUID>()
+    // Keys of the rows that the consumer marked dead.
+    private val deadKeys = CopyOnWriteArrayList<String>()
 
     // Mock store function that simulates deduplication
     private val mockStore: suspend (InboxMessage) -> InboxResult = { message ->
@@ -74,7 +73,7 @@ class RabbitConsumerIntegrationTest {
     fun setup() {
         storedMessages.clear()
         storedIdempotencyKeys.clear()
-        deadIds.clear()
+        deadKeys.clear()
         extractor = IdempotencyExtractor()
         connection = RabbitConnection(amqpUrl)
         declareTestQueue()
@@ -293,7 +292,7 @@ class RabbitConsumerIntegrationTest {
     }
 
     @Test
-    fun `should generateUUID when noIdempotencyKeyAvailable`() = runBlocking {
+    fun `should use a stable body digest when noIdempotencyKeyAvailable`() = runBlocking {
         val config = RabbitConsumerConfig(
             queueName = TEST_QUEUE,
             sourceName = "test-source",
@@ -312,10 +311,11 @@ class RabbitConsumerIntegrationTest {
         delay(500)
 
         assertEquals(1, storedMessages.size, "Should have stored one message")
-        // Verify it's a valid UUID format - this tests the final fallback in idempotency key extraction
-        assertDoesNotThrow {
-            UUID.fromString(storedMessages[0].idempotencyKey)
-        }
+        // The last fallback is a stable digest of the body, not a random value. A random value
+        // would give a redelivery a new key, and the inbox would hold a second row.
+        val key = storedMessages[0].idempotencyKey
+        assertTrue(key.startsWith("sha256:"), "The fallback key must be a body digest, was '$key'.")
+        assertEquals(71, key.length, "The digest key must carry 64 hexadecimal characters.")
     }
 
     /** A pipeline that rejects every message. */
@@ -352,7 +352,7 @@ class RabbitConsumerIntegrationTest {
             config = config,
             transformPipeline = rejectingPipeline(),
             sourceTransform = rejectingTransform,
-            markDead = { id -> deadIds.add(id) }
+            markDead = { _, key -> deadKeys.add(key) }
         )
         consumer.start()
 
@@ -370,7 +370,7 @@ class RabbitConsumerIntegrationTest {
             stored.payload.toString(),
             "The stored payload must be the original payload."
         )
-        assertTrue(deadIds.contains(stored.id), "The stored row must be marked dead.")
+        assertTrue(deadKeys.contains(stored.idempotencyKey), "The stored row must be marked dead.")
         assertEquals(0L, queueDepth(), "The queue must be empty after the acknowledgement.")
     }
 
@@ -391,7 +391,7 @@ class RabbitConsumerIntegrationTest {
             config = config,
             transformPipeline = rejectingPipeline(),
             sourceTransform = rejectingTransform,
-            markDead = { id -> deadIds.add(id) }
+            markDead = { _, key -> deadKeys.add(key) }
         )
         consumer.start()
 
@@ -400,7 +400,7 @@ class RabbitConsumerIntegrationTest {
         delay(500)
         consumer.stop()
 
-        assertTrue(deadIds.isEmpty(), "No row is dead, because the store failed.")
+        assertTrue(deadKeys.isEmpty(), "No row is dead, because the store failed.")
         val factory = ConnectionFactory().apply { setUri(amqpUrl) }
         factory.newConnection().use { conn ->
             conn.createChannel().use { channel ->

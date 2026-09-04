@@ -209,19 +209,14 @@ fun main() {
                 connection = connection,
                 storeMessage = inboxRepository::store,
                 extractor = extractor,
-                config = RabbitConsumerConfig(
-                    queueName = rabbitConfig.queueName,
-                    sourceName = sourceName,
-                    prefetchCount = rabbitConfig.prefetchCount,
-                    idempotencyKeyPath = rabbitConfig.idempotencyKeyPath
-                ),
+                config = rabbitConsumerConfig(sourceName, rabbitConfig),
                 metricsCollector = metricsCollector,
                 transformPipeline = inboxTransformPipeline,
                 sourceTransform = rabbitConfig.transform,
                 // A transform rejection on an AMQP source must not destroy the message. The
                 // consumer stores the original payload, and this callback marks the row dead so
                 // the relay never forwards a rejected payload.
-                markDead = inboxRepository::markDead
+                markDead = inboxRepository::markDeadByKey
             ) to connection
         }
 
@@ -364,6 +359,21 @@ fun main() {
         throw e
     }
 }
+
+/**
+ * Maps one RabbitMQ source of the configuration onto the consumer configuration.
+ *
+ * Every documented field of the source must reach the consumer. `aggregateIdPath` is
+ * documented for ordered processing, so it belongs here.
+ */
+internal fun rabbitConsumerConfig(sourceName: String, source: SourceConfig.RabbitMQ): RabbitConsumerConfig =
+    RabbitConsumerConfig(
+        queueName = source.queueName,
+        sourceName = sourceName,
+        prefetchCount = source.prefetchCount,
+        idempotencyKeyPath = source.idempotencyKeyPath,
+        aggregateIdPath = source.aggregateIdPath
+    )
 
 /**
  * Registers the operational endpoints: the metrics endpoint, the health endpoints and the admin

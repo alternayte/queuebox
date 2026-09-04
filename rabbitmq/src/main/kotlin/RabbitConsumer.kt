@@ -51,13 +51,17 @@ class RabbitConsumer(
     private val transformPipeline: InboxTransformPipeline? = null,
     private val sourceTransform: TransformConfig? = null,
     /**
-     * Marks one stored inbox row dead. The consumer calls it after a transform rejection.
+     * Marks one stored inbox row dead by its natural key (source, idempotencyKey). The consumer
+     * calls it after a transform rejection.
      *
      * An AMQP publisher has no caller that can hold the message, and QueueBox declares no
      * dead-letter exchange. The consumer therefore stores the original payload and marks the
      * row dead. An operator can read the row and replay it.
+     *
+     * The key addresses the row, not the row identifier. A redelivery holds a new row
+     * identifier, but the same natural key, so this callback also works on the duplicate path.
      */
-    private val markDead: (suspend (UUID) -> Unit)? = null
+    private val markDead: (suspend (String, String) -> Unit)? = null
 ) {
     private val log = logger<RabbitConsumer>()
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
@@ -177,8 +181,8 @@ class RabbitConsumer(
             // 1. x-idempotency-key header
             // 2. JSONPath from payload
             // 3. messageId property
-            // 4. Generate UUID
-            val idempotencyKey = extractIdempotencyKey(properties, payload)
+            // 4. A stable SHA-256 digest of the body
+            val idempotencyKey = extractIdempotencyKey(properties, payload, body)
 
             // Extract optional aggregate ID with fallback to header (from ORIGINAL payload)
             val aggregateId = extractAggregateId(properties, payload)
@@ -278,15 +282,18 @@ class RabbitConsumer(
 
         when (result) {
             is InboxResult.Stored -> {
-                val marked = markDeadRow(envelope, message.id)
+                val marked = markDeadRow(envelope, message.idempotencyKey)
                 if (!marked) return
                 metricsCollector?.recordInboxRejection(InboxRejectionReason.TRANSFORM_FAILED)
                 sendAck(envelope.deliveryTag)
             }
             is InboxResult.Duplicate -> {
                 // The unique index already holds a row for this key. The earlier row carries the
-                // payload, so the delivery adds nothing. The success path acknowledges a
-                // duplicate, and this path does the same.
+                // payload, so the delivery adds no payload. The earlier row can still be
+                // pending, because an earlier mark dead failed. The mark therefore runs again.
+                // Without it the relay forwards a payload that the transform rejected.
+                val marked = markDeadRow(envelope, message.idempotencyKey)
+                if (!marked) return
                 metricsCollector?.recordInboxDuplicate()
                 sendAck(envelope.deliveryTag)
             }
@@ -302,26 +309,31 @@ class RabbitConsumer(
     }
 
     /**
-     * Marks the stored row dead. Returns false when the delivery is already nacked.
+     * Marks the stored row dead by its natural key. Returns false when the delivery is already
+     * nacked.
+     *
+     * A missing callback also ends in a nack. An acknowledgement of a row that stays pending
+     * lets the relay forward a rejected payload, which the class promises cannot happen.
      */
-    private suspend fun markDeadRow(envelope: Envelope, id: UUID): Boolean {
+    private suspend fun markDeadRow(envelope: Envelope, idempotencyKey: String): Boolean {
         val mark = markDead
         if (mark == null) {
             log.error(
-                "No dead-letter callback is configured for source '{}'. The row {} stays " +
-                    "pending, and the relay forwards it.",
+                "No dead-letter callback is configured for source '{}'. The row of key {} stays " +
+                    "pending, so QueueBox requeues the message rather than forward the payload.",
                 config.sourceName,
-                id
+                idempotencyKey
             )
-            return true
+            sendNack(envelope.deliveryTag, true)
+            return false
         }
         return try {
-            mark(id)
+            mark(config.sourceName, idempotencyKey)
             true
         } catch (e: Exception) {
             log.error(
-                "Marking the row {} dead failed. The message is requeued.",
-                id,
+                "Marking the row of key {} dead failed. The message is requeued.",
+                idempotencyKey,
                 e
             )
             sendNack(envelope.deliveryTag, true)
@@ -349,7 +361,8 @@ class RabbitConsumer(
 
     private fun extractIdempotencyKey(
         properties: AMQP.BasicProperties,
-        payload: kotlinx.serialization.json.JsonElement
+        payload: kotlinx.serialization.json.JsonElement,
+        body: ByteArray
     ): String {
         // Priority 1: x-idempotency-key header
         val headerKey = properties.headers?.get("x-idempotency-key")
@@ -368,8 +381,20 @@ class RabbitConsumer(
             return properties.messageId
         }
 
-        // Priority 4: Generate UUID as last resort
-        return UUID.randomUUID().toString()
+        // Priority 4: a stable digest of the body.
+        //
+        // A random value would give a redelivery of the identical message a new key, and the
+        // inbox would hold a second row. The digest makes the key a function of the message
+        // alone, so a redelivery deduplicates. The source is not part of the digest, because
+        // the inbox key is the pair (source, idempotencyKey), and the source column already
+        // separates two sources that carry the same body.
+        return bodyDigest(body)
+    }
+
+    /** Returns the hexadecimal SHA-256 digest of the raw message body. */
+    private fun bodyDigest(body: ByteArray): String {
+        val digest = java.security.MessageDigest.getInstance("SHA-256").digest(body)
+        return "sha256:" + digest.joinToString("") { "%02x".format(it) }
     }
 
     private fun extractAggregateId(

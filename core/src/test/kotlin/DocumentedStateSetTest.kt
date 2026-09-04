@@ -25,9 +25,28 @@ class DocumentedStateSetTest {
         "sqlserver/src/main/kotlin/org/nxtspec/SqlServerInboxRepository.kt"
     )
 
+    // The inbox migration was not checked. A width that drifted there failed nothing.
     private val migrationSources = listOf(
         "postgres/src/main/resources/db/postgresql/V1__create_outbox.sql",
-        "sqlserver/src/main/resources/db/sqlserver/V1__create_outbox.sql"
+        "postgres/src/main/resources/db/postgresql/V2__create_inbox.sql",
+        "sqlserver/src/main/resources/db/sqlserver/V1__create_outbox.sql",
+        "sqlserver/src/main/resources/db/sqlserver/V2__create_inbox.sql"
+    )
+
+    /**
+     * The documents that must NOT enumerate a state set.
+     *
+     * `docs/architecture.md` owns the list, and this test guards that document. A second document
+     * that repeats the list drifts in silence, which is how `docs/message-flow.md` came to state a
+     * `failed` outbox state that no repository writes.
+     */
+    private val documentsThatMustNotListStates = listOf(
+        "README.md",
+        "docs/message-flow.md",
+        "docs/integration.md",
+        "docs/operations/runbook.md",
+        "docs/getting-started.md",
+        "docs/configuration.md"
     )
 
     @Test
@@ -51,6 +70,25 @@ class DocumentedStateSetTest {
         assertEquals(variants, mapped, "MessageState changed. Correct docs/architecture.md too.")
         val written = writtenStates(outboxRepositorySources) + writtenStates(inboxRepositorySources)
         assertTrue(written.isNotEmpty(), "No state literal was found in the repository sources.")
+    }
+
+    @Test
+    fun `only the architecture document enumerates a state set`() {
+        // Three or more state names on one line is an enumeration, not a passing mention.
+        val names = setOf("pending", "processing", "sent", "processed", "dead", "failed")
+        val offenders = mutableListOf<String>()
+        for (path in documentsThatMustNotListStates) {
+            val file = File(repositoryRoot, path)
+            if (!file.isFile) continue
+            file.readLines().forEachIndexed { index, line ->
+                val hits = names.count { line.contains("'$it'") || line.contains("`$it`") }
+                if (hits >= 3) offenders += "$path:${index + 1}"
+            }
+        }
+        assertTrue(
+            offenders.isEmpty(),
+            "Only docs/architecture.md enumerates the state set. These lines repeat it: $offenders"
+        )
     }
 
     @Test

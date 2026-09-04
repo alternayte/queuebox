@@ -85,9 +85,16 @@ The transform can reject a message. The two source types answer differently.
   declares no dead-letter exchange, so the row is the only copy.
 
 The order is mandatory. If the store fails, QueueBox does not acknowledge the delivery. It nacks
-with requeue, and the broker keeps the message. A repeat of the same idempotency key hits the
-unique index. QueueBox then acknowledges the delivery, because the earlier row already holds the
-payload.
+with requeue, and the broker keeps the message. The mark dead step has the same rule. If the mark
+fails, QueueBox nacks with requeue.
+
+A repeat of the same idempotency key hits the unique index. The earlier row already holds the
+payload, so QueueBox stores nothing more. QueueBox marks the earlier row dead again, and only
+then acknowledges the delivery. The repeat of the mark is necessary. An earlier mark can have
+failed, and the row can still be `pending`.
+
+A message with no idempotency key gets a stable SHA-256 digest of the body as its key. A
+redelivery of the identical message therefore hits the unique index, and the inbox holds one row.
 
 The relay never forwards a `dead` row. An operator can read the row, correct the transform, and
 replay the payload.
