@@ -10,7 +10,7 @@ Source of truth: `hardening-doc.md`. The document is immutable and authoritative
 | 2 | Durability and correctness | F-013 to F-033 | **complete** (commits `93afae4`..`8960a00`) |
 | 3 | Security hardening | F-034 to F-045 | **complete** (commits `fb1f01f`..`f3fc59d`) |
 | 4 | Observability and operations | F-046 to F-057 | **complete** (commits `b261c3c`..`e86b6d2`) |
-| 5 | Open source governance | F-058 to F-071 | not started. F-071 is already closed. |
+| 5 | Open source governance | F-058 to F-071 | in progress. F-058, F-059 to F-065, F-069, F-070, F-071 closed. F-066, F-067, F-068 remain. |
 | 6 | Documentation and polish | F-072 to F-085 | not started |
 
 ---
@@ -348,9 +348,51 @@ F-078, which belongs to Phase 6. The audit flagged it so it is not lost.
 
 ---
 
-## Next phase to start
+## Phase 5 — in progress
 
-**Phase 5 — Open source governance, F-058 to F-071.** Exit condition: LICENSE, CI, templates and
+Plan: `docs/build/phase-05-plan.md`. Commit `6445230` closes Task 1, Task 2 and Task 3.
+
+**Closed:** F-058 (Phase 1), F-059, F-060, F-061, F-062, F-063, F-064, F-065, F-069 (Phase 2),
+F-070, F-071 (Phase 2).
+
+**Remaining: Task 4 of the plan, which must run alone, because it rewrites many files.**
+
+- **F-066** ktlint, detekt, `.editorconfig`, and one dedicated format commit.
+- **F-067** every inline `group:artifact:version` moves into `gradle/libs.versions.toml`.
+- **F-068** dependency verification or locking, with the files committed, and proof that a
+  tampered dependency fails.
+
+`CONTRIBUTING.md` already documents `./gradlew ktlintCheck detekt`, and `.github/workflows/ci.yml`
+already runs it in the `lint` job. Both are false until F-066 lands. That is the next thing to do.
+
+### Phase 5 evidence so far
+
+```
+./gradlew clean build check --rerun-tasks
+BUILD SUCCESSFUL in 4m 9s
+
+git ls-files | grep -E '^\.(taskmaster|cursor|claude)/|^\.mcp\.json$'   -> nothing
+grep -rn "maven-publish" --include='*.gradle.kts' .                      -> nothing
+```
+
+### Phase 5 deviations recorded so far
+
+- **F-059, F-063.** No GitHub Actions run exists. The workflow files parse as valid YAML and
+  every action input was checked against its documented interface, but the GHCR push, the arm64
+  build, the provenance attestation, the release upload and the database matrix are unverified.
+  The badges cannot resolve until the workflows reach the default branch.
+- **F-061.** The Definition of Done asks for a clean-container walkthrough of `CONTRIBUTING.md`.
+  Every documented command was run on the development host instead. The container walkthrough is
+  still owed.
+- **F-061.** `CODE_OF_CONDUCT.md` carries the GitHub noreply commit address, which receives no
+  mail. The maintainer must replace it with a real inbox. `SECURITY.md` uses the GitHub private
+  advisory form, which does work.
+
+---
+
+## Next phase after Phase 5
+
+**Phase 6 — Documentation and polish, F-072 to F-085.** Exit condition: LICENSE, CI, templates and
 release process in place. A new contributor can go from clone to green build using only
 `CONTRIBUTING.md`.
 
