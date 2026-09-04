@@ -21,7 +21,14 @@ class ConfigSecretTest {
         "header-token-VALUE",
         "bearer-token-VALUE",
         "api-key-VALUE",
-        "hmac-secret-VALUE"
+        "hmac-secret-VALUE",
+        // These live in a String field that carries one credential part. The printed form of
+        // the enclosing object masks them. See F-038.
+        "url-password-VALUE",
+        "broker-password-VALUE",
+        "queue-password-VALUE",
+        "static-header-VALUE",
+        "static-apikey-VALUE"
     )
 
     @Test
@@ -83,6 +90,36 @@ class ConfigSecretTest {
         secretValues.forEach { value ->
             assertFalse(printed.contains(value), "An enclosing toString must not print '$value'")
         }
+    }
+
+    @Test
+    fun `a credential inside a URL or a static header does not print`() {
+        val config = ConfigLoader.load("secrets-config.yml")
+
+        // The value is still available to the code that connects.
+        assertTrue(config.database.url.contains("url-password-VALUE"))
+
+        val printed = config.toString()
+
+        assertFalse(printed.contains("url-password-VALUE"), "A JDBC URL password must not print")
+        assertFalse(printed.contains("broker-password-VALUE"), "An AMQP URI password must not print")
+        assertFalse(printed.contains("queue-password-VALUE"), "A source AMQP password must not print")
+        assertFalse(printed.contains("static-header-VALUE"), "A static Authorization header must not print")
+        assertFalse(printed.contains("static-apikey-VALUE"), "A static API key header must not print")
+
+        // A header that names no credential still prints, so the masking is not blanket.
+        assertTrue(printed.contains("keep-this"), "A header that is not a credential must print")
+    }
+
+    @Test
+    fun `the kotlinx serializer writes the mask, not the credential`() {
+        val json = kotlinx.serialization.json.Json.encodeToString(
+            SecretSerializer,
+            Secret("bearer-token-VALUE")
+        )
+
+        assertFalse(json.contains("bearer-token-VALUE"))
+        assertTrue(json.contains(Secret.MASK))
     }
 
     @Test

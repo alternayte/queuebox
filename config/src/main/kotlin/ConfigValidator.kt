@@ -143,8 +143,14 @@ object ConfigValidator {
         // Validate destination auth and destination URL
         config.destinations.forEach { (name, dest) ->
             if (dest is DestinationConfig.Http) {
-                validateDestinationAuth(dest.auth, "Destination '$name'", "destinations.$name.auth")
+                validateDestinationAuth(
+                    dest.auth,
+                    "Destination '$name'",
+                    "destinations.$name.auth",
+                    config.http.blockPrivateAddresses
+                )
                 validateDestinationUrl(name, dest.baseUrl, config.http.blockPrivateAddresses)
+                validateDestinationPath(name, dest.path)
             }
         }
 
@@ -344,6 +350,20 @@ object ConfigValidator {
                     }
                 }
                 is InboxAuthConfig.HmacSignature -> {
+                    require(it.timestampTolerance > 0) {
+                        "$context auth timestampTolerance must be greater than 0. " +
+                            "Set via '$yamlPath.timestampTolerance' in YAML or " +
+                            "${EnvConfigLoader.yamlPathToEnvKey("$yamlPath.timestampTolerance")} env var."
+                    }
+                    require(
+                        it.signaturePayloadFormat != SignaturePayloadFormat.TIMESTAMP_DOT_BODY ||
+                            it.timestampHeader != null
+                    ) {
+                        "$context auth signaturePayloadFormat is 'timestamp-dot-body', but " +
+                            "'$yamlPath.timestampHeader' is not set. Every request would then " +
+                            "fail with a missing timestamp header. Set the timestamp header, or " +
+                            "use the 'body' format."
+                    }
                     require(it.secret.isNotBlank()) {
                         "$context HMAC secret cannot be blank. " +
                             "Set via '$yamlPath.secret' in YAML or ${EnvConfigLoader.yamlPathToEnvKey("$yamlPath.secret")} env var."
@@ -364,10 +384,23 @@ object ConfigValidator {
     /**
      * Validates DestinationAuthConfig if present.
      */
-    private fun validateDestinationAuth(auth: DestinationAuthConfig?, context: String, yamlPath: String) {
+    private fun validateDestinationAuth(
+        auth: DestinationAuthConfig?,
+        context: String,
+        yamlPath: String,
+        blockPrivateAddresses: Boolean
+    ) {
         auth?.let {
             when (it) {
                 is DestinationAuthConfig.OAuth2 -> {
+                    // F-040: the token URL carries the client secret in the request body, so it
+                    // needs the same checks as a destination base URL.
+                    validateHttpUrl(
+                        it.tokenUrl,
+                        "$context tokenUrl",
+                        "$yamlPath.tokenUrl",
+                        blockPrivateAddresses
+                    )
                     require(it.clientId.isNotBlank()) {
                         "$context OAuth2 clientId cannot be blank. " +
                             "Set via '$yamlPath.clientId' in YAML or ${EnvConfigLoader.yamlPathToEnvKey("$yamlPath.clientId")} env var."
@@ -415,40 +448,74 @@ object ConfigValidator {
      * failure later.
      */
     private fun validateDestinationUrl(name: String, baseUrl: String, blockPrivateAddresses: Boolean) {
-        val yamlPath = "destinations.$name.baseUrl"
+        validateHttpUrl(baseUrl, "Destination '$name' baseUrl", "destinations.$name.baseUrl", blockPrivateAddresses)
+    }
+
+    /**
+     * Refuses a destination path that carries a dot segment. See F-040.
+     *
+     * A URL builder appends the segments as they are. A server or an intermediary then resolves
+     * `..`, which changes the target.
+     */
+    private fun validateDestinationPath(name: String, path: String) {
+        val yamlPath = "destinations.$name.path"
+        val segments = path.split('/')
+
+        require(segments.none { it == ".." || it == "." }) {
+            "Destination '$name' path '$path' must not carry a '.' or a '..' segment, because " +
+                "that changes the target after the server resolves it. " +
+                "Set via '$yamlPath' in YAML or ${EnvConfigLoader.yamlPathToEnvKey(yamlPath)} env var."
+        }
+    }
+
+    /**
+     * Validates one outbound URL. See F-040.
+     *
+     * The URL must be an absolute HTTP or HTTPS URL with a host. It must not carry a userinfo
+     * component, because that puts a credential into a field that prints in clear text.
+     */
+    private fun validateHttpUrl(
+        url: String,
+        label: String,
+        yamlPath: String,
+        blockPrivateAddresses: Boolean
+    ) {
         val hint = "Set via '$yamlPath' in YAML or ${EnvConfigLoader.yamlPathToEnvKey(yamlPath)} env var."
 
-        require(baseUrl.isNotBlank()) {
-            "Destination '$name' baseUrl cannot be blank. $hint"
+        require(url.isNotBlank()) {
+            "$label cannot be blank. $hint"
         }
 
         val uri = try {
-            URI(baseUrl.trim())
+            URI(url.trim())
         } catch (e: Exception) {
-            throw IllegalArgumentException(
-                "Destination '$name' baseUrl '$baseUrl' is not a valid URL. $hint"
-            )
+            throw IllegalArgumentException("$label '$url' is not a valid URL. $hint")
         }
 
         val scheme = uri.scheme?.lowercase()
         require(scheme == "http" || scheme == "https") {
-            "Destination '$name' baseUrl '$baseUrl' must be an absolute http or https URL. $hint"
+            "$label '$url' must be an absolute http or https URL. $hint"
         }
 
         val host = uri.host
         require(!host.isNullOrBlank()) {
-            "Destination '$name' baseUrl '$baseUrl' must carry a host. $hint"
+            "$label '$url' must carry a host. $hint"
+        }
+
+        require(uri.userInfo == null) {
+            "$label must not carry a user name or a password in the URL. A credential in a URL " +
+                "prints in clear text. Use the 'auth' block instead. $hint"
         }
 
         if (blockPrivateAddresses) {
-            requirePublicHost(name, baseUrl, host, hint)
+            requirePublicHost(label, url, host, hint)
         }
     }
 
     /**
      * Refuses a host that resolves to a private address.
      */
-    private fun requirePublicHost(name: String, baseUrl: String, host: String, hint: String) {
+    private fun requirePublicHost(label: String, url: String, host: String, hint: String) {
         val addresses = try {
             InetAddress.getAllByName(host.trim('[', ']')).toList()
         } catch (e: UnknownHostException) {
@@ -459,7 +526,7 @@ object ConfigValidator {
 
         addresses.forEach { address ->
             require(!isPrivateAddress(address)) {
-                "Destination '$name' baseUrl '$baseUrl' resolves to the private address " +
+                "$label '$url' resolves to the private address " +
                     "${address.hostAddress}, and 'http.blockPrivateAddresses' is true. $hint"
             }
         }

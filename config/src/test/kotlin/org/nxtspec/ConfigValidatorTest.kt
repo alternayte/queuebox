@@ -3,6 +3,7 @@ package org.nxtspec
 import kotlin.test.Test
 import kotlin.test.assertContains
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 
 class ConfigValidatorTest {
@@ -1473,7 +1474,7 @@ class ConfigValidatorTest {
         val exception = assertFailsWith<IllegalArgumentException> {
             ConfigValidator.validate(config)
         }
-        assertContains(exception.message!!, "OAuth2 tokenUrl cannot be blank")
+        assertContains(exception.message!!, "tokenUrl cannot be blank")
     }
 
     @Test
@@ -1893,5 +1894,145 @@ class ConfigValidatorTest {
                 )
             )
         )
+    }
+
+    // --- F-040: the outbound URL rules that the audit added ---
+
+    @Test
+    fun `should fail when destination baseUrl carries user information`() {
+        val config = createValidConfig().copy(
+            destinations = mapOf(
+                "webhook-api" to DestinationConfig.Http(
+                    baseUrl = "https://user:password@api.example.com",
+                    path = "/hook"
+                )
+            ),
+            routes = listOf(RouteConfig(topicPattern = "order.*", destination = "webhook-api"))
+        )
+
+        val exception = assertFailsWith<IllegalArgumentException> {
+            ConfigValidator.validate(config)
+        }
+
+        assertContains(exception.message!!, "must not carry a user name or a password")
+        assertFalse(exception.message!!.contains("password@"), "The message must not echo the credential")
+    }
+
+    @Test
+    fun `should fail when destination path carries a dot dot segment`() {
+        val config = createValidConfig().copy(
+            destinations = mapOf(
+                "webhook-api" to DestinationConfig.Http(
+                    baseUrl = "https://api.example.com/api/v1",
+                    path = "/../../internal"
+                )
+            ),
+            routes = listOf(RouteConfig(topicPattern = "order.*", destination = "webhook-api"))
+        )
+
+        val exception = assertFailsWith<IllegalArgumentException> {
+            ConfigValidator.validate(config)
+        }
+
+        assertContains(exception.message!!, "must not carry a '.' or a '..' segment")
+    }
+
+    @Test
+    fun `should fail when the oauth2 token url is not http`() {
+        val config = createValidConfig().copy(
+            destinations = mapOf(
+                "webhook-api" to DestinationConfig.Http(
+                    baseUrl = "https://api.example.com",
+                    path = "/hook",
+                    auth = DestinationAuthConfig.OAuth2(
+                        clientId = "client",
+                        clientSecret = Secret("secret"),
+                        tokenUrl = "file:///etc/passwd"
+                    )
+                )
+            ),
+            routes = listOf(RouteConfig(topicPattern = "order.*", destination = "webhook-api"))
+        )
+
+        val exception = assertFailsWith<IllegalArgumentException> {
+            ConfigValidator.validate(config)
+        }
+
+        assertContains(exception.message!!, "tokenUrl")
+    }
+
+    @Test
+    fun `should fail when the oauth2 token url resolves to a private address`() {
+        val config = createValidConfig().copy(
+            http = HttpConfig(blockPrivateAddresses = true),
+            destinations = mapOf(
+                "webhook-api" to DestinationConfig.Http(
+                    baseUrl = "https://example.com",
+                    path = "/hook",
+                    auth = DestinationAuthConfig.OAuth2(
+                        clientId = "client",
+                        clientSecret = Secret("secret"),
+                        tokenUrl = "http://169.254.169.254/token"
+                    )
+                )
+            ),
+            routes = listOf(RouteConfig(topicPattern = "order.*", destination = "webhook-api"))
+        )
+
+        val exception = assertFailsWith<IllegalArgumentException> {
+            ConfigValidator.validate(config)
+        }
+
+        assertContains(exception.message!!, "tokenUrl")
+        assertContains(exception.message!!, "169.254.169.254")
+    }
+
+    // --- F-035: an unreachable HMAC configuration must fail at startup ---
+
+    @Test
+    fun `should fail when the timestamp format has no timestamp header`() {
+        val config = createValidConfig().copy(
+            sources = mapOf(
+                "stripe" to SourceConfig.Http(
+                    path = "/stripe",
+                    idempotencyKeyPath = "$.id",
+                    eventTypePath = "$.type",
+                    auth = InboxAuthConfig.HmacSignature(
+                        secret = Secret("whsec"),
+                        signaturePayloadFormat = SignaturePayloadFormat.TIMESTAMP_DOT_BODY
+                    )
+                )
+            )
+        )
+
+        val exception = assertFailsWith<IllegalArgumentException> {
+            ConfigValidator.validate(config)
+        }
+
+        assertContains(exception.message!!, "timestampHeader")
+    }
+
+    @Test
+    fun `should fail when the timestamp tolerance is not positive`() {
+        val config = createValidConfig().copy(
+            sources = mapOf(
+                "stripe" to SourceConfig.Http(
+                    path = "/stripe",
+                    idempotencyKeyPath = "$.id",
+                    eventTypePath = "$.type",
+                    auth = InboxAuthConfig.HmacSignature(
+                        secret = Secret("whsec"),
+                        timestampHeader = "X-Timestamp",
+                        timestampTolerance = 0
+                    )
+                )
+            )
+        )
+
+        val exception = assertFailsWith<IllegalArgumentException> {
+            ConfigValidator.validate(config)
+        }
+
+        assertContains(exception.message!!, "timestampTolerance")
     }
 }

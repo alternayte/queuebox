@@ -87,8 +87,22 @@ that is not an absolute HTTP or HTTPS URL.
 
 Set `http.blockPrivateAddresses: true` when the destination configuration comes from a
 lower-trust layer. QueueBox then refuses a destination that resolves to a loopback address, a
-link-local address, or a private range. That closes the server-side request forgery path to a
-cloud metadata endpoint.
+link-local address, or a private range. The same check covers the OAuth2 `tokenUrl`, which
+carries the client secret in its request body.
+
+QueueBox never follows a redirect for a destination. A destination that answers with a 3xx fails
+the publish, and the retry or the dead-letter path runs. Without that rule a validated public
+destination could redirect QueueBox to a metadata address, with the destination authentication
+headers attached.
+
+QueueBox also refuses a destination URL that carries a user name or a password, and a destination
+path that carries a `.` or a `..` segment.
+
+**What the address check cannot do.** It runs once, at startup. The publisher resolves the host
+again on every request. A DNS name whose record changes to a private address after the start
+still passes. The check is therefore one layer, not a complete control. Where the destination
+configuration is genuinely untrusted, add an egress policy at the network, which is the only
+place that can enforce the rule at the time of the request.
 
 ## Secrets
 

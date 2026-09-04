@@ -42,10 +42,12 @@ jobs:
           if-no-files-found: error
 
       - name: Scan the dependencies
+        # The scan reads the bill of materials that the previous step built. A source scan finds
+        # no Java dependency, because the build uses a version catalog with no lock file.
         uses: aquasecurity/trivy-action@0.28.0
         with:
-          scan-type: rootfs
-          scan-ref: .
+          scan-type: sbom
+          scan-ref: build/reports/bom.json
           severity: HIGH,CRITICAL
           exit-code: "1"
           trivyignores: .trivyignore

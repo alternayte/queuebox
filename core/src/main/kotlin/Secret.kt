@@ -79,7 +79,15 @@ object SecretSerializer : KSerializer<Secret> {
 
     override fun deserialize(decoder: Decoder): Secret = Secret.of(decoder.decodeString())
 
+    /**
+     * Writes the mask, never the credential.
+     *
+     * The encode side exists so a class that holds a Secret stays serializable. A serialized
+     * form that carried the credential would defeat the whole type: one call to a JSON encoder
+     * anywhere would leak every secret. A serialized configuration is therefore not a
+     * round-trip form.
+     */
     override fun serialize(encoder: Encoder, value: Secret) {
-        encoder.encodeString(value.reveal())
+        encoder.encodeString(Secret.MASK)
     }
 }

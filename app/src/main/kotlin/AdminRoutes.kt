@@ -5,6 +5,7 @@ import io.ktor.server.application.*
 import io.ktor.server.request.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
+import io.ktor.utils.io.*
 import kotlinx.datetime.Clock
 import org.nxtspec.AdminConfig
 import org.nxtspec.app.dto.TransformContextDto
@@ -30,6 +31,10 @@ fun Application.configureAdminRoutes(
     // F-034: the admin endpoint is remote compute, so it stays absent until an operator enables it.
     if (!admin.enabled) return
 
+    // Defence in depth. App.kt calls the same guard before the server starts, so a second
+    // caller of this function cannot register the route without authentication.
+    requireAdminAuth(admin)
+
     routing {
         route("/admin") {
             /**
@@ -52,8 +57,11 @@ fun Application.configureAdminRoutes(
                     }
                 }
 
-                val declaredLength = call.request.contentLength()
-                if (declaredLength != null && declaredLength > admin.maxPayloadBytes) {
+                // F-034: read the body under a hard cap. A chunked request declares no length,
+                // so a check on Content-Length alone lets an arbitrarily large body reach the
+                // parser.
+                val rawBody = call.receiveCappedBody(admin.maxPayloadBytes.toLong())
+                if (rawBody == null) {
                     call.respond(
                         HttpStatusCode.PayloadTooLarge,
                         TransformTestResponse(
@@ -65,25 +73,13 @@ fun Application.configureAdminRoutes(
                 }
 
                 val request = try {
-                    call.receive<TransformTestRequest>()
+                    adminJson.decodeFromString<TransformTestRequest>(rawBody.decodeToString())
                 } catch (e: Exception) {
                     call.respond(
                         HttpStatusCode.BadRequest,
                         TransformTestResponse(
                             success = false,
                             error = "Invalid request: ${e.message}"
-                        )
-                    )
-                    return@post
-                }
-
-                val payloadBytes = request.payload.toString().toByteArray(Charsets.UTF_8).size
-                if (payloadBytes > admin.maxPayloadBytes) {
-                    call.respond(
-                        HttpStatusCode.PayloadTooLarge,
-                        TransformTestResponse(
-                            success = false,
-                            error = "Payload exceeds ${admin.maxPayloadBytes} bytes"
                         )
                     )
                     return@post
@@ -152,3 +148,43 @@ fun Application.configureAdminRoutes(
 }
 
 private const val DEFAULT_TRANSFORM_TIMEOUT_MS = 100L
+
+/**
+ * The JSON reader for the admin request. The route parses the capped bytes itself, so the body
+ * never reaches the content negotiation plugin unbounded. See F-034.
+ */
+private val adminJson = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }
+
+/**
+ * Reads the request body, but never keeps more than [maxBytes] bytes in memory.
+ *
+ * The function returns null when the body is larger than the cap. It rejects a declared
+ * Content-Length that is too large before it reads one byte, and it counts the bytes of a
+ * chunked body. See F-034.
+ */
+private suspend fun io.ktor.server.application.ApplicationCall.receiveCappedBody(
+    maxBytes: Long
+): ByteArray? {
+    val declaredLength = request.contentLength()
+    if (declaredLength != null && declaredLength > maxBytes) return null
+
+    val channel = receiveChannel()
+    val collected = java.io.ByteArrayOutputStream()
+    val chunk = ByteArray(8192)
+    var total = 0L
+
+    while (true) {
+        val read = channel.readAvailable(chunk, 0, chunk.size)
+        if (read == -1) break
+        if (read == 0) {
+            if (channel.isClosedForRead) break
+            kotlinx.coroutines.yield()
+            continue
+        }
+        total += read
+        if (total > maxBytes) return null
+        collected.write(chunk, 0, read)
+    }
+
+    return collected.toByteArray()
+}

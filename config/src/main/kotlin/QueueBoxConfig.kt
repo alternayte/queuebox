@@ -67,7 +67,16 @@ data class DatabaseConfig(
     val inboxTableName: String = "inbox",
     /** Run the bundled migrations at startup. See F-030. */
     val migrate: Boolean = true
-)
+) {
+    /**
+     * F-038: a JDBC URL can carry a password, so the printed form masks it.
+     */
+    override fun toString(): String =
+        "DatabaseConfig(type=$type, url=${CredentialMasking.maskUrl(url)}, username=$username, " +
+            "password=$password, poolSize=$poolSize, connectionTimeoutMs=$connectionTimeoutMs, " +
+            "columnMapping=$columnMapping, outboxTableName=$outboxTableName, " +
+            "inboxTableName=$inboxTableName, migrate=$migrate)"
+}
 
 /**
  * Configuration for custom column name mappings.
@@ -178,7 +187,16 @@ sealed class DestinationConfig {
         val headers: Map<String, String> = emptyMap(),
         override val transform: TransformConfig? = null,
         val auth: DestinationAuthConfig? = null
-    ) : DestinationConfig()
+    ) : DestinationConfig() {
+        /**
+         * F-038: a static header can carry a credential, and a base URL can carry user
+         * information, so the printed form masks both.
+         */
+        override fun toString(): String =
+            "Http(baseUrl=${CredentialMasking.maskUrl(baseUrl)}, path=$path, " +
+                "timeoutMs=$timeoutMs, headers=${CredentialMasking.maskHeaders(headers)}, " +
+                "transform=$transform, auth=$auth)"
+    }
 
     @Serializable
     @SerialName("rabbitmq")
@@ -188,7 +206,15 @@ sealed class DestinationConfig {
         val exchangeType: String = "topic",
         val headers: Map<String, String> = emptyMap(),
         override val transform: TransformConfig? = null
-    ) : DestinationConfig()
+    ) : DestinationConfig() {
+        /**
+         * F-038: an AMQP URI carries the broker password, so the printed form masks it.
+         */
+        override fun toString(): String =
+            "RabbitMQ(url=${CredentialMasking.maskUrl(url)}, exchange=$exchange, " +
+                "exchangeType=$exchangeType, headers=${CredentialMasking.maskHeaders(headers)}, " +
+                "transform=$transform)"
+    }
 }
 
 @Serializable
@@ -237,5 +263,15 @@ sealed class SourceConfig {
         override val transform: TransformConfig? = null,
         override val topic: String = "{{ eventType }}",
         override val rateLimit: RateLimitConfig? = null
-    ) : SourceConfig()
+    ) : SourceConfig() {
+        /**
+         * F-038: an AMQP URI carries the broker password, so the printed form masks it.
+         */
+        override fun toString(): String =
+            "RabbitMQ(queueName=$queueName, " +
+                "connectionUrl=${CredentialMasking.maskUrl(connectionUrl)}, " +
+                "idempotencyKeyPath=$idempotencyKeyPath, aggregateIdPath=$aggregateIdPath, " +
+                "prefetchCount=$prefetchCount, transform=$transform, topic=$topic, " +
+                "rateLimit=$rateLimit)"
+    }
 }

@@ -8,6 +8,8 @@ import io.ktor.client.request.*
 import io.ktor.client.statement.*
 import io.ktor.http.*
 import io.ktor.serialization.kotlinx.json.*
+import io.ktor.utils.io.*
+import io.ktor.utils.io.core.*
 import org.nxtspec.Destination
 import org.nxtspec.ErrorSanitizer
 import org.nxtspec.HttpConfig
@@ -40,6 +42,11 @@ class HttpPublisher(
                     connectTimeoutMillis = destination.timeoutMs / 2
                 }
                 expectSuccess = false // Don't throw on non-2xx
+                // F-040: never follow a redirect. A validated public destination that answers
+                // 302 with a private Location would otherwise reach a metadata address, with
+                // the destination authentication headers attached. A 3xx now fails the publish
+                // and the retry or dead-letter path runs.
+                followRedirects = false
             }
         }
     }
@@ -81,7 +88,10 @@ class HttpPublisher(
             if (response.status.isSuccess()) {
                 Result.success(Unit)
             } else {
-                val safeBody = boundAndRedact(response.bodyAsText())
+                // F-039: read at most maxErrorBodyBytes from the channel. bodyAsText reads the
+                // whole body into memory first, so a hostile destination could allocate
+                // megabytes per failing message.
+                val safeBody = boundAndRedact(readBoundedErrorBody(response))
                 val head = "HTTP ${response.status.value}: ${response.status.description}"
                 val text = if (safeBody.isNullOrBlank()) head else "$head - $safeBody"
                 Result.failure(
@@ -97,8 +107,25 @@ class HttpPublisher(
             Result.failure(HttpPublishException("Request timeout after ${httpDest.timeoutMs}ms", cause = e))
         } catch (e: Exception) {
             recordPublishDuration(startTime)
-            Result.failure(HttpPublishException("Publish failed: ${e.message}", cause = e))
+            // F-039: a client exception message can carry the request URL, which can carry a
+            // userinfo credential. The generic path is bounded and redacted as well.
+            val safeMessage = boundAndRedact("Publish failed: ${e.message}") ?: "Publish failed"
+            Result.failure(HttpPublishException(safeMessage, cause = e))
         }
+    }
+
+    /**
+     * Reads at most `http.maxErrorBodyBytes` bytes of the error body.
+     *
+     * The read stops at the limit, so the process never holds the whole body of a hostile or a
+     * broken destination. See F-039.
+     */
+    private suspend fun readBoundedErrorBody(response: io.ktor.client.statement.HttpResponse): String {
+        val limit = httpConfig.maxErrorBodyBytes.toLong()
+        val channel = response.bodyAsChannel()
+        val packet = channel.readRemaining(limit)
+        // The rest of the body is discarded. The connection closes with the response.
+        return packet.readText()
     }
 
     /**
