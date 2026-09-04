@@ -1,0 +1,53 @@
+# F-081: the webhook receiver example.
+#
+# A webhook arrives at the QueueBox inbox. QueueBox deduplicates it on the idempotency key,
+# writes it to the outbox, and delivers it to an HTTP destination. The destination here is a
+# small echo service, so the example needs no account anywhere.
+services:
+  queuebox:
+    build:
+      context: ../..
+    ports:
+      - "${QUEUEBOX_PORT:-18080}:8080"
+    volumes:
+      - ./queuebox.yml:/etc/queuebox/queuebox.yml:ro
+    environment:
+      - QUEUEBOX_DATABASE_URL=jdbc:postgresql://postgres:5432/queuebox
+      - QUEUEBOX_DATABASE_USERNAME=queuebox
+      - QUEUEBOX_DATABASE_PASSWORD=queuebox
+      - QUEUEBOX_CONFIG_FILE=/etc/queuebox/queuebox.yml
+    depends_on:
+      postgres:
+        condition: service_healthy
+      receiver:
+        condition: service_started
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: queuebox
+      POSTGRES_USER: queuebox
+      POSTGRES_PASSWORD: queuebox
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U queuebox"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  receiver:
+    # The destination of the example. It answers 200 to every request and prints the body, so
+    # the log shows the delivery. Node ships in the base image, so the example pulls nothing else.
+    image: node:22
+    command:
+      - node
+      - -e
+      - |
+        require("http").createServer((req, res) => {
+          let body = "";
+          req.on("data", (chunk) => { body += chunk; });
+          req.on("end", () => {
+            console.log("delivered " + req.method + " " + req.url + " " + body);
+            res.writeHead(200, { "Content-Type": "application/json" });
+            res.end("{\"received\":true}");
+          });
+        }).listen(8080, () => console.log("receiver listening on 8080"));

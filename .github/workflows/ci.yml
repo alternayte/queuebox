@@ -233,3 +233,21 @@ jobs:
       - name: Stop the stack
         if: always()
         run: docker compose -f docker-compose.yml down -v
+
+  examples:
+    name: Examples
+    runs-on: ubuntu-latest
+    # F-081: every example ships a smoke test, and the smoke test is the proof that the example
+    # works. An example that nobody runs rots.
+    strategy:
+      fail-fast: false
+      matrix:
+        example: [webhook-receiver, http-fanout, rabbitmq-bridge]
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run the smoke test
+        run: ./examples/${{ matrix.example }}/smoke-test.sh

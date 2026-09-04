@@ -102,7 +102,7 @@ class MetricsRoutesTest {
     }
 
     @Test
-    fun `the readme documents every metric that the scrape carries`() = testApplication {
+    fun `the metrics document names every metric that the scrape carries`() = testApplication {
         val registry = PrometheusMeterRegistry(PrometheusConfig.DEFAULT)
         val collector = MetricsCollector(registry)
         exerciseEveryMetric(collector)
@@ -112,7 +112,10 @@ class MetricsRoutesTest {
         }
 
         val body = client.get("/metrics").bodyAsText()
-        val readme = readmeText()
+        // F-072 moved the metric table out of the README. `MetricsDocTest` asserts both
+        // directions against a live scrape, but it needs a container. This test keeps the same
+        // guard on the fast path.
+        val document = metricsDocumentText()
 
         val emitted = body.lineSequence()
             .filter { it.startsWith("# TYPE ") }
@@ -121,16 +124,16 @@ class MetricsRoutesTest {
             .filter { it.startsWith("queuebox_") }
             .toSortedSet()
 
-        val undocumented = emitted.filterNot { readme.contains(it) }
-        assertTrue(undocumented.isEmpty(), "The README misses: $undocumented")
+        val undocumented = emitted.filterNot { document.contains(it) }
+        assertTrue(undocumented.isEmpty(), "docs/operations/metrics.md misses: $undocumented")
     }
 
-    private fun readmeText(): String {
+    private fun metricsDocumentText(): String {
         var dir = java.io.File(System.getProperty("user.dir")).absoluteFile
         while (true) {
-            val candidate = java.io.File(dir, "README.md")
+            val candidate = java.io.File(dir, "docs/operations/metrics.md")
             if (candidate.isFile) return candidate.readText()
-            dir = dir.parentFile ?: error("No README.md above the working directory.")
+            dir = dir.parentFile ?: error("No docs/operations/metrics.md above the working directory.")
         }
     }
 }

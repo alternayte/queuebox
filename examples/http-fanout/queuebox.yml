@@ -1,0 +1,49 @@
+# The HTTP fan-out example.
+#
+# A route matches ONE destination. `MessageRouter` takes the first route whose pattern matches the
+# topic, so two routes with the same pattern do not duplicate a message. Fan-out therefore means
+# one outbox row per destination. The producer writes one row per topic, and each row then carries
+# its own attempt count, its own retries and its own dead-letter state. A failure at one
+# destination never blocks the other.
+#
+# This example gives each destination its own topic prefix.
+
+server:
+  httpPort: 8080
+
+database:
+  poolSize: 5
+
+outbox:
+  pollIntervalMs: 200
+  batchSize: 50
+  maxAttempts: 5
+
+inbox:
+  basePath: /inbox
+
+destinations:
+  analytics:
+    type: http
+    baseUrl: http://analytics:8080
+    path: /events
+    timeoutMs: 5000
+
+  audit:
+    type: http
+    baseUrl: http://audit:8080
+    path: /events
+    timeoutMs: 5000
+
+routes:
+  - topicPattern: "analytics.**"
+    destination: analytics
+
+  - topicPattern: "audit.**"
+    destination: audit
+
+sources:
+  stripe:
+    path: /stripe
+    idempotencyKeyPath: $.id
+    eventTypePath: $.type

@@ -1,0 +1,35 @@
+# The webhook receiver example.
+#
+# One source accepts the webhook. One route sends every message to one HTTP destination.
+
+server:
+  httpPort: 8080
+
+database:
+  poolSize: 5
+
+outbox:
+  pollIntervalMs: 200
+  batchSize: 50
+  maxAttempts: 5
+
+inbox:
+  basePath: /inbox
+
+destinations:
+  echo:
+    type: http
+    baseUrl: http://receiver:8080
+    path: /webhook
+    timeoutMs: 5000
+
+routes:
+  # The inbox relay writes the event type of the source as the topic.
+  - topicPattern: "**"
+    destination: echo
+
+sources:
+  stripe:
+    path: /stripe
+    idempotencyKeyPath: $.id
+    eventTypePath: $.type

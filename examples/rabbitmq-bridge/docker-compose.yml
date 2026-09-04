@@ -1,0 +1,47 @@
+# F-081: the RabbitMQ bridge example.
+#
+# QueueBox accepts an HTTP webhook and publishes it to a RabbitMQ topic exchange. The outbox sits
+# between the two, so a broker outage delays a message but never loses one.
+services:
+  queuebox:
+    build:
+      context: ../..
+    ports:
+      - "${QUEUEBOX_PORT:-18082}:8080"
+    volumes:
+      - ./queuebox.yml:/etc/queuebox/queuebox.yml:ro
+    environment:
+      - QUEUEBOX_DATABASE_URL=jdbc:postgresql://postgres:5432/queuebox
+      - QUEUEBOX_DATABASE_USERNAME=queuebox
+      - QUEUEBOX_DATABASE_PASSWORD=queuebox
+      - QUEUEBOX_CONFIG_FILE=/etc/queuebox/queuebox.yml
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: queuebox
+      POSTGRES_USER: queuebox
+      POSTGRES_PASSWORD: queuebox
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U queuebox"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    volumes:
+      # The definitions declare the exchange, one queue and the binding, so the example needs no
+      # setup step and the smoke test can read the queue at once.
+      - ./definitions.json:/etc/rabbitmq/definitions.json:ro
+      - ./rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf:ro
+    healthcheck:
+      test: rabbitmq-diagnostics check_port_connectivity
+      interval: 10s
+      timeout: 10s
+      retries: 12

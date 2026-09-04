@@ -1,0 +1,39 @@
+# The RabbitMQ bridge example.
+#
+# A webhook arrives at the QueueBox inbox. QueueBox publishes it to a RabbitMQ topic exchange.
+# The routing key comes from the topic of the message, through the routing key template.
+#
+# This is the bridge pattern: an HTTP producer on one side, an AMQP consumer on the other, with
+# the QueueBox outbox in between so no message is lost when the broker is down.
+
+server:
+  httpPort: 8080
+
+database:
+  poolSize: 5
+
+outbox:
+  pollIntervalMs: 200
+  batchSize: 50
+  maxAttempts: 5
+
+inbox:
+  basePath: /inbox
+
+destinations:
+  events-exchange:
+    type: rabbitmq
+    url: amqp://guest:guest@rabbitmq:5672
+    exchange: queuebox-events
+    exchangeType: topic
+
+routes:
+  - topicPattern: "**"
+    destination: events-exchange
+    routingKeyTemplate: "{{ topic }}"
+
+sources:
+  stripe:
+    path: /stripe
+    idempotencyKeyPath: $.id
+    eventTypePath: $.type
