@@ -8,7 +8,7 @@ Source of truth: `hardening-doc.md`. The document is immutable and authoritative
 |-------|-------|----------|--------|
 | 1 | Truth in advertising | F-001 to F-012 | **complete** (commit `eeb1d00`) |
 | 2 | Durability and correctness | F-013 to F-033 | **complete** (commits `93afae4`..`8960a00`) |
-| 3 | Security hardening | F-034 to F-045 | not started |
+| 3 | Security hardening | F-034 to F-045 | **complete** (commits `fb1f01f`..`f3fc59d`) |
 | 4 | Observability and operations | F-046 to F-057 | not started |
 | 5 | Open source governance | F-058 to F-071 | not started. F-071 is already closed. |
 | 6 | Documentation and polish | F-072 to F-085 | not started |
@@ -195,13 +195,91 @@ The gates are now the values that decision 3 of section 2A requires: 80 percent 
 
 ---
 
+## Phase 3 — complete
+
+Plan: `docs/build/phase-03-plan.md`. Commits `fb1f01f`, `e821bdf`, `f3fc59d`.
+
+### Findings closed
+
+| ID | Fix | Evidence |
+|----|-----|----------|
+| F-034 | The admin endpoint is disabled by default, needs authentication, and clamps the timeout and the payload. | `AdminGuardTest`, `AdminRoutesTest` |
+| F-035 | An HMAC signature covers `timestamp + "." + body` when a timestamp header is configured. | `InboxAuthValidatorTest` |
+| F-036 | The Authorization header is parsed into scheme and credentials, with a case-insensitive scheme. | `InboxAuthValidatorTest` |
+| F-037 | `secureCompare` calls `MessageDigest.isEqual` over SHA-256 digests. | `InboxAuthValidatorTest` |
+| F-038 | A `Secret` value class carries every credential. The enclosing classes mask the credential parts of a URL and of a static header. | `SecretTest`, `ConfigSecretTest` |
+| F-039 | A failed publish reads at most `http.maxErrorBodyBytes` from the channel, then redacts. | `HttpPublisherTest` |
+| F-040 | Every outbound URL is validated. No redirect is followed. The path cannot carry a dot segment. | `ConfigValidatorTest`, `HttpPublisherTest` |
+| F-041 | `docs/operations/security.md` holds a Transport security section with two working examples. | file |
+| F-042 | The toolchain and both images target Java 21 LTS. | `docker run --entrypoint java` reports `21.0.12 LTS` |
+| F-043 | CycloneDX builds the bill of materials. The `security` workflow scans it. Dependabot covers Gradle, Actions, and Docker. | `build/reports/queuebox-0.1.0-SNAPSHOT-sbom.json`, 194 components |
+| F-044 | Both base images are pinned by digest. The workflow scans the built image. | `Dockerfile`, `.github/workflows/security.yml` |
+| F-045 | A credential field accepts a `file:` reference. The Kubernetes pattern is documented. | `ConfigSecretTest` |
+
+### Exit condition evidence
+
+Command: `./gradlew clean build check`
+
+```
+BUILD SUCCESSFUL in 3m 15s
+```
+
+Aggregate coverage: line 0.8788, branch 0.7639. Both gates hold.
+
+```
+docker build -t queuebox:phase3 .
+docker run --rm --entrypoint java queuebox:phase3 -version
+openjdk version "21.0.12" 2026-07-21 LTS
+```
+
+```
+./gradlew sbom --no-configuration-cache
+build/reports/queuebox-0.1.0-SNAPSHOT-sbom.json
+```
+
+### Decisions recorded during Phase 3
+
+1. **The `Secret` type lives in `core`.** `config` depends on `core`, and every consumer of the
+   configuration also depends on `core`, so the type is reachable everywhere it is needed.
+2. **The kotlinx serializer writes the mask.** A serialized configuration is therefore not a
+   round-trip form. A serializer that wrote the credential would defeat the type, because one
+   call to a JSON encoder anywhere would leak every secret.
+3. **Some credential parts cannot become a `Secret`.** A JDBC URL, an AMQP URI, and a static
+   header map each carry one credential part inside a larger value. The enclosing data classes
+   override `toString` and mask those parts, which is what the F-038 fix text asks for.
+4. **The publisher follows no redirect.** A 3xx now fails the publish. Without that rule a
+   validated public destination could redirect QueueBox to a private address with the
+   destination authentication headers attached.
+5. **CycloneDX and the configuration cache.** The plugin does not support the Gradle
+   configuration cache, so the `sbom` task and the CI step both pass
+   `--no-configuration-cache`.
+
+### Deviations from the Definition of Done
+
+- **F-043 and F-044.** The workflow files exist and parse as valid YAML, and every local step was
+  run by hand. No CI run proves them green, because that needs a push to GitHub. Phase 5 owns
+  the CI findings and will confirm the first run.
+- **F-043.** The bill of materials is a workflow artifact. The Definition of Done says a release
+  produces `queuebox-<version>-sbom.json`. The name is correct, but no release workflow exists
+  yet. F-064 in Phase 5 owns the release process and must attach the file.
+
+### Findings from the audit that were not acted on
+
+- **The startup address check is a time-of-check to time-of-use control.** It resolves the host
+  once. The publisher resolves it again per request. A complete control belongs at the network
+  egress. `docs/operations/security.md` states the limit plainly.
+- **`Secret.of` reads a file with no size bound.** The path is operator configuration that is
+  read once at startup, so a hostile value implies the operator is already hostile.
+
+---
+
 ## Next phase to start
 
-**Phase 3 — Security hardening, F-034 to F-045.** Exit condition: all security findings closed,
-`/admin` is authenticated, request size limits enforced, secrets never printed.
+**Phase 4 — Observability and operations, F-046 to F-057.** Exit condition: structured logging
+replaces every `println`, graceful shutdown proven by test, runbook published.
 
-`docs/build/phase-03-plan.md` does not exist yet.
+`docs/build/phase-04-plan.md` does not exist yet.
 
 ## Open questions for the maintainer
 
-None. No question blocks Phase 3.
+None. No question blocks Phase 4.
