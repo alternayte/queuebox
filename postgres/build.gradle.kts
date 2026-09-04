@@ -10,6 +10,9 @@ repositories {
 }
 
 dependencies {
+    // Logging facade. The app module supplies the binding.
+    implementation(libs.slf4j.api)
+
     implementation(project(":core"))
     implementation(project(":config"))
 

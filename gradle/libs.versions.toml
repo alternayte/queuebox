@@ -13,6 +13,9 @@ micrometer = "1.14.3"
 jsonata = "0.9.8"
 flyway = "11.1.0"
 cyclonedx = "1.10.0"
+slf4j = "2.0.16"
+logback = "1.5.12"
+logstashEncoder = "8.0"
 
 # Testing
 testcontainers = "1.20.4"
@@ -46,6 +49,11 @@ micrometer-prometheus = { group = "io.micrometer", name = "micrometer-registry-p
 
 # JSONata
 jsonata = { group = "com.dashjoin", name = "jsonata", version.ref = "jsonata" }
+
+# Logging
+slf4j-api = { group = "org.slf4j", name = "slf4j-api", version.ref = "slf4j" }
+logback-classic = { group = "ch.qos.logback", name = "logback-classic", version.ref = "logback" }
+logstash-encoder = { group = "net.logstash.logback", name = "logstash-logback-encoder", version.ref = "logstashEncoder" }
 
 # Flyway
 flyway-core = { group = "org.flywaydb", name = "flyway-core", version.ref = "flyway" }

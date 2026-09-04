@@ -10,6 +10,9 @@ repositories {
 }
 
 dependencies {
+    // Logging facade. The app module supplies the binding.
+    implementation(libs.slf4j.api)
+
     // Flyway migrations
     implementation(libs.flyway.core)
     implementation(libs.flyway.sqlserver)

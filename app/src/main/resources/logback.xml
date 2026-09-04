@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  F-046: the QueueBox log configuration.
+
+  LOG_FORMAT selects the encoder, and its value is the appender name. "json" writes one JSON
+  object per line, which a log aggregator indexes. "text" writes the human readable form. The
+  default is "text".
+
+  LOG_LEVEL sets the level of the org.nxtspec logger. The default is INFO.
+-->
+<configuration>
+
+    <property name="LOG_FORMAT" value="${LOG_FORMAT:-text}"/>
+    <property name="LOG_LEVEL" value="${LOG_LEVEL:-INFO}"/>
+
+    <appender name="text" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <!-- The mapped diagnostic context carries messageId, topic, destination, attempt,
+                 source and correlationId. -->
+            <pattern>%d{yyyy-MM-dd'T'HH:mm:ss.SSSXXX} %-5level [%thread] %logger{36} %mdc - %msg%n</pattern>
+        </encoder>
+    </appender>
+
+    <appender name="json" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder class="net.logstash.logback.encoder.LogstashEncoder">
+            <includeMdcKeyName>messageId</includeMdcKeyName>
+            <includeMdcKeyName>topic</includeMdcKeyName>
+            <includeMdcKeyName>destination</includeMdcKeyName>
+            <includeMdcKeyName>attempt</includeMdcKeyName>
+            <includeMdcKeyName>source</includeMdcKeyName>
+            <includeMdcKeyName>correlationId</includeMdcKeyName>
+            <customFields>{"service":"queuebox"}</customFields>
+        </encoder>
+    </appender>
+
+    <logger name="org.nxtspec" level="${LOG_LEVEL}"/>
+
+    <!-- The broker client, the HTTP engine and the pool are noisy at INFO. -->
+    <logger name="com.rabbitmq" level="WARN"/>
+    <logger name="io.netty" level="WARN"/>
+    <logger name="com.zaxxer.hikari" level="WARN"/>
+    <logger name="org.flywaydb" level="INFO"/>
+
+    <root level="INFO">
+        <!-- The property value is the appender name, so no conditional element is needed and
+             the configuration does not depend on Janino. -->
+        <appender-ref ref="${LOG_FORMAT}"/>
+    </root>
+
+</configuration>

@@ -3,6 +3,9 @@ package org.nxtspec
 import kotlinx.coroutines.*
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
+import org.nxtspec.logging.LogKeys
+import org.nxtspec.logging.logger
+import org.nxtspec.logging.withLogContext
 import org.nxtspec.metrics.MetricsCollectorInterface
 import org.nxtspec.repository.OutboxRepositoryInterface
 import org.nxtspec.transform.TransformContext
@@ -20,6 +23,7 @@ class OutboxPoller(
     private val metricsCollector: MetricsCollectorInterface? = null,
     private val transformPipeline: TransformPipeline? = null
 ) {
+    private val log = logger<OutboxPoller>()
     private val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
     private val running = AtomicBoolean(true)
 
@@ -42,7 +46,7 @@ class OutboxPoller(
                     throw e
                 } catch (e: Exception) {
                     // Log error but continue polling
-                    println("Polling error: ${e.message}")
+                    log.error("The poll cycle failed. The next cycle retries.", e)
                 }
                 delay(config.pollIntervalMs)
             }
@@ -92,11 +96,18 @@ class OutboxPoller(
     private suspend fun processMessageSafely(message: OutboxMessage) {
         inFlight.incrementAndGet()
         try {
-            processMessage(message)
+            withLogContext(
+                LogKeys.MESSAGE_ID to message.id,
+                LogKeys.TOPIC to message.topic,
+                LogKeys.ATTEMPT to message.attempt
+            ) {
+                processMessage(message)
+            }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
             metricsCollector?.recordProcessError()
+            log.error("Processing message {} failed. The retry strategy applies.", message.id, e)
             runCatching { handlePublishFailure(message, e) }
         } finally {
             inFlight.decrementAndGet()
@@ -205,9 +216,22 @@ class OutboxPoller(
         val lastError = ErrorSanitizer.sanitize(error)
         if (retryStrategy.shouldRetry(message.attempt, message.maxAttempts)) {
             val delay = retryStrategy.calculateDelay(message.attempt)
+            log.warn(
+                "Publishing message {} failed on attempt {}. The retry runs in {} ms. Reason: {}",
+                message.id,
+                message.attempt,
+                delay,
+                lastError
+            )
             repository.scheduleRetry(message.id, delay, lastError)
             metricsCollector?.recordMessageFailed()
         } else {
+            log.error(
+                "Message {} reached {} attempts and is now dead. Reason: {}",
+                message.id,
+                message.maxAttempts,
+                lastError
+            )
             repository.markDead(message.id, lastError)
             metricsCollector?.recordMessageDead()
         }
@@ -230,9 +254,11 @@ class OutboxPoller(
         }
         if (finished == null) {
             val abandoned = inFlight.get()
-            println(
-                "Shutdown timeout of ${config.shutdownTimeoutMs}ms elapsed. " +
-                    "Abandoned $abandoned in-flight message(s). The reclaim step recovers them."
+            log.warn(
+                "The shutdown timeout of {} ms elapsed. QueueBox abandoned {} in-flight " +
+                    "message(s). The reclaim step recovers them.",
+                config.shutdownTimeoutMs,
+                abandoned
             )
         }
         scope.cancel()

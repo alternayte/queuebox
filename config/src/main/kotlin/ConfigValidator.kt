@@ -72,6 +72,20 @@ object ConfigValidator {
             "Outbox shutdown timeout must be greater than 0. " +
                 "Set via 'outbox.shutdownTimeoutMs' in YAML or ${EnvConfigLoader.yamlPathToEnvKey("outbox.shutdownTimeoutMs")} env var."
         }
+        config.server.managementPort?.let { port ->
+            require(port in 1..65535) {
+                "Invalid management port: $port. Must be between 1 and 65535. " +
+                    "Set via 'server.managementPort' in YAML or ${EnvConfigLoader.yamlPathToEnvKey("server.managementPort")} env var."
+            }
+            require(port != config.server.httpPort) {
+                "The management port must differ from the HTTP port. Both are $port. " +
+                    "Set via 'server.managementPort' in YAML or ${EnvConfigLoader.yamlPathToEnvKey("server.managementPort")} env var."
+            }
+        }
+        require(config.database.startupTimeoutMs > 0) {
+            "Database startup timeout must be greater than 0. " +
+                "Set via 'database.startupTimeoutMs' in YAML or ${EnvConfigLoader.yamlPathToEnvKey("database.startupTimeoutMs")} env var."
+        }
         require(config.admin.maxTransformTimeoutMs > 0) {
             "Admin max transform timeout must be greater than 0. " +
                 "Set via 'admin.maxTransformTimeoutMs' in YAML or ${EnvConfigLoader.yamlPathToEnvKey("admin.maxTransformTimeoutMs")} env var."

@@ -10,6 +10,9 @@ import kotlinx.coroutines.job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.supervisorScope
 import kotlinx.datetime.Clock
+import org.nxtspec.logging.LogKeys
+import org.nxtspec.logging.logger
+import org.nxtspec.logging.withLogContext
 import org.nxtspec.metrics.MetricsCollectorInterface
 import org.nxtspec.repository.InboxRepositoryInterface
 import org.nxtspec.repository.OutboxRepositoryInterface
@@ -44,6 +47,7 @@ class InboxRelay(
     private val sourceTopicTemplates: Map<String, String> = emptyMap(),
     private val metricsCollector: MetricsCollectorInterface? = null
 ) {
+    private val log = logger<InboxRelay>()
     private val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
     private val running = AtomicBoolean(false)
 
@@ -63,7 +67,7 @@ class InboxRelay(
                     throw e
                 } catch (e: Exception) {
                     metricsCollector?.recordInboxRelayError()
-                    println("Inbox relay error: ${e.message}")
+                    log.error("The inbox relay cycle failed. The next cycle retries.", e)
                 }
                 delay(config.pollIntervalMs)
             }
@@ -88,7 +92,13 @@ class InboxRelay(
         var forwarded = 0
 
         messages.forEach { message ->
-            if (forward(message)) forwarded++
+            val moved = withLogContext(
+                LogKeys.MESSAGE_ID to message.id,
+                LogKeys.SOURCE to message.source
+            ) {
+                forward(message)
+            }
+            if (moved) forwarded++
         }
 
         return forwarded
@@ -106,6 +116,13 @@ class InboxRelay(
 
         if (topic.isBlank()) {
             // The template rendered empty, so the message has no destination topic.
+            log.error(
+                "The topic template of source '{}' rendered empty for message {}. The message " +
+                    "is dead. Set 'sources.{}.topic', or set the event type path.",
+                message.source,
+                message.id,
+                message.source
+            )
             inboxRepository.markDead(message.id)
             metricsCollector?.recordInboxRelayError()
             return false
@@ -130,6 +147,13 @@ class InboxRelay(
             onFailure = { error ->
                 if (error is CancellationException) throw error
                 // The row stays in state 'processing'. The reclaim step returns it to 'pending'.
+                log.error(
+                    "Forwarding inbox message {} of source '{}' failed. The reclaim step " +
+                        "returns the row to pending.",
+                    message.id,
+                    message.source,
+                    error
+                )
                 metricsCollector?.recordInboxRelayError()
                 false
             }

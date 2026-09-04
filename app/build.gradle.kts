@@ -11,6 +11,11 @@ plugins {
 }
 
 dependencies {
+    // Logging facade and the binding that the application ships.
+    implementation(libs.slf4j.api)
+    runtimeOnly(libs.logback.classic)
+    runtimeOnly(libs.logstash.encoder)
+
     implementation(project(":core"))
     implementation(project(":config"))
     implementation(project(":postgres"))
@@ -30,6 +35,7 @@ dependencies {
 
     // Testing (E2E)
     testImplementation(libs.kotlin.test)
+    testImplementation(libs.logback.classic)
     testImplementation(libs.mockk)
     testImplementation(libs.kotlinx.coroutines.test)
     testImplementation(libs.ktor.server.test.host)

@@ -51,7 +51,12 @@ data class HttpConfig(
 
 @Serializable
 data class ServerConfig(
-    val httpPort: Int = 8080
+    val httpPort: Int = 8080,
+    /**
+     * Optional port for the operational endpoints. When it is set, `/metrics`, `/health` and
+     * `/admin` move to that port, and the data port carries the inbox only. See F-051.
+     */
+    val managementPort: Int? = null
 )
 
 @Serializable
@@ -66,7 +71,12 @@ data class DatabaseConfig(
     val outboxTableName: String = "outbox",
     val inboxTableName: String = "inbox",
     /** Run the bundled migrations at startup. See F-030. */
-    val migrate: Boolean = true
+    val migrate: Boolean = true,
+    /**
+     * How long the start waits for the database. The start retries with backoff, so an
+     * orchestrator does not see a crash loop while the database comes up. See F-056.
+     */
+    val startupTimeoutMs: Long = 60000
 ) {
     /**
      * F-038: a JDBC URL can carry a password, so the printed form masks it.
@@ -75,7 +85,8 @@ data class DatabaseConfig(
         "DatabaseConfig(type=$type, url=${CredentialMasking.maskUrl(url)}, username=$username, " +
             "password=$password, poolSize=$poolSize, connectionTimeoutMs=$connectionTimeoutMs, " +
             "columnMapping=$columnMapping, outboxTableName=$outboxTableName, " +
-            "inboxTableName=$inboxTableName, migrate=$migrate)"
+            "inboxTableName=$inboxTableName, migrate=$migrate, " +
+            "startupTimeoutMs=$startupTimeoutMs)"
 }
 
 /**

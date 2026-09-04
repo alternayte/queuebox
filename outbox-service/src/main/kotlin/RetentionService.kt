@@ -2,6 +2,7 @@ package org.nxtspec
 
 import kotlinx.coroutines.*
 import kotlinx.datetime.Clock
+import org.nxtspec.logging.logger
 import org.nxtspec.metrics.MetricsCollectorInterface
 import org.nxtspec.repository.InboxRepositoryInterface
 import org.nxtspec.repository.OutboxRepositoryInterface
@@ -19,6 +20,7 @@ class RetentionService(
     private val inboxRepository: InboxRepositoryInterface,
     private val metricsCollector: MetricsCollectorInterface? = null
 ) {
+    private val log = logger<RetentionService>()
     private val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
     private val running = AtomicBoolean(false)
 
@@ -52,7 +54,7 @@ class RetentionService(
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: Exception) {
-                    println("Cleanup error for $table: ${e.message}")
+                    log.error("The retention cleanup of the {} table failed.", table, e)
                 }
                 interruptibleDelay(interval.inWholeMilliseconds)
             }
@@ -105,7 +107,10 @@ class RetentionService(
             }
             RetentionPolicy.COUNT -> {
                 // Inbox only supports age-based retention
-                println("Warning: COUNT retention policy not supported for inbox, skipping")
+                log.warn(
+                    "The inbox does not support the count retention policy. The cleanup is " +
+                        "skipped. Use the age policy for the inbox."
+                )
                 0
             }
             RetentionPolicy.DISABLED -> 0

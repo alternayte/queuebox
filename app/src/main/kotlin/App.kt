@@ -15,6 +15,7 @@ import org.nxtspec.*
 import org.nxtspec.auth.DestinationAuthResolver
 import org.nxtspec.auth.OAuth2TokenManager
 import org.nxtspec.http.HttpPublisher
+import org.nxtspec.logging.logger
 import org.nxtspec.repository.ColumnMappingData
 import org.nxtspec.repository.DatabaseProviderFactory
 import org.nxtspec.repository.DatabaseType
@@ -24,6 +25,8 @@ import org.nxtspec.auth.InboxAuthValidator
 import org.nxtspec.transform.InboxTransformPipeline
 import org.nxtspec.transform.TransformEngine
 import org.nxtspec.transform.TransformPipeline
+
+private val log = logger("org.nxtspec.app.QueueBox")
 
 fun main() {
     // Load configuration
@@ -75,7 +78,7 @@ fun main() {
     if (config.database.migrate) {
         requireDefaultSchemaForMigrations(config.database)
         val applied = repositoryFactory.createMigrator().migrate(dataSource)
-        println("Applied $applied migration(s)")
+        log.info("Applied {} migration(s).", applied)
     }
 
     val outboxRepository = repositoryFactory.createOutboxRepository()
@@ -244,7 +247,10 @@ fun main() {
             requestDrain.startDraining()
             val drained = requestDrain.await(SHUTDOWN_GRACE_PERIOD_MS)
             if (!drained) {
-                println("Shutdown drain timeout. ${requestDrain.count()} request(s) still in flight.")
+                log.warn(
+                    "The shutdown drain timed out. {} request(s) are still in flight.",
+                    requestDrain.count()
+                )
             }
             server.stop(
                 gracePeriodMillis = SHUTDOWN_GRACE_PERIOD_MS,

@@ -14,6 +14,9 @@ import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.datetime.Clock
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import org.nxtspec.logging.LogKeys
+import org.nxtspec.logging.logger
+import org.nxtspec.logging.withLogContext
 import org.nxtspec.metrics.MetricsCollectorInterface
 import org.nxtspec.transform.InboxTransformContext
 import org.nxtspec.transform.InboxTransformPipeline
@@ -45,6 +48,7 @@ class RabbitConsumer(
     private val transformPipeline: InboxTransformPipeline? = null,
     private val sourceTransform: TransformConfig? = null
 ) {
+    private val log = logger<RabbitConsumer>()
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
     // F-018: an AMQP channel is not thread safe. One actor coroutine owns the channel and
@@ -91,7 +95,9 @@ class RabbitConsumer(
                 body: ByteArray
             ) {
                 scope.launch {
-                    processMessage(envelope, properties, body)
+                    withLogContext(LogKeys.SOURCE to config.sourceName) {
+                        processMessage(envelope, properties, body)
+                    }
                 }
             }
         }
@@ -107,7 +113,7 @@ class RabbitConsumer(
                     openChannel.basicNack(command.deliveryTag, false, command.requeue)
             }
         } catch (e: Exception) {
-            println("Failed to acknowledge delivery ${command.deliveryTag}: ${e.message}")
+            log.error("Acknowledging delivery {} failed.", command.deliveryTag, e)
         }
     }
 
@@ -129,20 +135,22 @@ class RabbitConsumer(
     private suspend fun send(command: AckCommand, deliveryTag: Long) {
         val commands = ackCommands
         if (commands == null) {
-            println(
-                "Dropped the acknowledgement of delivery $deliveryTag, because the consumer " +
-                    "stopped. The broker redelivers the message, and the inbox deduplicates it."
-            )
+            logDroppedAcknowledgement(deliveryTag)
             return
         }
         try {
             commands.send(command)
         } catch (e: kotlinx.coroutines.channels.ClosedSendChannelException) {
-            println(
-                "Dropped the acknowledgement of delivery $deliveryTag, because the consumer " +
-                    "stopped. The broker redelivers the message, and the inbox deduplicates it."
-            )
+            logDroppedAcknowledgement(deliveryTag)
         }
+    }
+
+    private fun logDroppedAcknowledgement(deliveryTag: Long) {
+        log.warn(
+            "QueueBox dropped the acknowledgement of delivery {}, because the consumer stopped. " +
+                "The broker redelivers the message, and the inbox deduplicates it.",
+            deliveryTag
+        )
     }
 
     private suspend fun processMessage(
@@ -180,7 +188,12 @@ class RabbitConsumer(
                     is InboxTransformResult.Success -> result.payload
                     is InboxTransformResult.Rejected -> {
                         // NACK without requeue for transform rejection
-                        println("Transform rejected message ${envelope.deliveryTag}: ${result.reason}")
+                                    log.warn(
+                            "The transform rejected delivery {}. The message is not requeued. " +
+                                "Reason: {}",
+                            envelope.deliveryTag,
+                            result.reason
+                        )
                         sendNack(envelope.deliveryTag, false)
                         return
                     }
@@ -209,12 +222,16 @@ class RabbitConsumer(
                 }
                 is InboxResult.Error -> {
                     // Nack and requeue on storage failure
-                    println("Storage error for message ${envelope.deliveryTag}: ${result.message}")
+                    log.error(
+                        "Storing delivery {} failed. The message is requeued. Reason: {}",
+                        envelope.deliveryTag,
+                        result.message
+                    )
                     sendNack(envelope.deliveryTag, true)
                 }
             }
         } catch (e: Exception) {
-            println("Failed to process message ${envelope.deliveryTag}: ${e.message}")
+            log.error("Processing delivery {} failed. The message is requeued.", envelope.deliveryTag, e)
             sendNack(envelope.deliveryTag, true)
         }
     }
@@ -271,7 +288,7 @@ class RabbitConsumer(
             try {
                 openChannel?.basicCancel(tag)
             } catch (e: Exception) {
-                println("Failed to cancel consumer $tag: ${e.message}")
+                log.warn("Cancelling the consumer tag {} failed.", tag, e)
             }
         }
         consumerTag = null
@@ -296,7 +313,7 @@ class RabbitConsumer(
         try {
             openChannel?.close()
         } catch (e: Exception) {
-            println("Failed to close the channel: ${e.message}")
+            log.warn("Closing the AMQP channel failed.", e)
         }
         channel = null
     }

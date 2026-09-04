@@ -9,11 +9,15 @@ package org.nxtspec.app
  * A failure in one step does not stop the remaining steps, because a half-closed process holds
  * a database connection and a broker connection.
  */
+private val shutdownLogger = org.nxtspec.logging.logger("org.nxtspec.app.ShutdownSequence")
+
+private val defaultLog: (String) -> Unit = { shutdownLogger.info(it) }
+
 class ShutdownSequence(
     private val stopServer: suspend () -> Unit,
     private val stopBackgroundServices: suspend () -> Unit,
     private val closeResources: suspend () -> Unit,
-    private val log: (String) -> Unit = ::println
+    private val log: (String) -> Unit = defaultLog
 ) {
     suspend fun run() {
         log("Shutting down QueueBox...")
