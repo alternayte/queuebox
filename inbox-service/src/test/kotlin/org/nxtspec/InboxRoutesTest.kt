@@ -14,6 +14,7 @@ import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.mockk
 import kotlinx.serialization.json.Json
+import org.nxtspec.transform.InboxTransformPipeline
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -45,7 +46,10 @@ class InboxRoutesTest {
 
                         when (val result = handler.handle(sourceName, httpConfig, payload)) {
                             is InboxHandlerResult.Accepted ->
-                                call.respond(HttpStatusCode.OK, mapOf("messageId" to result.messageId.toString()))
+                                call.respond(
+                                    HttpStatusCode.Accepted,
+                                    mapOf("messageId" to result.messageId.toString())
+                                )
 
                             is InboxHandlerResult.Duplicate ->
                                 call.respond(HttpStatusCode.OK, mapOf("status" to "duplicate"))
@@ -70,7 +74,7 @@ class InboxRoutesTest {
     }
 
     @Test
-    fun `should return 200 when valid webhook received and stored`() = testApplication {
+    fun `should return 202 when valid webhook received and stored`() = testApplication {
         val mockRepository = mockk<InboxRepository>()
         val extractor = IdempotencyExtractor()
         val handler = InboxHandler(mockRepository, extractor)
@@ -84,7 +88,7 @@ class InboxRoutesTest {
             setBody("""{"id": "evt_123", "type": "payment.success"}""")
         }
 
-        assertEquals(HttpStatusCode.OK, response.status)
+        assertEquals(HttpStatusCode.Accepted, response.status)
         val body = response.bodyAsText()
         assertTrue(body.contains("messageId"))
     }
@@ -272,14 +276,14 @@ class InboxRoutesTest {
             contentType(ContentType.Application.Json)
             setBody("""{"id": "evt_stripe_123"}""")
         }
-        assertEquals(HttpStatusCode.OK, stripeResponse.status)
+        assertEquals(HttpStatusCode.Accepted, stripeResponse.status)
 
         // Test GitHub source
         val githubResponse = client.post("/inbox/github") {
             contentType(ContentType.Application.Json)
             setBody("""{"delivery": "gh_delivery_456"}""")
         }
-        assertEquals(HttpStatusCode.OK, githubResponse.status)
+        assertEquals(HttpStatusCode.Accepted, githubResponse.status)
 
         coVerify { mockRepository.store(match { it.source == "stripe" && it.idempotencyKey == "evt_stripe_123" }) }
         coVerify { mockRepository.store(match { it.source == "github" && it.idempotencyKey == "gh_delivery_456" }) }
@@ -305,7 +309,7 @@ class InboxRoutesTest {
             setBody("""{"id": "evt_123"}""")
         }
 
-        assertEquals(HttpStatusCode.OK, response.status)
+        assertEquals(HttpStatusCode.Accepted, response.status)
     }
 
     @Test
@@ -387,7 +391,7 @@ class InboxRoutesTest {
     }
 
     @Test
-    fun `should return 200 when body is exactly at the limit`() = testApplication {
+    fun `should return 202 when body is exactly at the limit`() = testApplication {
         val mockRepository = mockk<InboxRepository>(relaxed = true)
         val extractor = IdempotencyExtractor()
         val handler = InboxHandler(mockRepository, extractor)
@@ -412,7 +416,7 @@ class InboxRoutesTest {
             setBody(body)
         }
 
-        assertEquals(HttpStatusCode.OK, response.status)
+        assertEquals(HttpStatusCode.Accepted, response.status)
     }
 
     @Test
@@ -441,7 +445,7 @@ class InboxRoutesTest {
                 contentType(ContentType.Application.Json)
                 setBody("""{"id": "evt_$index"}""")
             }
-            assertEquals(HttpStatusCode.OK, ok.status, "request ${index + 1} must pass")
+            assertEquals(HttpStatusCode.Accepted, ok.status, "request ${index + 1} must pass")
         }
 
         val limited = client.post("/inbox/stripe") {
@@ -474,7 +478,7 @@ class InboxRoutesTest {
                 contentType(ContentType.Application.Json)
                 setBody("""{"id": "evt_$index"}""")
             }
-            assertEquals(HttpStatusCode.OK, response.status)
+            assertEquals(HttpStatusCode.Accepted, response.status)
         }
     }
 
@@ -539,5 +543,192 @@ class InboxRoutesTest {
 
         val echoed = response.headers["X-Correlation-Id"]
         assertTrue(!echoed.isNullOrBlank(), "The response must carry a generated identifier")
+    }
+
+    // --- F-078: the inbox accept response is 202, and the code set is complete ---
+
+    @Test
+    fun `a new message returns 202 Accepted`() = testApplication {
+        val repository = mockk<org.nxtspec.repository.InboxRepositoryInterface>()
+        coEvery { repository.store(any()) } returns InboxResult.Stored
+        val handler = InboxHandler(repository, IdempotencyExtractor())
+
+        application {
+            this.install(ContentNegotiation) { json() }
+            configureInboxRoutes(
+                InboxConfig(basePath = "/inbox"),
+                mapOf("stripe" to SourceConfig.Http(path = "/stripe", idempotencyKeyPath = "$.id")),
+                handler
+            )
+        }
+
+        val response = client.post("/inbox/stripe") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"id": "evt_new"}""")
+        }
+
+        assertEquals(HttpStatusCode.Accepted, response.status)
+        assertTrue(response.bodyAsText().contains("messageId"))
+    }
+
+    @Test
+    fun `the same idempotency key returns 202 and then 200`() = testApplication {
+        val repository = mockk<org.nxtspec.repository.InboxRepositoryInterface>()
+        coEvery { repository.store(any()) } returnsMany listOf(InboxResult.Stored, InboxResult.Duplicate)
+        val handler = InboxHandler(repository, IdempotencyExtractor())
+
+        application {
+            this.install(ContentNegotiation) { json() }
+            configureInboxRoutes(
+                InboxConfig(basePath = "/inbox"),
+                mapOf("stripe" to SourceConfig.Http(path = "/stripe", idempotencyKeyPath = "$.id")),
+                handler
+            )
+        }
+
+        val body = """{"id": "evt_same"}"""
+        val first = client.post("/inbox/stripe") {
+            contentType(ContentType.Application.Json)
+            setBody(body)
+        }
+        val second = client.post("/inbox/stripe") {
+            contentType(ContentType.Application.Json)
+            setBody(body)
+        }
+
+        assertEquals(HttpStatusCode.Accepted, first.status)
+        assertEquals(HttpStatusCode.OK, second.status)
+        assertTrue(second.bodyAsText().contains("duplicate"))
+    }
+
+    /**
+     * Drive the real route to every response code that it can produce, and assert the whole set.
+     *
+     * The route produces 202, 200, 400, 422 and 500 from [InboxHandlerResult]. It produces 413
+     * from the body cap, 401 from [org.nxtspec.auth.InboxAuthValidator], and 429 from the rate
+     * limit plugin that the route installs. No code path returns 403.
+     */
+    @Test
+    fun `the route enumerates every response code that it can return`() {
+        val stripe = mapOf("stripe" to SourceConfig.Http(path = "/stripe", idempotencyKeyPath = "$.id"))
+        val observed = mutableSetOf<HttpStatusCode>()
+
+        // 202 Accepted: a new message.
+        observed += statusOf(stripe, handlerFor(InboxResult.Stored), """{"id": "evt_1"}""")
+
+        // 200 OK: a duplicate message.
+        observed += statusOf(stripe, handlerFor(InboxResult.Duplicate), """{"id": "evt_1"}""")
+
+        // 500 Internal Server Error: the storage layer failed.
+        observed += statusOf(stripe, handlerFor(InboxResult.Error("db down")), """{"id": "evt_1"}""")
+
+        // 400 Bad Request: the body is not JSON.
+        observed += statusOf(stripe, handlerFor(InboxResult.Stored), "not valid json")
+
+        // 400 Bad Request: the idempotency key is absent.
+        observed += statusOf(
+            mapOf("stripe" to SourceConfig.Http(path = "/stripe", idempotencyKeyPath = "$.orderId")),
+            handlerFor(InboxResult.Stored),
+            """{"id": "evt_1"}"""
+        )
+
+        // 422 Unprocessable Entity: the transform rejected the payload.
+        val transformSource = mapOf(
+            "stripe" to SourceConfig.Http(
+                path = "/stripe",
+                idempotencyKeyPath = "$.id",
+                transform = TransformConfig(
+                    expression = """${"$"}nonExistentFunction()""",
+                    onError = TransformErrorStrategy.Fail
+                )
+            )
+        )
+        observed += statusOf(
+            transformSource,
+            handlerFor(
+                InboxResult.Stored,
+                InboxTransformPipeline(org.nxtspec.transform.TransformEngine())
+            ),
+            """{"id": "evt_1"}"""
+        )
+
+        // 413 Payload Too Large: the body passes the cap.
+        observed += statusOf(
+            stripe,
+            handlerFor(InboxResult.Stored),
+            """{"id": "evt_1", "p": "${"x".repeat(200)}"}""",
+            config = InboxConfig(basePath = "/inbox", maxBodyBytes = 64)
+        )
+
+        // 401 Unauthorized: the bearer token is absent.
+        observed += statusOf(
+            mapOf(
+                "stripe" to SourceConfig.Http(
+                    path = "/stripe",
+                    idempotencyKeyPath = "$.id",
+                    auth = InboxAuthConfig.Bearer(token = Secret("secret-token"))
+                )
+            ),
+            handlerFor(InboxResult.Stored),
+            """{"id": "evt_1"}"""
+        )
+
+        // 429 Too Many Requests: the second request passes the rate limit of one per minute.
+        observed += statusOf(
+            mapOf(
+                "stripe" to SourceConfig.Http(
+                    path = "/stripe",
+                    idempotencyKeyPath = "$.id",
+                    rateLimit = RateLimitConfig(requestsPerMinute = 1)
+                )
+            ),
+            handlerFor(InboxResult.Stored),
+            """{"id": "evt_1"}""",
+            requests = 2
+        )
+
+        assertEquals(
+            setOf(
+                HttpStatusCode.Accepted,
+                HttpStatusCode.OK,
+                HttpStatusCode.BadRequest,
+                HttpStatusCode.Unauthorized,
+                HttpStatusCode.PayloadTooLarge,
+                HttpStatusCode.UnprocessableEntity,
+                HttpStatusCode.TooManyRequests,
+                HttpStatusCode.InternalServerError
+            ),
+            observed
+        )
+    }
+
+    private fun handlerFor(storeResult: InboxResult, pipeline: InboxTransformPipeline? = null): InboxHandler {
+        val repository = mockk<org.nxtspec.repository.InboxRepositoryInterface>()
+        coEvery { repository.store(any()) } returns storeResult
+        return InboxHandler(repository, IdempotencyExtractor(), transformPipeline = pipeline)
+    }
+
+    /** Post [requests] times to the real route and return the status of the last response. */
+    private fun statusOf(
+        sources: Map<String, SourceConfig>,
+        handler: InboxHandler,
+        body: String,
+        config: InboxConfig = InboxConfig(basePath = "/inbox"),
+        requests: Int = 1
+    ): HttpStatusCode {
+        lateinit var status: HttpStatusCode
+        testApplication {
+            application {
+                this.install(ContentNegotiation) { json() }
+                configureInboxRoutes(config, sources, handler)
+            }
+            repeat(requests) {
+                status = client.post("/inbox/stripe") {
+                    contentType(ContentType.Application.Json)
+                    setBody(body)
+                }.status
+            }
+        }
+        return status
     }
 }

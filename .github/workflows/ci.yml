@@ -182,3 +182,54 @@ jobs:
       - name: Start the image
         # A build that produces an image which cannot start is not a passing build.
         run: docker run --rm --entrypoint java queuebox:ci -version
+
+  compose:
+    name: Compose quick start
+    runs-on: ubuntu-latest
+    # F-073 and F-074: the documented quick start must start a working instance. The job runs the
+    # exact commands that docs/getting-started.md gives a new user.
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Start the stack
+        # `-f docker-compose.yml` selects the shipped stack. The override file holds the
+        # development loop, which mounts the source tree and rebuilds on a change.
+        run: docker compose -f docker-compose.yml --env-file .env.example up -d --build
+
+      - name: Wait for the instance to become healthy
+        run: |
+          for attempt in $(seq 1 60); do
+            status=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8080/health || true)
+            if [ "$status" = "200" ]; then
+              echo "healthy after $attempt attempts"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "the instance never became healthy"
+          curl -s http://localhost:8080/health || true
+          docker compose -f docker-compose.yml logs queuebox
+          exit 1
+
+      - name: Post a message to an inbox source
+        # A new message must return 202, and the same message again must return 200.
+        run: |
+          body='{"id":"ci-compose-001","type":"payment.succeeded"}'
+          first=$(curl -s -o /dev/null -w '%{http_code}' -X POST \
+            http://localhost:8080/inbox/stripe -H 'Content-Type: application/json' -d "$body")
+          second=$(curl -s -o /dev/null -w '%{http_code}' -X POST \
+            http://localhost:8080/inbox/stripe -H 'Content-Type: application/json' -d "$body")
+          echo "first=$first second=$second"
+          test "$first" = "202"
+          test "$second" = "200"
+
+      - name: Show the logs on a failure
+        if: failure()
+        run: docker compose -f docker-compose.yml logs
+
+      - name: Stop the stack
+        if: always()
+        run: docker compose -f docker-compose.yml down -v

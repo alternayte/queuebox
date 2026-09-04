@@ -60,9 +60,10 @@ class ColumnMappingDataTest {
     @Test
     fun `the factory reaches the module lookup for every supported type`() {
         // The core module alone carries no database implementation, so the reflective lookup
-        // fails. The assertion proves the factory handles every supported type.
+        // fails. The assertion proves the factory handles every supported type. F-080 replaced the
+        // raw ClassNotFoundException with a named error.
         DatabaseType.entries.forEach { type ->
-            assertFailsWith<ClassNotFoundException> {
+            assertFailsWith<MissingDatabaseProviderException> {
                 DatabaseProviderFactory.create(type, FakeDataSource())
             }
         }

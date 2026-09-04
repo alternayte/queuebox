@@ -58,8 +58,8 @@ class E2EInboxFlowTest : E2ETestBase() {
             setBody("""{"id": "evt_123", "type": "payment.received", "data": {"amount": 5000}}""")
         }
 
-        // Verify response
-        assertEquals(HttpStatusCode.OK, response.status)
+        // Verify response. F-078: a new message returns 202.
+        assertEquals(HttpStatusCode.Accepted, response.status)
         val responseBody = Json.parseToJsonElement(response.bodyAsText()).jsonObject
         assertTrue(responseBody.containsKey("messageId"), "Response should contain messageId")
 
@@ -101,7 +101,7 @@ class E2EInboxFlowTest : E2ETestBase() {
             contentType(ContentType.Application.Json)
             setBody(payload)
         }
-        assertEquals(HttpStatusCode.OK, firstResponse.status)
+        assertEquals(HttpStatusCode.Accepted, firstResponse.status)
         val firstBody = Json.parseToJsonElement(firstResponse.bodyAsText()).jsonObject
         assertTrue(firstBody.containsKey("messageId"), "First response should contain messageId")
 
@@ -208,7 +208,7 @@ class E2EInboxFlowTest : E2ETestBase() {
             setBody("""{"id": "evt_typed", "type": "invoice.paid"}""")
         }
 
-        assertEquals(HttpStatusCode.OK, response.status)
+        assertEquals(HttpStatusCode.Accepted, response.status)
 
         // Verify event type was extracted (would need to query database)
         // For now, just verify the request succeeded

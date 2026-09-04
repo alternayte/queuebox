@@ -118,7 +118,7 @@ class E2EShutdownTest : E2ETestBase() {
 
         val response = request.await()
 
-        assertEquals(HttpStatusCode.OK, response.status, "The in-flight request must succeed")
+        assertEquals(HttpStatusCode.Accepted, response.status, "The in-flight request must succeed")
         assertTrue(response.bodyAsText().contains("messageId"))
         assertTrue(ownDataSource.isClosed, "The data source must close after the server stops")
 

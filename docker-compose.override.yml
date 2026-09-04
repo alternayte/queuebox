@@ -8,10 +8,11 @@ services:
       - gradle_cache:/home/gradle/.gradle
     command: gradle :app:run --continuous
     environment:
-      - DB_URL=jdbc:postgresql://postgres:5432/queuebox
-      - DB_USER=queuebox
-      - DB_PASSWORD=queuebox
-      - RABBITMQ_URL=amqp://rabbitmq:5672
+      # F-074: the application reads only the QUEUEBOX_ prefixed variables.
+      - QUEUEBOX_DATABASE_URL=jdbc:postgresql://postgres:5432/queuebox
+      - QUEUEBOX_DATABASE_USERNAME=queuebox
+      - QUEUEBOX_DATABASE_PASSWORD=queuebox
+      - QUEUEBOX_CONFIG_FILE=/etc/queuebox/queuebox.yml
 
 volumes:
   gradle_cache:

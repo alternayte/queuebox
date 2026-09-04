@@ -117,8 +117,9 @@ private suspend fun RoutingContext.handleInboxPost(
     }
 
     when (result) {
+        // F-078: a new message is stored but not yet forwarded, so the code is 202, not 200.
         is InboxHandlerResult.Accepted ->
-            call.respond(HttpStatusCode.OK, mapOf("messageId" to result.messageId.toString()))
+            call.respond(HttpStatusCode.Accepted, mapOf("messageId" to result.messageId.toString()))
 
         is InboxHandlerResult.Duplicate ->
             call.respond(HttpStatusCode.OK, mapOf("status" to "duplicate"))

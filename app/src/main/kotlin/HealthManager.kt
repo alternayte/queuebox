@@ -121,3 +121,17 @@ class HealthManager(
         const val DOWN = "down"
     }
 }
+
+/**
+ * The readiness components that the retention service contributes.
+ *
+ * F-074: `RetentionService.start` returns at once when retention is disabled, so `isRunning`
+ * stays false for the life of the process. A component that reports that state makes the
+ * readiness answer `unhealthy` forever, and the container never becomes ready. Retention is
+ * disabled by default, so a disabled service contributes nothing instead.
+ *
+ * @param enabled the value of `retention.enabled`.
+ * @param isRunning the running state of the service.
+ */
+fun retentionHealthContributors(enabled: Boolean, isRunning: () -> Boolean): List<HealthContributor> =
+    if (enabled) listOf(SimpleHealthContributor("retention-service", isRunning)) else emptyList()

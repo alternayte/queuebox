@@ -3,11 +3,16 @@ services:
     build: .
     ports:
       - "8080:8080"
+    volumes:
+      # F-076: the configuration lives outside the build tree. A change needs a restart, not a
+      # rebuild.
+      - ./examples/queuebox.yml:/etc/queuebox/queuebox.yml:ro
     environment:
-      - DB_URL=jdbc:postgresql://postgres:5432/queuebox
-      - DB_USER=queuebox
-      - DB_PASSWORD=queuebox
-      - RABBITMQ_URL=amqp://rabbitmq:5672
+      # F-074: the application reads only the QUEUEBOX_ prefixed variables.
+      - QUEUEBOX_DATABASE_URL=jdbc:postgresql://postgres:5432/queuebox
+      - QUEUEBOX_DATABASE_USERNAME=queuebox
+      - QUEUEBOX_DATABASE_PASSWORD=queuebox
+      - QUEUEBOX_CONFIG_FILE=/etc/queuebox/queuebox.yml
     depends_on:
       postgres:
         condition: service_healthy

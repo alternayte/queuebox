@@ -2,6 +2,12 @@ package org.nxtspec
 
 import kotlinx.serialization.Serializable
 
+/**
+ * The state of one outbox or inbox message.
+ *
+ * The repositories hold the state machine. They write the state literals directly, and they map an
+ * unknown literal to [Failed]. See docs/architecture.md for the state set and the transitions.
+ */
 @Serializable
 sealed class MessageState {
     @Serializable
@@ -18,14 +24,4 @@ sealed class MessageState {
 
     @Serializable
     data object Dead : MessageState()
-
-    companion object {
-        fun canTransitionTo(from: MessageState, to: MessageState): Boolean = when (from) {
-            is Pending -> to is Processing
-            is Processing -> to is Sent || to is Failed
-            is Failed -> to is Processing || to is Dead
-            is Sent -> false
-            is Dead -> false
-        }
-    }
 }

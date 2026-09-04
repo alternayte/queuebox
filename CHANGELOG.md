@@ -75,6 +75,14 @@ release exists.
   publishes a multi-architecture image to the GitHub container registry.
 - **Code style enforcement.** ktlint and detekt run as part of `./gradlew check`.
 
+### Breaking changes
+
+- **The inbox accepts a new message with 202.** The `POST /inbox/<source>` route returned 200 for a
+  message that it stored. It now returns 202 Accepted, because the message is stored but not yet
+  forwarded. A duplicate message still returns 200. There is no compatibility flag. A client that
+  tests for the exact code 200 must accept 202 as well.
+  `docs/adr/0002-inbox-accept-returns-202.md` records the decision.
+
 ### Security
 
 - The inbox HMAC check covers the timestamp and the body together, which blocks a replay of the

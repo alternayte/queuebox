@@ -229,7 +229,7 @@ fun main() {
         .toList()
     val healthContributors = buildList {
         add(SimpleHealthContributor("outbox-poller") { outboxPoller.isRunning() })
-        add(SimpleHealthContributor("retention-service") { retentionService.isRunning() })
+        addAll(retentionHealthContributors(config.retention.enabled) { retentionService.isRunning() })
         add(SimpleHealthContributor("inbox-relay") { inboxRelay.isRunning() })
         rabbitSourceNames.forEachIndexed { index, sourceName ->
             val consumer = rabbitConsumers[index].first

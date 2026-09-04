@@ -71,6 +71,22 @@ interface RepositoryFactory {
 }
 
 /**
+ * The provider module for a database type is absent from the class path. See F-080.
+ * The message names the Gradle module that the user must add.
+ */
+class MissingDatabaseProviderException(
+    val type: DatabaseType,
+    val module: String,
+    val className: String,
+    cause: ClassNotFoundException
+) : RuntimeException(
+    "The database provider for $type is absent from the class path. " +
+        "The class $className was not found. Add the Gradle module '$module' to the runtime " +
+        "class path, for example with runtimeOnly(project(\":$module\")).",
+    cause
+)
+
+/**
  * Factory for creating database-specific repository factories.
  * Provides the appropriate RepositoryFactory based on the configured database type.
  */
@@ -81,27 +97,71 @@ object DatabaseProviderFactory {
      * @param dataSource the data source for database connections
      * @param columnMapping optional column name mapping configuration
      * @return a RepositoryFactory capable of creating repositories for the specified database type
-     * @throws NotImplementedError if the database type is not yet supported
+     * @throws MissingDatabaseProviderException if the provider module is absent from the class path
      */
     fun create(
         type: DatabaseType,
         dataSource: DataSource,
         columnMapping: ColumnMappingData = ColumnMappingData()
+    ): RepositoryFactory = create(type, dataSource, columnMapping, defaultClassLoader())
+
+    /**
+     * The seam that the test uses. It takes the class loader that resolves the provider class, so
+     * a test can prove the behaviour when the provider module is absent. See F-080.
+     */
+    internal fun create(
+        type: DatabaseType,
+        dataSource: DataSource,
+        columnMapping: ColumnMappingData,
+        classLoader: ClassLoader
     ): RepositoryFactory = when (type) {
-        DatabaseType.POSTGRESQL -> createPostgresFactory(dataSource, columnMapping)
-        DatabaseType.SQLSERVER -> createSqlServerFactory(dataSource, columnMapping)
+        DatabaseType.POSTGRESQL -> createPostgresFactory(dataSource, columnMapping, classLoader)
+        DatabaseType.SQLSERVER -> createSqlServerFactory(dataSource, columnMapping, classLoader)
     }
 
-    private fun createPostgresFactory(dataSource: DataSource, columnMapping: ColumnMappingData): RepositoryFactory {
+    private fun defaultClassLoader(): ClassLoader =
+        Thread.currentThread().contextClassLoader ?: DatabaseProviderFactory::class.java.classLoader
+
+    /** Resolves a provider class, and reports an absent module with a named error. See F-080. */
+    private fun loadProviderClass(
+        className: String,
+        type: DatabaseType,
+        module: String,
+        classLoader: ClassLoader
+    ): Class<*> = try {
+        Class.forName(className, true, classLoader)
+    } catch (cause: ClassNotFoundException) {
+        throw MissingDatabaseProviderException(type, module, className, cause)
+    }
+
+    private fun createPostgresFactory(
+        dataSource: DataSource,
+        columnMapping: ColumnMappingData,
+        classLoader: ClassLoader
+    ): RepositoryFactory {
         // Use reflection to avoid compile-time dependency on postgres module
-        val factoryClass = Class.forName("org.nxtspec.PostgresRepositoryFactory")
+        val factoryClass = loadProviderClass(
+            "org.nxtspec.PostgresRepositoryFactory",
+            DatabaseType.POSTGRESQL,
+            "postgres",
+            classLoader
+        )
         val constructor = factoryClass.getConstructor(DataSource::class.java, ColumnMappingData::class.java)
         return constructor.newInstance(dataSource, columnMapping) as RepositoryFactory
     }
 
-    private fun createSqlServerFactory(dataSource: DataSource, columnMapping: ColumnMappingData): RepositoryFactory {
+    private fun createSqlServerFactory(
+        dataSource: DataSource,
+        columnMapping: ColumnMappingData,
+        classLoader: ClassLoader
+    ): RepositoryFactory {
         // Use reflection to avoid compile-time dependency on sqlserver module
-        val factoryClass = Class.forName("org.nxtspec.SqlServerRepositoryFactory")
+        val factoryClass = loadProviderClass(
+            "org.nxtspec.SqlServerRepositoryFactory",
+            DatabaseType.SQLSERVER,
+            "sqlserver",
+            classLoader
+        )
         val constructor = factoryClass.getConstructor(DataSource::class.java, ColumnMappingData::class.java)
         return constructor.newInstance(dataSource, columnMapping) as RepositoryFactory
     }

@@ -55,8 +55,8 @@ class ConfigLoaderEnvIntegrationTest {
         val exception = assertFailsWith<ConfigException> {
             ConfigLoader.load("nonexistent-file.yml", optional = true)
         }
-        // Should fail because required fields are missing, not because file is missing
-        assertTrue(exception.message!!.contains("database") || exception.message!!.contains("url"))
+        // The failure must name what to set next, not the missing file.
+        assertTrue(exception.message!!.contains("QUEUEBOX_DATABASE_URL"))
     }
 
     @Test

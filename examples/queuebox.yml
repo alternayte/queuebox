@@ -1,0 +1,54 @@
+# The QueueBox configuration that docker-compose.yml mounts at /etc/queuebox/queuebox.yml.
+#
+# This file lives outside the build tree on purpose. See finding F-076 in hardening-doc.md.
+# A change here needs a container restart, not a rebuild.
+#
+# An environment variable that starts with QUEUEBOX_ wins over any value in this file.
+
+server:
+  httpPort: 8080
+
+database:
+  poolSize: 10
+  connectionTimeoutMs: 30000
+
+outbox:
+  pollIntervalMs: 100
+  batchSize: 100
+  retryBaseDelayMs: 1000
+  maxAttempts: 5
+
+inbox:
+  basePath: /inbox
+
+destinations:
+  webhook-api:
+    type: http
+    baseUrl: https://api.example.com
+    path: /webhook
+    timeoutMs: 30000
+
+  events-exchange:
+    type: rabbitmq
+    url: amqp://rabbitmq:5672
+    exchange: queuebox-events
+    exchangeType: topic
+
+routes:
+  - topicPattern: "order.*"
+    destination: webhook-api
+
+  - topicPattern: "event.**"
+    destination: events-exchange
+    routingKeyTemplate: "{{ topic }}"
+
+sources:
+  stripe:
+    path: /stripe
+    idempotencyKeyPath: $.id
+    eventTypePath: $.type
+
+  github:
+    path: /github
+    idempotencyKeyPath: $.delivery
+    eventTypePath: $.action
