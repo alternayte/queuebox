@@ -35,7 +35,6 @@ class OutboxPoller(
     private val inFlight = java.util.concurrent.atomic.AtomicInteger(0)
 
     // F-052: the number of messages that wait for a publish, per destination name.
-    private val queueDepths = java.util.concurrent.ConcurrentHashMap<String, java.util.concurrent.atomic.AtomicLong>()
 
     // F-006: the reclaim step runs at most once per claimTimeoutMs / 5.
     private val reclaimIntervalMs = (config.claimTimeoutMs / 5).coerceAtLeast(1)
@@ -196,7 +195,7 @@ class OutboxPoller(
 
         // F-052: the depth counts the messages that wait for a publish to this destination.
         val destinationName = destinationName(routingResult.destination)
-        changeQueueDepth(destinationName, 1)
+        metricsCollector?.changeQueueDepth(destinationName, 1)
         try {
             publisher.publish(
                 messageToPublish,
@@ -214,7 +213,7 @@ class OutboxPoller(
                 }
             )
         } finally {
-            changeQueueDepth(destinationName, -1)
+            metricsCollector?.changeQueueDepth(destinationName, -1)
         }
         recordProcessingDuration(startTime)
     }
@@ -225,16 +224,6 @@ class OutboxPoller(
     private fun destinationName(destination: Destination): String = when (destination) {
         is Destination.Http -> destination.name
         is Destination.RabbitMQ -> destination.name
-    }
-
-    /**
-     * F-052: changes the queue depth of one destination and reports the new value.
-     */
-    private fun changeQueueDepth(destination: String, delta: Long) {
-        val depth = queueDepths
-            .computeIfAbsent(destination) { java.util.concurrent.atomic.AtomicLong(0) }
-            .addAndGet(delta)
-        metricsCollector?.updateQueueDepth(destination, depth)
     }
 
     private fun recordProcessingDuration(startTime: Long) {

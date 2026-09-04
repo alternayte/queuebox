@@ -92,7 +92,11 @@ private suspend fun RoutingContext.handleInboxPost(
 
     // F-047: accept the caller's correlation identifier, or generate one. Every log line of
     // this request, and the stored row, then carry the same value.
-    val correlationId = call.request.headers[CORRELATION_ID_HEADER]?.take(MAX_CORRELATION_ID_LENGTH)
+    // The value reaches a log line, a database column, and an outbound header, so it is
+    // bounded and it carries no control character. See F-047.
+    val correlationId = call.request.headers[CORRELATION_ID_HEADER]
+        ?.filter { !it.isISOControl() }
+        ?.take(MAX_CORRELATION_ID_LENGTH)
         ?.takeIf { it.isNotBlank() }
         ?: java.util.UUID.randomUUID().toString()
     call.response.headers.append(CORRELATION_ID_HEADER, correlationId)

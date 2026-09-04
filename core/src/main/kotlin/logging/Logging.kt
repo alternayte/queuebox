@@ -1,5 +1,7 @@
 package org.nxtspec.logging
 
+import kotlinx.coroutines.slf4j.MDCContext
+import kotlinx.coroutines.withContext
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import org.slf4j.MDC
@@ -33,22 +35,35 @@ object LogKeys {
 }
 
 /**
- * Runs a block with the given mapped diagnostic context entries, and removes them afterwards.
+ * Runs a suspending block with the given mapped diagnostic context entries.
+ *
+ * The mapped diagnostic context of SLF4J is thread local. A coroutine can resume on another
+ * thread after a suspension point, so a plain put and remove pair loses the entries, and it can
+ * leave an entry behind on the first thread. MDCContext carries the map across every dispatch,
+ * and it restores the previous map afterwards.
  *
  * A null value is skipped, so a caller does not have to build the map twice.
  */
-inline fun <T> withLogContext(vararg entries: Pair<String, Any?>, block: () -> T): T {
-    val applied = entries.mapNotNull { (key, value) ->
-        value?.let { key to it.toString() }
+suspend fun <T> withLogContext(
+    vararg entries: Pair<String, Any?>,
+    block: suspend () -> T
+): T {
+    val merged = (MDC.getCopyOfContextMap() ?: emptyMap()).toMutableMap()
+    entries.forEach { (key, value) ->
+        value?.let { merged[key] = sanitiseValue(it.toString()) }
     }
 
-    applied.forEach { (key, value) -> MDC.put(key, value) }
-    try {
-        return block()
-    } finally {
-        applied.forEach { (key, _) -> MDC.remove(key) }
-    }
+    return withContext(MDCContext(merged)) { block() }
 }
+
+/**
+ * Removes the characters that could forge a second log line.
+ *
+ * A caller supplies the correlation identifier, so its value reaches a log line. A newline in it
+ * would let a caller write a line of its own.
+ */
+private fun sanitiseValue(value: String): String =
+    value.map { if (it.isISOControl()) ' ' else it }.joinToString("")
 
 /**
  * The HTTP and AMQP header that carries the correlation identifier. See F-047.

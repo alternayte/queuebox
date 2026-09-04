@@ -1,6 +1,11 @@
 package org.nxtspec.app
 
 import kotlinx.serialization.Serializable
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
+import kotlinx.coroutines.withTimeoutOrNull
 import javax.sql.DataSource
 
 @Serializable
@@ -50,8 +55,13 @@ class SimpleHealthContributor(
  */
 class HealthManager(
     private val dataSource: DataSource,
-    private val contributors: List<HealthContributor> = emptyList()
+    private val contributors: List<HealthContributor> = emptyList(),
+    /** Upper bound for one readiness check. A slower check counts as down. See F-049. */
+    private val checkTimeoutMs: Long = 3000
 ) {
+    // Every check runs here, so a blocking check cannot hold the caller.
+    private val checkScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+
     /**
      * The process answer. It does no input or output.
      */
@@ -62,13 +72,21 @@ class HealthManager(
 
     /**
      * The dependency answer. It checks the database and every contributor.
+     *
+     * Every check runs on the input and output dispatcher, under a bound. The database check
+     * blocks for the pool timeout when the pool is exhausted, and a contributor can block for as
+     * long as it wants. Without the bound a slow dependency holds a server thread and the probe
+     * times out, rather than answering 503. See F-049 and F-050.
      */
-    fun ready(): HealthStatus {
+    suspend fun ready(): HealthStatus {
         val components = LinkedHashMap<String, ComponentHealth>()
-        components["database"] = ComponentHealth(if (checkDatabase()) UP else DOWN)
+
+        components["database"] = ComponentHealth(if (checkBounded { checkDatabase() }) UP else DOWN)
         for (contributor in contributors) {
-            components[contributor.name] = ComponentHealth(if (contributor.isHealthy()) UP else DOWN)
+            components[contributor.name] =
+                ComponentHealth(if (checkBounded { contributor.isHealthy() }) UP else DOWN)
         }
+
         val healthy = components.values.all { it.status == UP }
         return HealthStatus(
             status = if (healthy) HEALTHY else UNHEALTHY,
@@ -79,17 +97,34 @@ class HealthManager(
     /**
      * The compatibility answer. It is an alias of readiness. See F-049.
      */
-    fun check(): HealthStatus = ready()
+    suspend fun check(): HealthStatus = ready()
+
+    /**
+     * Runs one check on the input and output dispatcher, under the timeout. A check that does not
+     * answer counts as down.
+     *
+     * The check runs in its own job. A blocking call inside it does not observe cancellation, so
+     * the timeout cannot stop the work. It does stop the wait, which is what the probe needs:
+     * readiness answers 503 rather than holding a server thread. The abandoned job ends when the
+     * blocking call returns.
+     */
+    private suspend fun checkBounded(check: () -> Boolean): Boolean {
+        // The job belongs to the health manager, not to the caller. A structured child would
+        // make the caller wait for it, and a blocking call inside it cannot be cancelled.
+        val running = checkScope.async { runCatching { check() }.getOrDefault(false) }
+        return withTimeoutOrNull(checkTimeoutMs) { running.await() } ?: false
+    }
 
     private fun checkDatabase(): Boolean {
         return try {
-            dataSource.connection.use { it.isValid(5) }
+            dataSource.connection.use { it.isValid(DATABASE_VALIDATION_TIMEOUT_SECONDS) }
         } catch (e: Exception) {
             false
         }
     }
 
     private companion object {
+        const val DATABASE_VALIDATION_TIMEOUT_SECONDS = 2
         const val HEALTHY = "healthy"
         const val UNHEALTHY = "unhealthy"
         const val UP = "up"

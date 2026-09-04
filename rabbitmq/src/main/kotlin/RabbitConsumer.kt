@@ -14,7 +14,9 @@ import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.datetime.Clock
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import org.nxtspec.logging.CORRELATION_ID_HEADER
 import org.nxtspec.logging.LogKeys
+import org.nxtspec.logging.MAX_CORRELATION_ID_LENGTH
 import org.nxtspec.logging.logger
 import org.nxtspec.logging.withLogContext
 import org.nxtspec.metrics.MetricsCollectorInterface
@@ -95,7 +97,10 @@ class RabbitConsumer(
                 body: ByteArray
             ) {
                 scope.launch {
-                    withLogContext(LogKeys.SOURCE to config.sourceName) {
+                    withLogContext(
+                        LogKeys.SOURCE to config.sourceName,
+                        LogKeys.CORRELATION_ID to extractCorrelationId(properties)
+                    ) {
                         processMessage(envelope, properties, body)
                     }
                 }
@@ -175,6 +180,10 @@ class RabbitConsumer(
             // Extract optional event type from header
             val eventType = properties.headers?.get("x-event-type")?.toString()
 
+            // F-047: the identifier follows an AMQP message as well. A header name is case
+            // sensitive in AMQP, so both spellings are accepted.
+            val correlationId = extractCorrelationId(properties)
+
             // Apply transform if configured
             val transformedPayload = if (transformPipeline != null && sourceTransform != null) {
                 val context = InboxTransformContext(
@@ -208,7 +217,8 @@ class RabbitConsumer(
                 idempotencyKey = idempotencyKey,
                 aggregateId = aggregateId,
                 eventType = eventType,
-                payload = transformedPayload
+                payload = transformedPayload,
+                correlationId = correlationId
             )
 
             when (val result = storeMessage(message)) {
@@ -234,6 +244,24 @@ class RabbitConsumer(
             log.error("Processing delivery {} failed. The message is requeued.", envelope.deliveryTag, e)
             sendNack(envelope.deliveryTag, true)
         }
+    }
+
+    /**
+     * Reads the correlation identifier of an AMQP delivery, or generates one. See F-047.
+     *
+     * The value reaches a log line, a database column, and an outbound header, so it is bounded
+     * and it carries no control character.
+     */
+    private fun extractCorrelationId(properties: AMQP.BasicProperties): String {
+        val fromHeader = properties.headers?.entries
+            ?.firstOrNull { it.key.equals(CORRELATION_ID_HEADER, ignoreCase = true) }
+            ?.value?.toString()
+
+        return (fromHeader ?: properties.correlationId)
+            ?.filter { !it.isISOControl() }
+            ?.take(MAX_CORRELATION_ID_LENGTH)
+            ?.takeIf { it.isNotBlank() }
+            ?: UUID.randomUUID().toString()
     }
 
     private fun extractIdempotencyKey(

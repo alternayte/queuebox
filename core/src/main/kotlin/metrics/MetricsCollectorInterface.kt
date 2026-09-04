@@ -113,7 +113,7 @@ interface MetricsCollectorInterface {
     /**
      * Update the number of messages that wait for a publish to one destination.
      */
-    fun updateQueueDepth(destination: String, depth: Long) {}
+    fun changeQueueDepth(destination: String, delta: Long) {}
 
     /**
      * Record one transform failure under the configured error strategy.

@@ -53,7 +53,7 @@ class MetricsRoutesTest {
         collector.updatePendingCount(1)
         collector.recordDestinationSuccess("orders-api")
         collector.recordDestinationFailure("orders-api")
-        collector.updateQueueDepth("orders-api", 2)
+        collector.changeQueueDepth("orders-api", 2)
         collector.recordTransformFailure("fail")
         collector.recordHttpStatus(503)
         collector.recordInboxReceived()

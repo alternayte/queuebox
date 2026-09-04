@@ -35,63 +35,11 @@ fun main() {
     // Create Prometheus registry for metrics
     val prometheusRegistry = PrometheusMeterRegistry(PrometheusConfig.DEFAULT)
 
-    // Database setup with metrics integration
+    // Every check that reads the configuration alone runs before any database work. A
+    // configuration error must not cost the database startup timeout, and it must not migrate
+    // the schema first.
     // F-057: an invalid transform expression must stop the start, not every message.
     StartupValidator.validateTransforms(config)
-
-    val dataSource = DatabaseFactory.create(config.database, prometheusRegistry)
-
-    // F-056: wait for the database rather than exiting at once. An orchestrator otherwise shows
-    // a crash loop with no useful message while the database comes up.
-    DatabaseStartup.awaitConnection(dataSource, config.database.startupTimeoutMs)
-
-    DatabaseFactory.init(dataSource)
-
-    // Repositories via factory pattern
-    val dbType = DatabaseType.valueOf(config.database.type.uppercase())
-    val columnMappingData = ColumnMappingData(
-        outbox = OutboxColumnMappingData(
-            id = config.database.columnMapping.outbox.id,
-            topic = config.database.columnMapping.outbox.topic,
-            key = config.database.columnMapping.outbox.key,
-            payload = config.database.columnMapping.outbox.payload,
-            headers = config.database.columnMapping.outbox.headers,
-            state = config.database.columnMapping.outbox.state,
-            attempt = config.database.columnMapping.outbox.attempt,
-            maxAttempts = config.database.columnMapping.outbox.maxAttempts,
-            scheduledAt = config.database.columnMapping.outbox.scheduledAt,
-            createdAt = config.database.columnMapping.outbox.createdAt,
-            updatedAt = config.database.columnMapping.outbox.updatedAt,
-            claimedAt = config.database.columnMapping.outbox.claimedAt,
-            lastError = config.database.columnMapping.outbox.lastError
-        ),
-        inbox = InboxColumnMappingData(
-            id = config.database.columnMapping.inbox.id,
-            source = config.database.columnMapping.inbox.source,
-            idempotencyKey = config.database.columnMapping.inbox.idempotencyKey,
-            aggregateId = config.database.columnMapping.inbox.aggregateId,
-            eventType = config.database.columnMapping.inbox.eventType,
-            payload = config.database.columnMapping.inbox.payload,
-            state = config.database.columnMapping.inbox.state,
-            createdAt = config.database.columnMapping.inbox.createdAt,
-            processedAt = config.database.columnMapping.inbox.processedAt,
-            claimedAt = config.database.columnMapping.inbox.claimedAt
-        ),
-        outboxTableName = config.database.outboxTableName,
-        inboxTableName = config.database.inboxTableName
-    )
-    val repositoryFactory = DatabaseProviderFactory.create(dbType, dataSource, columnMappingData)
-
-    // F-030: apply the bundled migrations before anything reads a table.
-    if (config.database.migrate) {
-        requireDefaultSchemaForMigrations(config.database)
-        val applied = repositoryFactory.createMigrator().migrate(dataSource)
-        log.info("Applied {} migration(s).", applied)
-    }
-
-    val outboxRepository = repositoryFactory.createOutboxRepository()
-    val inboxRepository = repositoryFactory.createInboxRepository()
-    val transactionRunner = repositoryFactory.createTransactionRunner()
 
     // Convert config destinations to domain Destinations
     val destinations = config.destinations.mapValues { (name, destConfig) ->
@@ -143,6 +91,68 @@ fun main() {
 
     // F-034: fail fast when the admin routes are enabled with no authentication.
     requireAdminAuth(config.admin)
+
+
+    // Database setup with metrics integration
+    val dataSource = DatabaseFactory.create(config.database, prometheusRegistry)
+
+    try {
+        // F-056: wait for the database rather than exiting at once. An orchestrator otherwise
+        // shows a crash loop with no useful message while the database comes up.
+        DatabaseStartup.awaitConnection(dataSource, config.database.startupTimeoutMs)
+
+        DatabaseFactory.init(dataSource)
+    } catch (e: Exception) {
+        // The shutdown hook does not exist yet, so the pool closes here.
+        dataSource.close()
+        throw e
+    }
+
+    // Repositories via factory pattern
+    val dbType = DatabaseType.valueOf(config.database.type.uppercase())
+    val columnMappingData = ColumnMappingData(
+        outbox = OutboxColumnMappingData(
+            id = config.database.columnMapping.outbox.id,
+            topic = config.database.columnMapping.outbox.topic,
+            key = config.database.columnMapping.outbox.key,
+            payload = config.database.columnMapping.outbox.payload,
+            headers = config.database.columnMapping.outbox.headers,
+            state = config.database.columnMapping.outbox.state,
+            attempt = config.database.columnMapping.outbox.attempt,
+            maxAttempts = config.database.columnMapping.outbox.maxAttempts,
+            scheduledAt = config.database.columnMapping.outbox.scheduledAt,
+            createdAt = config.database.columnMapping.outbox.createdAt,
+            updatedAt = config.database.columnMapping.outbox.updatedAt,
+            claimedAt = config.database.columnMapping.outbox.claimedAt,
+            lastError = config.database.columnMapping.outbox.lastError
+        ),
+        inbox = InboxColumnMappingData(
+            id = config.database.columnMapping.inbox.id,
+            source = config.database.columnMapping.inbox.source,
+            idempotencyKey = config.database.columnMapping.inbox.idempotencyKey,
+            aggregateId = config.database.columnMapping.inbox.aggregateId,
+            eventType = config.database.columnMapping.inbox.eventType,
+            payload = config.database.columnMapping.inbox.payload,
+            state = config.database.columnMapping.inbox.state,
+            createdAt = config.database.columnMapping.inbox.createdAt,
+            processedAt = config.database.columnMapping.inbox.processedAt,
+            claimedAt = config.database.columnMapping.inbox.claimedAt
+        ),
+        outboxTableName = config.database.outboxTableName,
+        inboxTableName = config.database.inboxTableName
+    )
+    val repositoryFactory = DatabaseProviderFactory.create(dbType, dataSource, columnMappingData)
+
+    // F-030: apply the bundled migrations before anything reads a table.
+    if (config.database.migrate) {
+        requireDefaultSchemaForMigrations(config.database)
+        val applied = repositoryFactory.createMigrator().migrate(dataSource)
+        log.info("Applied {} migration(s).", applied)
+    }
+
+    val outboxRepository = repositoryFactory.createOutboxRepository()
+    val inboxRepository = repositoryFactory.createInboxRepository()
+    val transactionRunner = repositoryFactory.createTransactionRunner()
 
     // Transform pipelines (shared engine for both outbox and inbox)
     val transformEngine = TransformEngine()
@@ -230,20 +240,6 @@ fun main() {
     }
     val healthManager = HealthManager(dataSource, healthContributors)
 
-    // Start poller
-    outboxPoller.start()
-
-    // Start retention cleanup
-    retentionService.start()
-
-    // Start the inbox relay
-    inboxRelay.start()
-
-    // Start RabbitMQ consumers
-    runBlocking {
-        rabbitConsumers.forEach { (consumer, _) -> consumer.start() }
-    }
-
     // F-029: hold the server reference, so the shutdown can stop it first.
     val requestDrain = RequestDrain()
     val server = embeddedServer(
@@ -253,6 +249,7 @@ fun main() {
             connector { port = config.server.httpPort }
         }
     ) {
+        configureJson()
         configureRequestDrain(requestDrain)
         // F-023: the cap applies to every route, not only to the inbox route.
         configureBodySizeLimit(config.inbox.maxBodyBytes)
@@ -277,6 +274,8 @@ fun main() {
                 connector { this.port = port }
             }
         ) {
+            // The management server is its own Ktor application, so it needs its own plugins.
+            configureJson()
             configureOperationalRoutes(
                 prometheusRegistry = prometheusRegistry,
                 healthManager = healthManager,
@@ -298,42 +297,70 @@ fun main() {
                     requestDrain.count()
                 )
             }
-            server.stop(
-                gracePeriodMillis = SHUTDOWN_GRACE_PERIOD_MS,
-                timeoutMillis = config.outbox.shutdownTimeoutMs
-            )
-            // F-051: the management server stops with the data server, before the resources close.
-            managementServer?.stop(
-                gracePeriodMillis = SHUTDOWN_GRACE_PERIOD_MS,
-                timeoutMillis = config.outbox.shutdownTimeoutMs
-            )
+            // Netty refuses a timeout below the grace period, so the timeout is at least the
+            // grace period. Without the guard a small outbox.shutdownTimeoutMs makes the stop
+            // throw, and the remaining stops never run.
+            val stopTimeoutMs = maxOf(config.outbox.shutdownTimeoutMs, SHUTDOWN_GRACE_PERIOD_MS)
+
+            // Each stop has its own try, so a failure of one still stops the other. Both must
+            // stop before the resources close.
+            stopQuietly("the data server") {
+                server.stop(
+                    gracePeriodMillis = SHUTDOWN_GRACE_PERIOD_MS,
+                    timeoutMillis = stopTimeoutMs
+                )
+            }
+            stopQuietly("the management server") {
+                managementServer?.stop(
+                    gracePeriodMillis = SHUTDOWN_GRACE_PERIOD_MS,
+                    timeoutMillis = stopTimeoutMs
+                )
+            }
         },
         stopBackgroundServices = {
             rabbitConsumers.forEach { (consumer, connection) ->
-                consumer.stop()
-                connection.close()
+                stopQuietly("a RabbitMQ consumer") { consumer.stop() }
+                stopQuietly("a RabbitMQ connection") { connection.close() }
             }
-            outboxPoller.shutdown()
-            inboxRelay.shutdown()
-            retentionService.stop()
+            stopQuietly("the outbox poller") { outboxPoller.shutdown() }
+            stopQuietly("the inbox relay") { inboxRelay.shutdown() }
+            stopQuietly("the retention service") { retentionService.stop() }
         },
         closeResources = {
-            httpPublisher.close()
-            rabbitPublisher.close()
-            tokenManager.close()
-            dataSource.close()
+            stopQuietly("the HTTP publisher") { httpPublisher.close() }
+            stopQuietly("the RabbitMQ publisher") { rabbitPublisher.close() }
+            stopQuietly("the token manager") { tokenManager.close() }
+            stopQuietly("the data source") { dataSource.close() }
         }
     )
 
-    // Register the shutdown hook BEFORE the server starts.
+    // Register the shutdown hook BEFORE anything starts a thread.
+    //
+    // The RabbitMQ client connection thread is not a daemon thread. A failure after a consumer
+    // starts, but before the hook exists, would leave a process with no server, an open pool and
+    // a live thread, which never exits. An orchestrator cannot tell that apart from a healthy
+    // start.
     Runtime.getRuntime().addShutdownHook(
         Thread {
             runBlocking { shutdownSequence.run() }
         }
     )
 
-    managementServer?.start(wait = false)
-    server.start(wait = true)
+    try {
+        outboxPoller.start()
+        retentionService.start()
+        inboxRelay.start()
+        runBlocking {
+            rabbitConsumers.forEach { (consumer, _) -> consumer.start() }
+        }
+
+        managementServer?.start(wait = false)
+        server.start(wait = true)
+    } catch (e: Exception) {
+        log.error("The start failed. QueueBox releases every resource that it holds.", e)
+        runBlocking { shutdownSequence.run() }
+        throw e
+    }
 }
 
 /**
@@ -371,10 +398,34 @@ fun Application.configureDataPortOperationalRoutes(
 /** Time that an in-flight request has to finish before the server stops. See F-029. */
 private const val SHUTDOWN_GRACE_PERIOD_MS = 5000L
 
-fun Application.configureRouting() {
+/**
+ * Runs one shutdown step and reports a failure without stopping the remaining steps.
+ *
+ * A half-closed process holds a listening socket, a database connection, and a broker
+ * connection. Every step therefore runs, whatever the previous step did.
+ */
+private suspend fun stopQuietly(what: String, action: suspend () -> Unit) {
+    try {
+        action()
+    } catch (e: Exception) {
+        log.warn("Stopping {} failed. The shutdown continues.", what, e)
+    }
+}
+
+/**
+ * Installs the JSON content negotiation.
+ *
+ * Every server needs it, because the health routes and the admin routes answer with a
+ * serializable object. The management server is a separate Ktor application, so it installs the
+ * plugin itself. See F-051.
+ */
+fun Application.configureJson() {
     install(ContentNegotiation) {
         json()
     }
+}
+
+fun Application.configureRouting() {
     routing {
         get("/") {
             call.respondText("QueueBox is running!")

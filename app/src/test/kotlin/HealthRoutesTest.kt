@@ -41,7 +41,7 @@ class HealthRoutesTest {
         val connection = mockk<java.sql.Connection>()
         val dataSource = mockk<DataSource>()
         every { dataSource.connection } returns connection
-        every { connection.isValid(5) } returns true
+        every { connection.isValid(any()) } returns true
         every { connection.close() } returns Unit
         return dataSource
     }
@@ -53,7 +53,7 @@ class HealthRoutesTest {
         val response = client.get("/health/live")
 
         assertEquals(HttpStatusCode.OK, response.status)
-        assertTrue(response.bodyAsText().contains("healthy"))
+        assertTrue(response.bodyAsText().contains("\"status\":\"healthy\""))
     }
 
     @Test
@@ -63,7 +63,7 @@ class HealthRoutesTest {
         val response = client.get("/health/ready")
 
         assertEquals(HttpStatusCode.ServiceUnavailable, response.status)
-        assertTrue(response.bodyAsText().contains("unhealthy"))
+        assertTrue(response.bodyAsText().contains("\"status\":\"unhealthy\""))
     }
 
     @Test
@@ -73,7 +73,7 @@ class HealthRoutesTest {
         val response = client.get("/health/ready")
 
         assertEquals(HttpStatusCode.OK, response.status)
-        assertTrue(response.bodyAsText().contains("healthy"))
+        assertTrue(response.bodyAsText().contains("\"status\":\"healthy\""))
     }
 
     @Test
@@ -83,7 +83,7 @@ class HealthRoutesTest {
         val response = client.get("/health")
 
         assertEquals(HttpStatusCode.ServiceUnavailable, response.status)
-        assertTrue(response.bodyAsText().contains("unhealthy"))
+        assertTrue(response.bodyAsText().contains("\"status\":\"unhealthy\""))
     }
 
     @Test

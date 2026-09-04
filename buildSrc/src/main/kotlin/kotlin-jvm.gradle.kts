@@ -82,11 +82,10 @@ if (project.name == "core") {
     }
 
     extensions.getByType<SourceSetContainer>().named("main") {
-        resources.srcDir(buildInfoDir)
-    }
-
-    tasks.named("processResources") {
-        dependsOn(generateBuildInfo)
+        // The directory carries a task output, so the builder declares the producing task.
+        // Every consumer of the main resources then gets the dependency, not only
+        // processResources.
+        resources.srcDir(files(buildInfoDir).builtBy(generateBuildInfo))
     }
 }
 

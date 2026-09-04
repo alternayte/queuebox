@@ -1,6 +1,7 @@
 package org.nxtspec.app
 
 import io.ktor.client.request.get
+import io.ktor.client.statement.bodyAsText
 import io.ktor.http.HttpStatusCode
 import io.ktor.serialization.kotlinx.json.json
 import io.ktor.server.application.Application
@@ -17,6 +18,7 @@ import java.sql.SQLException
 import javax.sql.DataSource
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 
 /**
  * Covers F-051. A set management port moves the operational endpoints off the data port.
@@ -66,8 +68,10 @@ class ManagementPortTest {
 
     @Test
     fun `the management plane serves the operational endpoints`() = testApplication {
+        // The application installs exactly the plugins that main installs on the management
+        // server. A test that installs its own plugins hides a missing one.
         application {
-            install(ContentNegotiation) { json() }
+            configureJson()
             configureOperationalRoutes(
                 prometheusRegistry = PrometheusMeterRegistry(PrometheusConfig.DEFAULT),
                 healthManager = healthManager(),
@@ -79,5 +83,28 @@ class ManagementPortTest {
         assertEquals(HttpStatusCode.OK, client.get("/metrics").status)
         assertEquals(HttpStatusCode.OK, client.get("/health/live").status)
         assertEquals(HttpStatusCode.ServiceUnavailable, client.get("/health/ready").status)
+    }
+
+    @Test
+    fun `the management plane answers with a json body, not a 500`() = testApplication {
+        // F-051: the management server is its own Ktor application. Without content negotiation
+        // every health answer is a 500, and both Kubernetes probes fail.
+        application {
+            configureJson()
+            configureOperationalRoutes(
+                prometheusRegistry = PrometheusMeterRegistry(PrometheusConfig.DEFAULT),
+                healthManager = healthManager(),
+                adminConfig = AdminConfig(),
+                transformEngine = TransformEngine()
+            )
+        }
+
+        val live = client.get("/health/live")
+
+        assertEquals(HttpStatusCode.OK, live.status)
+        assertTrue(
+            live.bodyAsText().contains("\"status\""),
+            "The body must be the serialized health status. Saw: ${live.bodyAsText()}"
+        )
     }
 }

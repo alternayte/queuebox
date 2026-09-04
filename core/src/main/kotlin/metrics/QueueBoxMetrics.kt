@@ -74,6 +74,7 @@ class QueueBoxMetrics(private val registry: MeterRegistry) {
     // F-052: one counter per HTTP status class. A raw status code is never a label.
     private val httpStatusCounters = mutableMapOf<String, Counter>()
 
+    @Synchronized
     fun getPublishTimer(destinationType: String): Timer {
         return publishTimers.getOrPut(destinationType) {
             Timer.builder("queuebox_outbox_publish_duration_seconds")
@@ -150,6 +151,7 @@ class QueueBoxMetrics(private val registry: MeterRegistry) {
     /**
      * Get or create a cleanup deleted counter for a specific table.
      */
+    @Synchronized
     private fun getCleanupCounter(table: String): Counter {
         return cleanupCounters.getOrPut(table) {
             Counter.builder("queuebox_cleanup_messages_deleted_total")
@@ -162,6 +164,7 @@ class QueueBoxMetrics(private val registry: MeterRegistry) {
     /**
      * Get or create a cleanup duration timer for a specific table.
      */
+    @Synchronized
     private fun getCleanupTimer(table: String): Timer {
         return cleanupTimers.getOrPut(table) {
             Timer.builder("queuebox_cleanup_duration_seconds")
@@ -175,6 +178,7 @@ class QueueBoxMetrics(private val registry: MeterRegistry) {
     /**
      * Get or create a cleanup last run timestamp gauge for a specific table.
      */
+    @Synchronized
     private fun getOrCreateCleanupLastRunGauge(table: String): AtomicLong {
         return cleanupLastRunTimestamps.getOrPut(table) {
             val timestamp = AtomicLong(0)
@@ -223,19 +227,30 @@ class QueueBoxMetrics(private val registry: MeterRegistry) {
     }
 
     /**
-     * Set the number of messages that wait for a publish to one destination.
+     * Changes the number of messages that wait for a publish to one destination.
+     *
+     * The change is atomic on the counter that the gauge reads, so two concurrent publishes
+     * cannot leave a stale value behind. See F-052.
      */
-    @Synchronized
+    fun addQueueDepth(destination: String, delta: Long) {
+        depthHolder(destination).addAndGet(delta)
+    }
+
+    /**
+     * Sets the queue depth of one destination. The tests use it.
+     */
     fun setQueueDepth(destination: String, depth: Long) {
-        val holder = queueDepths.getOrPut(destination) {
-            val value = AtomicLong(0)
-            Gauge.builder("queuebox_outbox_queue_depth", value) { it.get().toDouble() }
-                .description("Messages that wait for a publish to the destination")
-                .tag("destination", destination)
-                .register(registry)
-            value
-        }
-        holder.set(depth)
+        depthHolder(destination).set(depth)
+    }
+
+    @Synchronized
+    private fun depthHolder(destination: String): AtomicLong = queueDepths.getOrPut(destination) {
+        val value = AtomicLong(0)
+        Gauge.builder("queuebox_outbox_queue_depth", value) { it.get().toDouble() }
+            .description("Messages that wait for a publish to the destination")
+            .tag("destination", destination)
+            .register(registry)
+        value
     }
 
     /**

@@ -32,7 +32,7 @@ class HealthCheckTest {
         val mockDataSource = mockk<DataSource>()
 
         every { mockDataSource.connection } returns mockConnection
-        every { mockConnection.isValid(5) } returns true
+        every { mockConnection.isValid(any()) } returns true
         every { mockConnection.close() } just Runs
 
         val healthManager = HealthManager(mockDataSource)
@@ -82,7 +82,7 @@ class HealthCheckTest {
         val mockDataSource = mockk<DataSource>()
 
         every { mockDataSource.connection } returns mockConnection
-        every { mockConnection.isValid(5) } returns true
+        every { mockConnection.isValid(any()) } returns true
         every { mockConnection.close() } just Runs
 
         val healthManager = HealthManager(mockDataSource)

@@ -16,6 +16,7 @@ import io.mockk.mockk
 import kotlinx.serialization.json.Json
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
@@ -468,5 +469,68 @@ class InboxRoutesTest {
             }
             assertEquals(HttpStatusCode.OK, response.status)
         }
+    }
+
+    // --- F-047: the correlation identifier is bounded and safe ---
+
+    private fun ApplicationTestBuilder.setupRealInbox() {
+        val repository = mockk<org.nxtspec.repository.InboxRepositoryInterface>()
+        val handler = InboxHandler(repository, IdempotencyExtractor())
+        coEvery { repository.store(any()) } returns InboxResult.Stored
+
+        application {
+            this.install(ContentNegotiation) { json() }
+            configureInboxRoutes(
+                InboxConfig(basePath = "/inbox"),
+                mapOf("stripe" to SourceConfig.Http(path = "/stripe", idempotencyKeyPath = "$.id")),
+                handler
+            )
+        }
+    }
+
+    @Test
+    fun `a long correlation identifier is truncated to the column width`() = testApplication {
+        setupRealInbox()
+
+        val long = "c".repeat(500)
+        val response = client.post("/inbox/stripe") {
+            contentType(ContentType.Application.Json)
+            header("X-Correlation-Id", long)
+            setBody("""{"id": "evt-long-corr"}""")
+        }
+
+        val echoed = response.headers["X-Correlation-Id"]!!
+        assertEquals(128, echoed.length, "The identifier must fit the column")
+        assertTrue(long.startsWith(echoed))
+    }
+
+    @Test
+    fun `ktor rejects a control character in the correlation identifier header`() = testApplication {
+        // The route filters control characters as well. Ktor refuses them first, so the filter
+        // is the second layer. It matters for a source that is not HTTP, such as AMQP, where a
+        // header value is an arbitrary string.
+        setupRealInbox()
+
+        assertFailsWith<io.ktor.http.IllegalHeaderValueException> {
+            client.post("/inbox/stripe") {
+                contentType(ContentType.Application.Json)
+                header("X-Correlation-Id", "abc\u0000def")
+                setBody("""{"id": "evt-ctrl-corr"}""")
+            }
+        }
+        Unit
+    }
+
+    @Test
+    fun `the inbox generates a correlation identifier when the caller sends none`() = testApplication {
+        setupRealInbox()
+
+        val response = client.post("/inbox/stripe") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"id": "evt-no-corr"}""")
+        }
+
+        val echoed = response.headers["X-Correlation-Id"]
+        assertTrue(!echoed.isNullOrBlank(), "The response must carry a generated identifier")
     }
 }

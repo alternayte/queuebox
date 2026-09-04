@@ -52,6 +52,7 @@ jsonata = { group = "com.dashjoin", name = "jsonata", version.ref = "jsonata" }
 
 # Logging
 slf4j-api = { group = "org.slf4j", name = "slf4j-api", version.ref = "slf4j" }
+kotlinx-coroutines-slf4j = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-slf4j", version.ref = "kotlinxCoroutines" }
 logback-classic = { group = "ch.qos.logback", name = "logback-classic", version.ref = "logback" }
 logstash-encoder = { group = "net.logstash.logback", name = "logstash-logback-encoder", version.ref = "logstashEncoder" }
 

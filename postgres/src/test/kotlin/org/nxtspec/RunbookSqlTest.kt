@@ -3,6 +3,7 @@ package org.nxtspec
 import org.junit.jupiter.api.Test
 import java.io.File
 import java.util.UUID
+import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 import kotlin.test.fail
 
@@ -24,10 +25,17 @@ class RunbookSqlTest : PostgresTestBase() {
             ":limit" to "10"
         )
 
-        private val PLACEHOLDER_PATTERN = Regex(":[a-z_]+")
+        // A cast writes two colons, so the pattern must not treat "::text" as a placeholder.
+        private val PLACEHOLDER_PATTERN = Regex("(?<!:):[a-z_]+")
 
-        private val BLOCK_PATTERN =
-            Regex("(?:<!--\\s*sql-id:\\s*([A-Za-z0-9_-]+)\\s*-->\\s*)?```sql\\n(.*?)```", RegexOption.DOT_MATCHES_ALL)
+        private val BLOCK_PATTERN = Regex(
+            "(?:<!--\\s*sql-id:\\s*([A-Za-z0-9_-]+)\\s*-->\\s*)?```sql[ \\t]*\\r?\\n(.*?)```",
+            setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE)
+        )
+
+        // Every opening fence of the document. The count must match the count of extracted
+        // blocks, so a block cannot escape the extraction because of its fence spelling.
+        private val ANY_FENCE_PATTERN = Regex("^```([A-Za-z0-9_+-]*)[ \\t]*$", RegexOption.MULTILINE)
 
         private fun repoRoot(): File {
             var dir = File(System.getProperty("user.dir")).absoluteFile
@@ -46,10 +54,31 @@ class RunbookSqlTest : PostgresTestBase() {
         /** A fenced sql block, with its optional `sql-id` name. */
         data class SqlBlock(val id: String?, val body: String)
 
-        fun sqlBlocks(file: File): List<SqlBlock> =
-            BLOCK_PATTERN.findAll(file.readText())
+        fun sqlBlocks(file: File): List<SqlBlock> {
+            val text = file.readText()
+            val blocks = BLOCK_PATTERN.findAll(text)
                 .map { SqlBlock(it.groupValues[1].ifEmpty { null }, it.groupValues[2]) }
                 .toList()
+
+            // A fence whose language names SQL in any spelling must be one of the extracted
+            // blocks. Without the check a renamed fence would leave a statement untested, and
+            // the test would still pass.
+            val sqlLikeFences = ANY_FENCE_PATTERN.findAll(text)
+                .map { it.groupValues[1].lowercase() }
+                .filter { it in SQL_LANGUAGES }
+                .count()
+
+            assertEquals(
+                sqlLikeFences,
+                blocks.size,
+                "The extraction missed a fenced SQL block in ${file.name}. Every SQL block must " +
+                    "open with three back ticks and the word sql."
+            )
+
+            return blocks
+        }
+
+        private val SQL_LANGUAGES = setOf("sql", "postgresql", "psql", "plpgsql")
 
         /** Splits a block into statements. A statement ends with a semicolon at the end of a line. */
         fun statements(body: String): List<String> =

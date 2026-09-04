@@ -119,8 +119,8 @@ class MetricsCollector(registry: MeterRegistry) : MetricsCollectorInterface {
     /**
      * Update the number of messages that wait for a publish to one destination.
      */
-    override fun updateQueueDepth(destination: String, depth: Long) {
-        metrics.setQueueDepth(destination, depth)
+    override fun changeQueueDepth(destination: String, delta: Long) {
+        metrics.addQueueDepth(destination, delta)
     }
 
     /**
