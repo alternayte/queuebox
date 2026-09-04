@@ -85,6 +85,10 @@ Fix most findings automatically.
 
 `ktlintFormat` does not fix a detekt finding. Correct such a finding by hand.
 
+`config/detekt/detekt.yml` holds the rule set. `config/detekt/baseline.xml` holds the findings
+that the codebase carried before the gate arrived. Never add a new entry to the baseline. Correct
+the finding instead. To remove an entry, fix the code and delete the line.
+
 Further rules.
 
 1. Follow the official Kotlin coding conventions. `.editorconfig` holds the settings that ktlint

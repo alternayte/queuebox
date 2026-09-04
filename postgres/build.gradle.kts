@@ -17,23 +17,23 @@ dependencies {
     implementation(project(":config"))
 
     // Connection pooling
-    implementation("com.zaxxer:HikariCP:6.0.0")
+    implementation(libs.hikaricp)
 
     // Micrometer for HikariCP metrics
     implementation(libs.micrometer.core)
 
     // PostgreSQL driver
-    implementation("org.postgresql:postgresql:42.7.4")
+    implementation(libs.postgresql)
 
     // Flyway migrations
     implementation(libs.flyway.core)
     implementation(libs.flyway.postgresql)
 
     // Exposed ORM
-    implementation("org.jetbrains.exposed:exposed-core:0.56.0")
-    implementation("org.jetbrains.exposed:exposed-jdbc:0.56.0")
-    implementation("org.jetbrains.exposed:exposed-json:0.56.0")
-    implementation("org.jetbrains.exposed:exposed-kotlin-datetime:0.56.0")
+    implementation(libs.exposed.core)
+    implementation(libs.exposed.jdbc)
+    implementation(libs.exposed.json)
+    implementation(libs.exposed.kotlin.datetime)
 
     // Kotlinx
     implementation(libs.bundles.kotlinxEcosystem)

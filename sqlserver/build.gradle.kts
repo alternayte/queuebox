@@ -21,16 +21,16 @@ dependencies {
     implementation(project(":config"))
 
     // Connection pooling
-    implementation("com.zaxxer:HikariCP:6.0.0")
+    implementation(libs.hikaricp)
 
     // SQL Server JDBC driver
-    implementation("com.microsoft.sqlserver:mssql-jdbc:12.8.1.jre11")
+    implementation(libs.mssql.jdbc)
 
     // Exposed ORM
-    implementation("org.jetbrains.exposed:exposed-core:0.56.0")
-    implementation("org.jetbrains.exposed:exposed-jdbc:0.56.0")
-    implementation("org.jetbrains.exposed:exposed-json:0.56.0")
-    implementation("org.jetbrains.exposed:exposed-kotlin-datetime:0.56.0")
+    implementation(libs.exposed.core)
+    implementation(libs.exposed.jdbc)
+    implementation(libs.exposed.json)
+    implementation(libs.exposed.kotlin.datetime)
 
     // Kotlinx
     implementation(libs.bundles.kotlinxEcosystem)

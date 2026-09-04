@@ -12,6 +12,8 @@ import javax.sql.DataSource
  * Factory for creating SQL Server-specific repository implementations.
  */
 class SqlServerRepositoryFactory(
+    // Kept because it is part of the public constructor contract of this factory.
+    @Suppress("UnusedPrivateProperty")
     private val dataSource: DataSource,
     private val columnMapping: ColumnMappingData = ColumnMappingData()
 ) : RepositoryFactory {

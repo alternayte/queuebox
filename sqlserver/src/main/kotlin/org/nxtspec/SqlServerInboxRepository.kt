@@ -54,12 +54,16 @@ class SqlServerInboxRepository(
 
             // Use MERGE for atomic insert-if-not-exists
             // This is the SQL Server equivalent of INSERT ... ON CONFLICT DO NOTHING
+            // Keep the inserted column list in one value so the statement text stays unchanged.
+            val insertColumns =
+                "$idCol, $sourceCol, $idempotencyKeyCol, $aggregateIdCol, $eventTypeCol, " +
+                    "$payloadCol, $stateCol, $createdAtCol, $correlationIdCol"
             val sql = """
                 MERGE ${quoteSqlServerIdentifier(tableName)} AS target
                 USING (SELECT ? AS source, ? AS idempotency_key) AS src
                 ON target.$sourceCol = src.source AND target.$idempotencyKeyCol = src.idempotency_key
                 WHEN NOT MATCHED THEN
-                    INSERT ($idCol, $sourceCol, $idempotencyKeyCol, $aggregateIdCol, $eventTypeCol, $payloadCol, $stateCol, $createdAtCol, $correlationIdCol)
+                    INSERT ($insertColumns)
                     VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?);
             """.trimIndent()
 
@@ -350,19 +354,6 @@ class SqlServerInboxRepository(
         createdAt = this[table.createdAt],
         processedAt = this[table.processedAt],
         correlationId = this[table.correlationId]
-    )
-
-    private fun ResultSet.toInboxMessage(): InboxMessage = InboxMessage(
-        id = UUID.fromString(getString(columnMapping.id)),
-        source = getString(columnMapping.source),
-        idempotencyKey = getString(columnMapping.idempotencyKey),
-        aggregateId = getString(columnMapping.aggregateId),
-        eventType = getString(columnMapping.eventType),
-        payload = Json.parseToJsonElement(getString(columnMapping.payload)),
-        state = stringToMessageState(getString(columnMapping.state)),
-        createdAt = getTimestamp(columnMapping.createdAt).toInstant().toKotlinInstant(),
-        processedAt = getTimestamp(columnMapping.processedAt)?.toInstant()?.toKotlinInstant(),
-        correlationId = getString(columnMapping.correlationId)
     )
 
     private fun stringToMessageState(state: String): MessageState = when (state) {

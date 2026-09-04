@@ -51,17 +51,13 @@ class SqlServerOutboxRepository(
      */
     override suspend fun claimBatch(batchSize: Int): List<OutboxMessage> = newSuspendedTransaction {
         val now = Clock.System.now()
-        val nowTimestamp = Timestamp.from(java.time.Instant.ofEpochSecond(now.epochSeconds, now.nanosecondsOfSecond.toLong()))
+        val nowTimestamp = Timestamp.from(
+            java.time.Instant.ofEpochSecond(now.epochSeconds, now.nanosecondsOfSecond.toLong())
+        )
 
         val t = quoteSqlServerIdentifier(tableName)
         val idCol = quoteSqlServerIdentifier(columnMapping.id)
-        val topicCol = quoteSqlServerIdentifier(columnMapping.topic)
-        val keyCol = quoteSqlServerIdentifier(columnMapping.key)
-        val payloadCol = quoteSqlServerIdentifier(columnMapping.payload)
-        val headersCol = quoteSqlServerIdentifier(columnMapping.headers)
         val stateCol = quoteSqlServerIdentifier(columnMapping.state)
-        val attemptCol = quoteSqlServerIdentifier(columnMapping.attempt)
-        val maxAttemptsCol = quoteSqlServerIdentifier(columnMapping.maxAttempts)
         val scheduledAtCol = quoteSqlServerIdentifier(columnMapping.scheduledAt)
         val createdAtCol = quoteSqlServerIdentifier(columnMapping.createdAt)
         val updatedAtCol = quoteSqlServerIdentifier(columnMapping.updatedAt)

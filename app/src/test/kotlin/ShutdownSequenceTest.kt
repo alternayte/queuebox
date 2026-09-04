@@ -33,7 +33,7 @@ class ShutdownSequenceTest {
         val logged = mutableListOf<String>()
 
         ShutdownSequence(
-            stopServer = { delay(1); throw IllegalStateException("server stop failed") },
+            stopServer = { delay(1); error("server stop failed") },
             stopBackgroundServices = { delay(1); order.add("services") },
             closeResources = { delay(1); order.add("resources") },
             log = { logged.add(it) }

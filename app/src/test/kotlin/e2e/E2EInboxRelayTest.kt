@@ -186,7 +186,7 @@ class E2EInboxRelayTest : E2ETestBase() {
             object : org.nxtspec.repository.OutboxRepositoryInterface {
                 override suspend fun claimBatch(batchSize: Int) = emptyList<org.nxtspec.OutboxMessage>()
                 override suspend fun insert(message: org.nxtspec.OutboxMessage) {
-                    throw IllegalStateException("insert failed")
+                    error("insert failed")
                 }
                 override suspend fun markSent(id: UUID) = Unit
                         override suspend fun scheduleRetry(id: UUID, delayMs: Long, error: String?) = Unit

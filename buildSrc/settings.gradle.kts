@@ -4,6 +4,8 @@ dependencyResolutionManagement {
     @Suppress("UnstableApiUsage")
     repositories {
         mavenCentral()
+        // F-066: the ktlint Gradle plugin publishes only to the Gradle Plugin Portal.
+        gradlePluginPortal()
     }
 
     // Reuse the version catalog from the main build.

@@ -89,7 +89,8 @@ fun quoteSqlServerIdentifier(identifier: String): String {
  * Factory function to create a SqlServerDynamicOutboxTable with default column names.
  * Equivalent to the static SqlServerOutboxTable object.
  */
-fun createDefaultSqlServerOutboxTable(): SqlServerDynamicOutboxTable = SqlServerDynamicOutboxTable(OutboxColumnMapping())
+fun createDefaultSqlServerOutboxTable(): SqlServerDynamicOutboxTable =
+    SqlServerDynamicOutboxTable(OutboxColumnMapping())
 
 /**
  * Factory function to create a SqlServerDynamicInboxTable with default column names.

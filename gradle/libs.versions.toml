@@ -16,6 +16,14 @@ cyclonedx = "1.10.0"
 slf4j = "2.0.16"
 logback = "1.5.12"
 logstashEncoder = "8.0"
+hikari = "6.0.0"
+exposed = "0.56.0"
+postgresql = "42.7.4"
+mssqlJdbc = "12.8.1.jre11"
+amqpClient = "5.22.0"
+jsonPath = "2.9.0"
+ktlint = "12.1.2"
+detekt = "1.23.8"
 
 # Testing
 testcontainers = "1.20.4"
@@ -61,6 +69,27 @@ flyway-core = { group = "org.flywaydb", name = "flyway-core", version.ref = "fly
 flyway-postgresql = { group = "org.flywaydb", name = "flyway-database-postgresql", version.ref = "flyway" }
 flyway-sqlserver = { group = "org.flywaydb", name = "flyway-sqlserver", version.ref = "flyway" }
 
+# Database drivers and pooling
+hikaricp = { group = "com.zaxxer", name = "HikariCP", version.ref = "hikari" }
+postgresql = { group = "org.postgresql", name = "postgresql", version.ref = "postgresql" }
+mssql-jdbc = { group = "com.microsoft.sqlserver", name = "mssql-jdbc", version.ref = "mssqlJdbc" }
+
+# Exposed
+exposed-core = { group = "org.jetbrains.exposed", name = "exposed-core", version.ref = "exposed" }
+exposed-jdbc = { group = "org.jetbrains.exposed", name = "exposed-jdbc", version.ref = "exposed" }
+exposed-json = { group = "org.jetbrains.exposed", name = "exposed-json", version.ref = "exposed" }
+exposed-kotlin-datetime = { group = "org.jetbrains.exposed", name = "exposed-kotlin-datetime", version.ref = "exposed" }
+
+# RabbitMQ
+amqp-client = { group = "com.rabbitmq", name = "amqp-client", version.ref = "amqpClient" }
+
+# Lint plugins, resolved by the convention plugin in buildSrc
+ktlint-gradle-plugin = { module = "org.jlleitschuh.gradle:ktlint-gradle", version.ref = "ktlint" }
+detekt-gradle-plugin = { module = "io.gitlab.arturbosch.detekt:detekt-gradle-plugin", version.ref = "detekt" }
+
+# JSONPath
+json-path = { group = "com.jayway.jsonpath", name = "json-path", version.ref = "jsonPath" }
+
 # Testing
 kotlin-test = { module = "org.jetbrains.kotlin:kotlin-test" }
 kotlinx-coroutines-test = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-test", version.ref = "kotlinxCoroutines" }
@@ -79,6 +108,7 @@ kotlinxEcosystem = ["kotlinxDatetime", "kotlinxSerialization", "kotlinxCoroutine
 ktorServerEcosystem = ["ktor-server-core","ktor-server-netty","ktor-serialization-json","ktor-content-negotiation"]
 ktorClientEcosystem = ["ktor-client-core", "ktor-client-cio", "ktor-client-content-negotiation", "ktor-serialization-json"]
 hopliteEcosystem = ["hoplite-core","hoplite-yaml"]
+exposedEcosystem = ["exposed-core", "exposed-jdbc", "exposed-json", "exposed-kotlin-datetime"]
 
 # Test bundles
 testCore = ["kotlin-test", "mockk"]
@@ -93,3 +123,5 @@ testContainersMssqlserver = ["testcontainers-mssqlserver", "testcontainers-junit
 [plugins]
 cyclonedx = { id = "org.cyclonedx.bom", version.ref = "cyclonedx" }
 kotlinPluginSerialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
+ktlint = { id = "org.jlleitschuh.gradle.ktlint", version.ref = "ktlint" }
+detekt = { id = "io.gitlab.arturbosch.detekt", version.ref = "detekt" }

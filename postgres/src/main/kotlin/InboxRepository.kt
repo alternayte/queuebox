@@ -127,7 +127,8 @@ class InboxRepository(
             java.time.Instant.ofEpochSecond(now.epochSeconds, now.nanosecondsOfSecond.toLong())
         )
 
-        val conn = org.jetbrains.exposed.sql.transactions.TransactionManager.current().connection.connection as java.sql.Connection
+        val conn = org.jetbrains.exposed.sql.transactions.TransactionManager.current()
+            .connection.connection as java.sql.Connection
         val claimed = conn.prepareStatement(sql).use { stmt ->
             stmt.setTimestamp(1, nowTimestamp)
             stmt.setInt(2, batchSize)
@@ -231,19 +232,6 @@ class InboxRepository(
                 table.deleteWhere { table.id inList ids }
             }
         }
-
-    private fun ResultRow.toInboxMessage(): InboxMessage = InboxMessage(
-        id = this[table.id].value,
-        source = this[table.messageSrc],
-        idempotencyKey = this[table.idempotencyKey],
-        aggregateId = this[table.aggregateId],
-        eventType = this[table.eventType],
-        payload = this[table.payload],
-        state = stringToMessageState(this[table.state]),
-        createdAt = this[table.createdAt],
-        processedAt = this[table.processedAt],
-        correlationId = this[table.correlationId]
-    )
 
     private fun java.sql.ResultSet.toInboxMessageFromResultSet(): InboxMessage = InboxMessage(
         id = java.util.UUID.fromString(getString(columnMapping.id)),

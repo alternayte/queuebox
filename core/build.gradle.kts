@@ -23,7 +23,7 @@ dependencies {
     implementation(libs.micrometer.core)
 
     // JSONPath for idempotency key extraction
-    implementation("com.jayway.jsonpath:json-path:2.9.0")
+    implementation(libs.json.path)
 
     testImplementation(libs.kotlin.test)
     // SLF4J uses a no-operation mapped diagnostic context without a binding, so the logging

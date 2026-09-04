@@ -843,7 +843,7 @@ class OutboxPollerTest {
         coEvery { repository.reclaimStale(any()) } returns 0
         every { router.route(any(), any()) } answers {
             if (firstArg<String>() == failing.topic) {
-                throw IllegalStateException("router exploded")
+                error("router exploded")
             }
             RoutingResult(destination, null)
         }

@@ -121,8 +121,8 @@ jobs:
   lint:
     name: Lint
     runs-on: ubuntu-latest
-    # The ktlint and detekt plugins arrive with F-066. Until they land, this job fails, and
-    # that failure is the signal that the work is not finished.
+    # F-066: ktlint and detekt gate every change. The convention plugin in buildSrc applies
+    # both, so the job covers every module.
     continue-on-error: false
     steps:
       - name: Check out the repository

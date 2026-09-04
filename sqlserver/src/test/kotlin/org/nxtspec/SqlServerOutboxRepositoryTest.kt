@@ -72,7 +72,7 @@ class SqlServerOutboxRepositoryTest : SqlServerTestBase() {
     @RepeatedTest(3)
     fun `claimBatch with concurrent transactions prevents duplicate claims using READPAST`() = runTest {
         // Given: 20 pending messages
-        val messageIds = (1..20).map { insertOutboxMessage(state = "pending") }
+        (1..20).map { insertOutboxMessage(state = "pending") }
 
         // When: 5 coroutines concurrently claim batches of 5
         val claimedSets = Collections.synchronizedList(mutableListOf<List<OutboxMessage>>())

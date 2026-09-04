@@ -8,6 +8,44 @@ plugins {
     // Apply the Kotlin JVM plugin to add support for Kotlin in JVM projects.
     kotlin("jvm")
     jacoco
+    // F-066: the code style gates. Both plugins add their check task to `check`.
+    id("org.jlleitschuh.gradle.ktlint")
+    id("io.gitlab.arturbosch.detekt")
+}
+
+// F-066: ktlint reads `.editorconfig` at the root of the repository.
+ktlint {
+    // The version of the ktlint engine, which is separate from the version of the plugin.
+    version.set("1.5.0")
+    // A generated source file is not written by a contributor, so it is not gated.
+    filter {
+        exclude { it.file.path.contains("/build/generated/") }
+    }
+    reporters {
+        reporter(org.jlleitschuh.gradle.ktlint.reporter.ReporterType.PLAIN)
+    }
+}
+
+// F-066: detekt reads one checked-in configuration for every module.
+detekt {
+    buildUponDefaultConfig = true
+    config.setFrom(rootProject.files("config/detekt/detekt.yml"))
+    baseline = rootProject.file("config/detekt/baseline.xml").takeIf { it.exists() }
+}
+
+tasks.withType<io.gitlab.arturbosch.detekt.Detekt>().configureEach {
+    jvmTarget = "21"
+    reports {
+        html.required.set(true)
+        xml.required.set(false)
+        txt.required.set(false)
+        sarif.required.set(false)
+        md.required.set(false)
+    }
+}
+
+tasks.withType<io.gitlab.arturbosch.detekt.DetektCreateBaselineTask>().configureEach {
+    jvmTarget = "21"
 }
 
 jacoco {

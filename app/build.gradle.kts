@@ -31,7 +31,7 @@ dependencies {
     implementation(libs.micrometer.prometheus)
 
     // HikariCP for database connection pooling
-    implementation("com.zaxxer:HikariCP:6.0.0")
+    implementation(libs.hikaricp)
 
     // Testing (E2E)
     testImplementation(libs.kotlin.test)
@@ -45,16 +45,16 @@ dependencies {
     testImplementation(libs.testcontainers.junit)
 
     // Exposed ORM for E2E database assertions
-    testImplementation("org.jetbrains.exposed:exposed-core:0.56.0")
-    testImplementation("org.jetbrains.exposed:exposed-jdbc:0.56.0")
-    testImplementation("org.jetbrains.exposed:exposed-json:0.56.0")
-    testImplementation("org.jetbrains.exposed:exposed-kotlin-datetime:0.56.0")
+    testImplementation(libs.exposed.core)
+    testImplementation(libs.exposed.jdbc)
+    testImplementation(libs.exposed.json)
+    testImplementation(libs.exposed.kotlin.datetime)
 
     // RabbitMQ client for E2E tests
-    testImplementation("com.rabbitmq:amqp-client:5.22.0")
+    testImplementation(libs.amqp.client)
 
     // Ktor CIO engine for HTTP client in E2E tests
-    testImplementation("io.ktor:ktor-client-cio:3.4.0")
+    testImplementation(libs.ktor.client.cio)
 }
 
 application {

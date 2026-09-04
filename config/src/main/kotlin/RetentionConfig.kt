@@ -65,7 +65,8 @@ object DurationParser {
             'h' -> value.hours
             'd' -> value.days
             else -> throw IllegalArgumentException(
-                "Invalid duration format: '$duration'. Supported suffixes: 's' (seconds), 'm' (minutes), 'h' (hours), 'd' (days)"
+                "Invalid duration format: '$duration'. Supported suffixes: " +
+                    "'s' (seconds), 'm' (minutes), 'h' (hours), 'd' (days)"
             )
         }
     }

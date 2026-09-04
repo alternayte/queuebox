@@ -12,6 +12,8 @@ import javax.sql.DataSource
  * Factory for creating PostgreSQL-specific repository implementations.
  */
 class PostgresRepositoryFactory(
+    // Kept because it is part of the public constructor contract of this factory.
+    @Suppress("UnusedPrivateProperty")
     private val dataSource: DataSource,
     private val columnMapping: ColumnMappingData = ColumnMappingData()
 ) : RepositoryFactory {

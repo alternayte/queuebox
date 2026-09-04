@@ -38,7 +38,8 @@ class QueueBoxMetrics(private val registry: MeterRegistry) {
         .register(registry)
 
     // Outbox pending gauge
-    val outboxMessagesPending: Gauge = Gauge.builder("queuebox_outbox_messages_pending", pendingMessageCount) { it.get().toDouble() }
+    val outboxMessagesPending: Gauge = Gauge
+        .builder("queuebox_outbox_messages_pending", pendingMessageCount) { it.get().toDouble() }
         .description("Current number of pending outbox messages")
         .register(registry)
 

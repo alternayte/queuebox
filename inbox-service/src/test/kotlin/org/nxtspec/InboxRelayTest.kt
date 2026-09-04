@@ -58,7 +58,7 @@ class InboxRelayTest {
         override suspend fun claimBatch(batchSize: Int): List<OutboxMessage> = emptyList()
 
         override suspend fun insert(message: OutboxMessage) {
-            if (failInsert) throw IllegalStateException("insert failed")
+            if (failInsert) error("insert failed")
             inserted.add(message)
         }
 

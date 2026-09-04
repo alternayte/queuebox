@@ -67,7 +67,8 @@ object ConfigLoader {
         if (!EnvConfigLoader.hasEnvConfig()) {
             throw ConfigException(
                 "No QUEUEBOX_* environment variables found. " +
-                    "Set required variables (e.g., QUEUEBOX_DATABASE_URL, QUEUEBOX_DATABASE_USERNAME, QUEUEBOX_DATABASE_PASSWORD) " +
+                    "Set required variables (e.g., QUEUEBOX_DATABASE_URL, " +
+                    "QUEUEBOX_DATABASE_USERNAME, QUEUEBOX_DATABASE_PASSWORD) " +
                     "or provide a queuebox.yml configuration file."
             )
         }

@@ -13,4 +13,9 @@ kotlin {
 dependencies {
     // Add a dependency on the Kotlin Gradle plugin, so that convention plugins can apply it.
     implementation(libs.kotlinGradlePlugin)
+
+    // F-066: the convention plugin applies ktlint and detekt, so buildSrc needs both plugins
+    // on its own classpath.
+    implementation(libs.ktlint.gradle.plugin)
+    implementation(libs.detekt.gradle.plugin)
 }

@@ -1,0 +1,71 @@
+# F-066: the detekt configuration of QueueBox. It builds on the default rule set.
+# Every entry below states why the project differs from the default.
+
+build:
+  # A finding must fail the build, so the tolerance is zero.
+  maxIssues: 0
+
+complexity:
+  LongParameterList:
+    # A constructor of a service takes its collaborators. Six is the practical floor here.
+    functionThreshold: 8
+    constructorThreshold: 10
+  TooManyFunctions:
+    # A test class groups many small test functions.
+    excludes: ['**/test/**']
+    thresholdInClasses: 20
+    thresholdInFiles: 20
+    thresholdInObjects: 20
+  LongMethod:
+    excludes: ['**/test/**']
+  CyclomaticComplexMethod:
+    excludes: ['**/test/**']
+  NestedBlockDepth:
+    excludes: ['**/test/**']
+
+exceptions:
+  TooGenericExceptionCaught:
+    # A poller and a consumer must survive any failure of one message.
+    active: false
+  SwallowedException:
+    active: false
+
+naming:
+  InvalidPackageDeclaration:
+    # The module source roots do not mirror the package. A file at `src/main/kotlin/App.kt`
+    # declares `package org.nxtspec`. A move of every file is a layout change, not a lint change.
+    active: false
+  FunctionNaming:
+    # A test name is a sentence in backticks.
+    excludes: ['**/test/**']
+  TopLevelPropertyNaming:
+    excludes: ['**/test/**']
+
+style:
+  WildcardImport:
+    # The Ktor routing DSL and the Exposed SQL DSL are designed around a wildcard import.
+    # `.editorconfig` disables the matching ktlint rule for the same reason.
+    active: false
+  MagicNumber:
+    excludes: ['**/test/**', '**/build.gradle.kts']
+    ignorePropertyDeclaration: true
+    ignoreCompanionObjectPropertyDeclaration: true
+    ignoreAnnotation: true
+  MaxLineLength:
+    maxLineLength: 120
+    excludes: ['**/test/**']
+  ReturnCount:
+    max: 4
+  ThrowsCount:
+    max: 4
+  ForbiddenComment:
+    # The build must fail on a TODO left in the shipped code.
+    comments:
+      - reason: 'A TODO must become a tracked finding, not a comment.'
+        value: 'TODO:'
+      - reason: 'A FIXME must become a tracked finding, not a comment.'
+        value: 'FIXME:'
+  UnusedPrivateMember:
+    active: true
+  LoopWithTooManyJumpStatements:
+    active: false

@@ -12,6 +12,10 @@ import java.net.UnknownHostException
  */
 object ConfigValidator {
 
+    /** Builds the standard hint that names the YAML path and the equivalent environment variable. */
+    private fun setVia(yamlPath: String) =
+        "Set via '$yamlPath' in YAML or ${EnvConfigLoader.yamlPathToEnvKey(yamlPath)} env var."
+
     /**
      * Validates a QueueBoxConfig and returns it if valid.
      *
@@ -30,84 +34,84 @@ object ConfigValidator {
 
         require(config.database.url.startsWith(expectedPrefix)) {
             "Database URL must match type '${config.database.type}' with prefix '$expectedPrefix'. " +
-                "Set via 'database.url' in YAML or ${EnvConfigLoader.yamlPathToEnvKey("database.url")} env var."
+                setVia("database.url")
         }
 
         // Validate port ranges
         require(config.server.httpPort in 1..65535) {
             "Invalid HTTP port: ${config.server.httpPort}. Must be between 1 and 65535. " +
-                "Set via 'server.httpPort' in YAML or ${EnvConfigLoader.yamlPathToEnvKey("server.httpPort")} env var."
+                setVia("server.httpPort")
         }
 
         // Validate pool size
         require(config.database.poolSize > 0) {
             "Database pool size must be greater than 0. " +
-                "Set via 'database.poolSize' in YAML or ${EnvConfigLoader.yamlPathToEnvKey("database.poolSize")} env var."
+                setVia("database.poolSize")
         }
 
         // Validate connection timeout
         require(config.database.connectionTimeoutMs > 0) {
             "Database connection timeout must be greater than 0. " +
-                "Set via 'database.connectionTimeoutMs' in YAML or ${EnvConfigLoader.yamlPathToEnvKey("database.connectionTimeoutMs")} env var."
+                setVia("database.connectionTimeoutMs")
         }
 
         // Validate outbox config
         require(config.outbox.pollIntervalMs > 0) {
             "Outbox poll interval must be greater than 0. " +
-                "Set via 'outbox.pollIntervalMs' in YAML or ${EnvConfigLoader.yamlPathToEnvKey("outbox.pollIntervalMs")} env var."
+                setVia("outbox.pollIntervalMs")
         }
         require(config.outbox.batchSize > 0) {
             "Outbox batch size must be greater than 0. " +
-                "Set via 'outbox.batchSize' in YAML or ${EnvConfigLoader.yamlPathToEnvKey("outbox.batchSize")} env var."
+                setVia("outbox.batchSize")
         }
         require(config.outbox.concurrency > 0) {
             "Outbox concurrency must be greater than 0. " +
-                "Set via 'outbox.concurrency' in YAML or ${EnvConfigLoader.yamlPathToEnvKey("outbox.concurrency")} env var."
+                setVia("outbox.concurrency")
         }
         require(config.outbox.claimTimeoutMs > 0) {
             "Outbox claim timeout must be greater than 0. " +
-                "Set via 'outbox.claimTimeoutMs' in YAML or ${EnvConfigLoader.yamlPathToEnvKey("outbox.claimTimeoutMs")} env var."
+                setVia("outbox.claimTimeoutMs")
         }
         require(config.outbox.shutdownTimeoutMs > 0) {
             "Outbox shutdown timeout must be greater than 0. " +
-                "Set via 'outbox.shutdownTimeoutMs' in YAML or ${EnvConfigLoader.yamlPathToEnvKey("outbox.shutdownTimeoutMs")} env var."
+                setVia("outbox.shutdownTimeoutMs")
         }
         config.server.managementPort?.let { port ->
             require(port in 1..65535) {
                 "Invalid management port: $port. Must be between 1 and 65535. " +
-                    "Set via 'server.managementPort' in YAML or ${EnvConfigLoader.yamlPathToEnvKey("server.managementPort")} env var."
+                    setVia("server.managementPort")
             }
             require(port != config.server.httpPort) {
                 "The management port must differ from the HTTP port. Both are $port. " +
-                    "Set via 'server.managementPort' in YAML or ${EnvConfigLoader.yamlPathToEnvKey("server.managementPort")} env var."
+                    setVia("server.managementPort")
             }
         }
         require(config.database.startupTimeoutMs > 0) {
             "Database startup timeout must be greater than 0. " +
-                "Set via 'database.startupTimeoutMs' in YAML or ${EnvConfigLoader.yamlPathToEnvKey("database.startupTimeoutMs")} env var."
+                setVia("database.startupTimeoutMs")
         }
         require(config.admin.maxTransformTimeoutMs > 0) {
             "Admin max transform timeout must be greater than 0. " +
-                "Set via 'admin.maxTransformTimeoutMs' in YAML or ${EnvConfigLoader.yamlPathToEnvKey("admin.maxTransformTimeoutMs")} env var."
+                setVia("admin.maxTransformTimeoutMs")
         }
         require(config.admin.maxPayloadBytes > 0) {
             "Admin max payload bytes must be greater than 0. " +
-                "Set via 'admin.maxPayloadBytes' in YAML or ${EnvConfigLoader.yamlPathToEnvKey("admin.maxPayloadBytes")} env var."
+                setVia("admin.maxPayloadBytes")
         }
         require(config.http.maxErrorBodyBytes > 0) {
             "HTTP max error body bytes must be greater than 0. " +
-                "Set via 'http.maxErrorBodyBytes' in YAML or ${EnvConfigLoader.yamlPathToEnvKey("http.maxErrorBodyBytes")} env var."
+                setVia("http.maxErrorBodyBytes")
         }
         if (config.admin.auth != null) {
             validateInboxAuth(config.admin.auth, "Admin", "admin.auth")
         }
         require(config.inbox.maxBodyBytes > 0) {
             "Inbox max body bytes must be greater than 0. " +
-                "Set via 'inbox.maxBodyBytes' in YAML or ${EnvConfigLoader.yamlPathToEnvKey("inbox.maxBodyBytes")} env var."
+                setVia("inbox.maxBodyBytes")
         }
         require(config.outbox.maxAttempts > 0) {
             "Outbox max attempts must be greater than 0. " +
-                "Set via 'outbox.maxAttempts' in YAML or ${EnvConfigLoader.yamlPathToEnvKey("outbox.maxAttempts")} env var."
+                setVia("outbox.maxAttempts")
         }
 
         // Validate destinations referenced in routes exist
@@ -247,13 +251,13 @@ object ConfigValidator {
         tableNames.forEach { (yamlPath, tableName) ->
             require(tableName.isNotBlank()) {
                 "Table name '$yamlPath' cannot be blank. " +
-                    "Set via '$yamlPath' in YAML or ${EnvConfigLoader.yamlPathToEnvKey(yamlPath)} env var."
+                    setVia(yamlPath)
             }
             require(SQL_IDENTIFIER_REGEX.matches(tableName)) {
                 "Invalid table name '$tableName' for '$yamlPath'. " +
                     "Table names must start with a letter or underscore and contain only " +
                     "alphanumeric characters and underscores. " +
-                    "Set via '$yamlPath' in YAML or ${EnvConfigLoader.yamlPathToEnvKey(yamlPath)} env var."
+                    setVia(yamlPath)
             }
         }
     }
@@ -285,12 +289,13 @@ object ConfigValidator {
         outboxColumns.forEach { (fieldName, columnName) ->
             require(columnName.isNotBlank()) {
                 "Outbox column name for '$fieldName' cannot be blank. " +
-                    "Set via 'database.columnMapping.outbox.$fieldName' in YAML or ${EnvConfigLoader.yamlPathToEnvKey("database.columnMapping.outbox.$fieldName")} env var."
+                    setVia("database.columnMapping.outbox.$fieldName")
             }
             require(sqlIdentifierRegex.matches(columnName)) {
                 "Invalid outbox column name '$columnName' for '$fieldName'. " +
-                    "Column names must start with a letter or underscore and contain only alphanumeric characters and underscores. " +
-                    "Set via 'database.columnMapping.outbox.$fieldName' in YAML or ${EnvConfigLoader.yamlPathToEnvKey("database.columnMapping.outbox.$fieldName")} env var."
+                    "Column names must start with a letter or underscore and contain only " +
+                    "alphanumeric characters and underscores. " +
+                    setVia("database.columnMapping.outbox.$fieldName")
             }
         }
 
@@ -312,12 +317,13 @@ object ConfigValidator {
         inboxColumns.forEach { (fieldName, columnName) ->
             require(columnName.isNotBlank()) {
                 "Inbox column name for '$fieldName' cannot be blank. " +
-                    "Set via 'database.columnMapping.inbox.$fieldName' in YAML or ${EnvConfigLoader.yamlPathToEnvKey("database.columnMapping.inbox.$fieldName")} env var."
+                    setVia("database.columnMapping.inbox.$fieldName")
             }
             require(sqlIdentifierRegex.matches(columnName)) {
                 "Invalid inbox column name '$columnName' for '$fieldName'. " +
-                    "Column names must start with a letter or underscore and contain only alphanumeric characters and underscores. " +
-                    "Set via 'database.columnMapping.inbox.$fieldName' in YAML or ${EnvConfigLoader.yamlPathToEnvKey("database.columnMapping.inbox.$fieldName")} env var."
+                    "Column names must start with a letter or underscore and contain only " +
+                    "alphanumeric characters and underscores. " +
+                    setVia("database.columnMapping.inbox.$fieldName")
             }
         }
     }
@@ -329,15 +335,15 @@ object ConfigValidator {
         transform?.let {
             require(it.expression.isNotBlank()) {
                 "$context transform expression cannot be blank. " +
-                    "Set via '$yamlPath.expression' in YAML or ${EnvConfigLoader.yamlPathToEnvKey("$yamlPath.expression")} env var."
+                    setVia("$yamlPath.expression")
             }
             require(it.timeoutMs > 0) {
                 "$context transform timeoutMs must be positive. " +
-                    "Set via '$yamlPath.timeoutMs' in YAML or ${EnvConfigLoader.yamlPathToEnvKey("$yamlPath.timeoutMs")} env var."
+                    setVia("$yamlPath.timeoutMs")
             }
             require(it.maxDepth > 0) {
                 "$context transform maxDepth must be positive. " +
-                    "Set via '$yamlPath.maxDepth' in YAML or ${EnvConfigLoader.yamlPathToEnvKey("$yamlPath.maxDepth")} env var."
+                    setVia("$yamlPath.maxDepth")
             }
         }
     }
@@ -351,17 +357,17 @@ object ConfigValidator {
                 is InboxAuthConfig.Bearer -> {
                     require(it.token.isNotBlank()) {
                         "$context auth bearer token cannot be blank. " +
-                            "Set via '$yamlPath.token' in YAML or ${EnvConfigLoader.yamlPathToEnvKey("$yamlPath.token")} env var."
+                            setVia("$yamlPath.token")
                     }
                 }
                 is InboxAuthConfig.ApiKey -> {
                     require(it.key.isNotBlank()) {
                         "$context auth API key cannot be blank. " +
-                            "Set via '$yamlPath.key' in YAML or ${EnvConfigLoader.yamlPathToEnvKey("$yamlPath.key")} env var."
+                            setVia("$yamlPath.key")
                     }
                     require(it.headerName.isNotBlank()) {
                         "$context auth header name cannot be blank. " +
-                            "Set via '$yamlPath.headerName' in YAML or ${EnvConfigLoader.yamlPathToEnvKey("$yamlPath.headerName")} env var."
+                            setVia("$yamlPath.headerName")
                     }
                 }
                 is InboxAuthConfig.HmacSignature -> {
@@ -381,15 +387,15 @@ object ConfigValidator {
                     }
                     require(it.secret.isNotBlank()) {
                         "$context HMAC secret cannot be blank. " +
-                            "Set via '$yamlPath.secret' in YAML or ${EnvConfigLoader.yamlPathToEnvKey("$yamlPath.secret")} env var."
+                            setVia("$yamlPath.secret")
                     }
                     require(it.algorithm in listOf("HmacSHA256", "HmacSHA512")) {
                         "$context HMAC algorithm must be HmacSHA256 or HmacSHA512. " +
-                            "Set via '$yamlPath.algorithm' in YAML or ${EnvConfigLoader.yamlPathToEnvKey("$yamlPath.algorithm")} env var."
+                            setVia("$yamlPath.algorithm")
                     }
                     require(it.headerName.isNotBlank()) {
                         "$context HMAC signature header name cannot be blank. " +
-                            "Set via '$yamlPath.headerName' in YAML or ${EnvConfigLoader.yamlPathToEnvKey("$yamlPath.headerName")} env var."
+                            setVia("$yamlPath.headerName")
                     }
                 }
             }
@@ -418,31 +424,31 @@ object ConfigValidator {
                     )
                     require(it.clientId.isNotBlank()) {
                         "$context OAuth2 clientId cannot be blank. " +
-                            "Set via '$yamlPath.clientId' in YAML or ${EnvConfigLoader.yamlPathToEnvKey("$yamlPath.clientId")} env var."
+                            setVia("$yamlPath.clientId")
                     }
                     require(it.clientSecret.isNotBlank()) {
                         "$context OAuth2 clientSecret cannot be blank. " +
-                            "Set via '$yamlPath.clientSecret' in YAML or ${EnvConfigLoader.yamlPathToEnvKey("$yamlPath.clientSecret")} env var."
+                            setVia("$yamlPath.clientSecret")
                     }
                     require(it.tokenUrl.isNotBlank()) {
                         "$context OAuth2 tokenUrl cannot be blank. " +
-                            "Set via '$yamlPath.tokenUrl' in YAML or ${EnvConfigLoader.yamlPathToEnvKey("$yamlPath.tokenUrl")} env var."
+                            setVia("$yamlPath.tokenUrl")
                     }
                 }
                 is DestinationAuthConfig.Basic -> {
                     require(it.username.isNotBlank()) {
                         "$context Basic auth username cannot be blank. " +
-                            "Set via '$yamlPath.username' in YAML or ${EnvConfigLoader.yamlPathToEnvKey("$yamlPath.username")} env var."
+                            setVia("$yamlPath.username")
                     }
                 }
                 is DestinationAuthConfig.Header -> {
                     require(it.headerName.isNotBlank()) {
                         "$context header name cannot be blank. " +
-                            "Set via '$yamlPath.headerName' in YAML or ${EnvConfigLoader.yamlPathToEnvKey("$yamlPath.headerName")} env var."
+                            setVia("$yamlPath.headerName")
                     }
                     require(it.headerValue.isNotBlank()) {
                         "$context header value cannot be blank. " +
-                            "Set via '$yamlPath.headerValue' in YAML or ${EnvConfigLoader.yamlPathToEnvKey("$yamlPath.headerValue")} env var."
+                            setVia("$yamlPath.headerValue")
                     }
                 }
             }
@@ -479,7 +485,7 @@ object ConfigValidator {
         require(segments.none { it == ".." || it == "." }) {
             "Destination '$name' path '$path' must not carry a '.' or a '..' segment, because " +
                 "that changes the target after the server resolves it. " +
-                "Set via '$yamlPath' in YAML or ${EnvConfigLoader.yamlPathToEnvKey(yamlPath)} env var."
+                setVia(yamlPath)
         }
     }
 
@@ -495,7 +501,7 @@ object ConfigValidator {
         yamlPath: String,
         blockPrivateAddresses: Boolean
     ) {
-        val hint = "Set via '$yamlPath' in YAML or ${EnvConfigLoader.yamlPathToEnvKey(yamlPath)} env var."
+        val hint = setVia(yamlPath)
 
         require(url.isNotBlank()) {
             "$label cannot be blank. $hint"
@@ -566,7 +572,11 @@ object ConfigValidator {
      * Useful for documentation and error messages.
      */
     fun getRequiredFields(): List<ConfigField> = listOf(
-        ConfigField("database.type", EnvConfigLoader.yamlPathToEnvKey("database.type"), "Database type (postgresql or sqlserver)"),
+        ConfigField(
+            "database.type",
+            EnvConfigLoader.yamlPathToEnvKey("database.type"),
+            "Database type (postgresql or sqlserver)"
+        ),
         ConfigField("database.url", EnvConfigLoader.yamlPathToEnvKey("database.url"), "Database JDBC URL"),
         ConfigField("database.username", EnvConfigLoader.yamlPathToEnvKey("database.username"), "Database username"),
         ConfigField("database.password", EnvConfigLoader.yamlPathToEnvKey("database.password"), "Database password")
@@ -593,7 +603,7 @@ object ConfigValidator {
             RetentionPolicy.AGE -> {
                 require(config.maxAge != null) {
                     "$table retention policy 'age' requires maxAge. " +
-                        "Set via 'retention.$table.maxAge' in YAML or ${EnvConfigLoader.yamlPathToEnvKey("retention.$table.maxAge")} env var."
+                        setVia("retention.$table.maxAge")
                 }
                 // Validate maxAge format
                 DurationParser.parse(config.maxAge)
@@ -601,7 +611,7 @@ object ConfigValidator {
             RetentionPolicy.COUNT -> {
                 require(config.maxCount != null && config.maxCount > 0) {
                     "$table retention policy 'count' requires positive maxCount. " +
-                        "Set via 'retention.$table.maxCount' in YAML or ${EnvConfigLoader.yamlPathToEnvKey("retention.$table.maxCount")} env var."
+                        setVia("retention.$table.maxCount")
                 }
             }
             RetentionPolicy.DISABLED -> {
@@ -615,7 +625,7 @@ object ConfigValidator {
 
             require(config.batchSize > 0) {
                 "$table retention batchSize must be greater than 0. " +
-                    "Set via 'retention.$table.batchSize' in YAML or ${EnvConfigLoader.yamlPathToEnvKey("retention.$table.batchSize")} env var."
+                    setVia("retention.$table.batchSize")
             }
         }
     }
