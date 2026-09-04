@@ -12,7 +12,41 @@ data class QueueBoxConfig(
     val destinations: Map<String, DestinationConfig> = emptyMap(),
     val routes: List<RouteConfig> = emptyList(),
     val sources: Map<String, SourceConfig> = emptyMap(),
-    val retention: RetentionConfig = RetentionConfig()
+    val retention: RetentionConfig = RetentionConfig(),
+    val admin: AdminConfig = AdminConfig(),
+    val http: HttpConfig = HttpConfig()
+)
+
+/**
+ * Configuration for the admin endpoint. See F-034.
+ *
+ * The endpoint evaluates a caller-supplied JSONata expression, which is remote compute on the
+ * message-processing host. It is therefore disabled by default, and it needs authentication.
+ */
+@Serializable
+data class AdminConfig(
+    val enabled: Boolean = false,
+    /** Allows the admin endpoint with no authentication. Never set this in production. */
+    val insecure: Boolean = false,
+    val auth: InboxAuthConfig? = null,
+    /** Upper bound for the caller-supplied transform timeout. */
+    val maxTransformTimeoutMs: Long = 1000,
+    /** Upper bound for the caller-supplied payload. */
+    val maxPayloadBytes: Int = 65536
+)
+
+/**
+ * Configuration for the outbound HTTP publisher. See F-039 and F-040.
+ */
+@Serializable
+data class HttpConfig(
+    /** Upper bound for the error body that a failed publish keeps. */
+    val maxErrorBodyBytes: Int = 2048,
+    /**
+     * Refuses a destination that points at a loopback, a link-local, or a private address.
+     * The default is false, because many deployments publish inside their own network.
+     */
+    val blockPrivateAddresses: Boolean = false
 )
 
 @Serializable

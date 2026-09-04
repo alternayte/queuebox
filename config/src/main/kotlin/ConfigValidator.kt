@@ -68,6 +68,21 @@ object ConfigValidator {
             "Outbox shutdown timeout must be greater than 0. " +
                 "Set via 'outbox.shutdownTimeoutMs' in YAML or ${EnvConfigLoader.yamlPathToEnvKey("outbox.shutdownTimeoutMs")} env var."
         }
+        require(config.admin.maxTransformTimeoutMs > 0) {
+            "Admin max transform timeout must be greater than 0. " +
+                "Set via 'admin.maxTransformTimeoutMs' in YAML or ${EnvConfigLoader.yamlPathToEnvKey("admin.maxTransformTimeoutMs")} env var."
+        }
+        require(config.admin.maxPayloadBytes > 0) {
+            "Admin max payload bytes must be greater than 0. " +
+                "Set via 'admin.maxPayloadBytes' in YAML or ${EnvConfigLoader.yamlPathToEnvKey("admin.maxPayloadBytes")} env var."
+        }
+        require(config.http.maxErrorBodyBytes > 0) {
+            "HTTP max error body bytes must be greater than 0. " +
+                "Set via 'http.maxErrorBodyBytes' in YAML or ${EnvConfigLoader.yamlPathToEnvKey("http.maxErrorBodyBytes")} env var."
+        }
+        if (config.admin.auth != null) {
+            validateInboxAuth(config.admin.auth, "Admin", "admin.auth")
+        }
         require(config.inbox.maxBodyBytes > 0) {
             "Inbox max body bytes must be greater than 0. " +
                 "Set via 'inbox.maxBodyBytes' in YAML or ${EnvConfigLoader.yamlPathToEnvKey("inbox.maxBodyBytes")} env var."
