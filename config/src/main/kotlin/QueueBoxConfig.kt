@@ -25,7 +25,7 @@ data class DatabaseConfig(
     val type: String = "postgresql",
     val url: String,
     val username: String,
-    val password: String,
+    val password: Secret,
     val poolSize: Int = 10,
     val connectionTimeoutMs: Long = 30000,
     val columnMapping: ColumnMappingConfig = ColumnMappingConfig(),

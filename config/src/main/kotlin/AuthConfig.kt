@@ -16,7 +16,7 @@ sealed class InboxAuthConfig {
     @Serializable
     @SerialName("bearer")
     data class Bearer(
-        val token: String
+        val token: Secret
     ) : InboxAuthConfig()
 
     /**
@@ -26,7 +26,7 @@ sealed class InboxAuthConfig {
     @SerialName("api-key")
     data class ApiKey(
         val headerName: String = "X-API-Key",
-        val key: String
+        val key: Secret
     ) : InboxAuthConfig()
 
     /**
@@ -36,7 +36,7 @@ sealed class InboxAuthConfig {
     @Serializable
     @SerialName("hmac")
     data class HmacSignature(
-        val secret: String,
+        val secret: Secret,
         val headerName: String = "X-Signature",
         val algorithm: String = "HmacSHA256",
         val signaturePrefix: String = "sha256=",

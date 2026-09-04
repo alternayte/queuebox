@@ -18,7 +18,7 @@ class ConfigLoaderTest {
         assertEquals(8080, config.server.httpPort)
         assertEquals("jdbc:postgresql://localhost:5432/queuebox", config.database.url)
         assertEquals("postgres", config.database.username)
-        assertEquals("secret", config.database.password)
+        assertEquals("secret", config.database.password.reveal())
         assertEquals(10, config.database.poolSize)
         assertEquals(30000, config.database.connectionTimeoutMs)
         assertEquals(100, config.outbox.pollIntervalMs)

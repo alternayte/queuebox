@@ -15,7 +15,7 @@ class DatabaseFactoryTest : PostgresTestBase() {
         val testConfig = DatabaseConfig(
             url = postgres.jdbcUrl,
             username = postgres.username,
-            password = postgres.password,
+            password = Secret(postgres.password),
             poolSize = 5
         )
         val testDataSource = DatabaseFactory.create(testConfig)
@@ -41,7 +41,7 @@ class DatabaseFactoryTest : PostgresTestBase() {
         val customConfig = DatabaseConfig(
             url = postgres.jdbcUrl,
             username = postgres.username,
-            password = postgres.password,
+            password = Secret(postgres.password),
             poolSize = 3,
             connectionTimeoutMs = 15000
         )
@@ -58,7 +58,7 @@ class DatabaseFactoryTest : PostgresTestBase() {
         val tempConfig = DatabaseConfig(
             url = postgres.jdbcUrl,
             username = postgres.username,
-            password = postgres.password,
+            password = Secret(postgres.password),
             poolSize = 2
         )
         val tempDataSource = DatabaseFactory.create(tempConfig)

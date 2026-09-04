@@ -17,7 +17,7 @@ object DatabaseFactory {
         val hikariConfig = HikariConfig().apply {
             jdbcUrl = config.url
             username = config.username
-            password = config.password
+            password = config.password.reveal()
             maximumPoolSize = config.poolSize
             connectionTimeout = config.connectionTimeoutMs
             isAutoCommit = false

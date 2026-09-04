@@ -49,7 +49,7 @@ abstract class SqlServerTestBase {
                     type = "sqlserver",
                     url = sqlserver.jdbcUrl,
                     username = sqlserver.username,
-                    password = sqlserver.password,
+                    password = Secret(sqlserver.password),
                     poolSize = 10
                 )
                 val created = SqlServerDatabaseFactory.create(config)

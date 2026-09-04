@@ -50,7 +50,7 @@ abstract class PostgresTestBase {
                 val config = DatabaseConfig(
                     url = postgres.jdbcUrl,
                     username = postgres.username,
-                    password = postgres.password,
+                    password = Secret(postgres.password),
                     poolSize = 10
                 )
                 val created = DatabaseFactory.create(config)

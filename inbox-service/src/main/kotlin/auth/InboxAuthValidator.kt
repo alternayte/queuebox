@@ -46,7 +46,7 @@ class InboxAuthValidator {
             ?: return AuthResult.Failure("Missing Authorization header", HttpStatusCode.Unauthorized)
 
         val token = header.removePrefix("Bearer ").trim()
-        return if (secureCompare(token, config.token)) {
+        return if (secureCompare(token, config.token.reveal())) {
             AuthResult.Success
         } else {
             AuthResult.Failure("Invalid bearer token", HttpStatusCode.Unauthorized)
@@ -57,7 +57,7 @@ class InboxAuthValidator {
         val key = request.headers[config.headerName]
             ?: return AuthResult.Failure("Missing ${config.headerName} header", HttpStatusCode.Unauthorized)
 
-        return if (secureCompare(key, config.key)) {
+        return if (secureCompare(key, config.key.reveal())) {
             AuthResult.Success
         } else {
             AuthResult.Failure("Invalid API key", HttpStatusCode.Unauthorized)
@@ -89,7 +89,7 @@ class InboxAuthValidator {
                 HttpStatusCode.InternalServerError
             )
 
-        val expectedSignature = computeHmac(bodyBytes, config.secret, config.algorithm, config.signaturePrefix)
+        val expectedSignature = computeHmac(bodyBytes, config.secret.reveal(), config.algorithm, config.signaturePrefix)
         return if (secureCompare(signature, expectedSignature)) {
             AuthResult.Success
         } else {

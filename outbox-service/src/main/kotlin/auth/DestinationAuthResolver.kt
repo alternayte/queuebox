@@ -26,13 +26,13 @@ class DestinationAuthResolver(
             }
 
             is DestinationAuthConfig.Basic -> {
-                val credentials = "${authConfig.username}:${authConfig.password}"
+                val credentials = "${authConfig.username}:${authConfig.password.reveal()}"
                 val encoded = Base64.getEncoder().encodeToString(credentials.toByteArray(Charsets.UTF_8))
                 mapOf("Authorization" to "Basic $encoded")
             }
 
             is DestinationAuthConfig.Header -> {
-                mapOf(authConfig.headerName to authConfig.headerValue)
+                mapOf(authConfig.headerName to authConfig.headerValue.reveal())
             }
         }
     }

@@ -12,7 +12,7 @@ class ConfigValidatorTest {
         database = DatabaseConfig(
             url = "jdbc:postgresql://localhost:5432/queuebox",
             username = "postgres",
-            password = "secret",
+            password = Secret("secret"),
             poolSize = 10,
             connectionTimeoutMs = 30000
         ),
@@ -58,7 +58,7 @@ class ConfigValidatorTest {
             database = DatabaseConfig(
                 url = "jdbc:postgresql://localhost:5432/db",
                 username = "user",
-                password = "pass",
+                password = Secret("pass"),
                 poolSize = 1,
                 connectionTimeoutMs = 1
             ),
@@ -1188,7 +1188,7 @@ class ConfigValidatorTest {
                     path = "/webhooks/stripe",
                     idempotencyKeyPath = "$.id",
                     eventTypePath = "$.type",
-                    auth = InboxAuthConfig.Bearer(token = "secret-token")
+                    auth = InboxAuthConfig.Bearer(token = Secret("secret-token"))
                 )
             )
         )
@@ -1204,7 +1204,7 @@ class ConfigValidatorTest {
                     path = "/webhooks/stripe",
                     idempotencyKeyPath = "$.id",
                     eventTypePath = "$.type",
-                    auth = InboxAuthConfig.Bearer(token = "")
+                    auth = InboxAuthConfig.Bearer(token = Secret(""))
                 )
             )
         )
@@ -1222,7 +1222,7 @@ class ConfigValidatorTest {
                     path = "/webhooks/partner",
                     idempotencyKeyPath = "$.id",
                     eventTypePath = "$.type",
-                    auth = InboxAuthConfig.ApiKey(headerName = "X-API-Key", key = "my-api-key")
+                    auth = InboxAuthConfig.ApiKey(headerName = "X-API-Key", key = Secret("my-api-key"))
                 )
             )
         )
@@ -1238,7 +1238,7 @@ class ConfigValidatorTest {
                     path = "/webhooks/partner",
                     idempotencyKeyPath = "$.id",
                     eventTypePath = "$.type",
-                    auth = InboxAuthConfig.ApiKey(headerName = "X-API-Key", key = "")
+                    auth = InboxAuthConfig.ApiKey(headerName = "X-API-Key", key = Secret(""))
                 )
             )
         )
@@ -1256,7 +1256,7 @@ class ConfigValidatorTest {
                     path = "/webhooks/partner",
                     idempotencyKeyPath = "$.id",
                     eventTypePath = "$.type",
-                    auth = InboxAuthConfig.ApiKey(headerName = "", key = "my-key")
+                    auth = InboxAuthConfig.ApiKey(headerName = "", key = Secret("my-key"))
                 )
             )
         )
@@ -1275,7 +1275,7 @@ class ConfigValidatorTest {
                     idempotencyKeyPath = "$.id",
                     eventTypePath = "$.type",
                     auth = InboxAuthConfig.HmacSignature(
-                        secret = "webhook-secret",
+                        secret = Secret("webhook-secret"),
                         headerName = "Stripe-Signature",
                         algorithm = "HmacSHA256"
                     )
@@ -1295,7 +1295,7 @@ class ConfigValidatorTest {
                     idempotencyKeyPath = "$.id",
                     eventTypePath = "$.type",
                     auth = InboxAuthConfig.HmacSignature(
-                        secret = "",
+                        secret = Secret(""),
                         headerName = "X-Signature",
                         algorithm = "HmacSHA256"
                     )
@@ -1317,7 +1317,7 @@ class ConfigValidatorTest {
                     idempotencyKeyPath = "$.id",
                     eventTypePath = "$.type",
                     auth = InboxAuthConfig.HmacSignature(
-                        secret = "webhook-secret",
+                        secret = Secret("webhook-secret"),
                         headerName = "X-Signature",
                         algorithm = "MD5"
                     )
@@ -1339,7 +1339,7 @@ class ConfigValidatorTest {
                     idempotencyKeyPath = "$.id",
                     eventTypePath = "$.type",
                     auth = InboxAuthConfig.HmacSignature(
-                        secret = "webhook-secret",
+                        secret = Secret("webhook-secret"),
                         headerName = "X-Signature",
                         algorithm = "HmacSHA512"
                     )
@@ -1359,7 +1359,7 @@ class ConfigValidatorTest {
                     idempotencyKeyPath = "$.id",
                     eventTypePath = "$.type",
                     auth = InboxAuthConfig.HmacSignature(
-                        secret = "webhook-secret",
+                        secret = Secret("webhook-secret"),
                         headerName = "",
                         algorithm = "HmacSHA256"
                     )
@@ -1399,7 +1399,7 @@ class ConfigValidatorTest {
                     path = "/webhooks",
                     auth = DestinationAuthConfig.OAuth2(
                         clientId = "client-id",
-                        clientSecret = "client-secret",
+                        clientSecret = Secret("client-secret"),
                         tokenUrl = "https://auth.example.com/token"
                     )
                 )
@@ -1419,7 +1419,7 @@ class ConfigValidatorTest {
                     path = "/webhooks",
                     auth = DestinationAuthConfig.OAuth2(
                         clientId = "",
-                        clientSecret = "client-secret",
+                        clientSecret = Secret("client-secret"),
                         tokenUrl = "https://auth.example.com/token"
                     )
                 )
@@ -1441,7 +1441,7 @@ class ConfigValidatorTest {
                     path = "/webhooks",
                     auth = DestinationAuthConfig.OAuth2(
                         clientId = "client-id",
-                        clientSecret = "",
+                        clientSecret = Secret(""),
                         tokenUrl = "https://auth.example.com/token"
                     )
                 )
@@ -1463,7 +1463,7 @@ class ConfigValidatorTest {
                     path = "/webhooks",
                     auth = DestinationAuthConfig.OAuth2(
                         clientId = "client-id",
-                        clientSecret = "client-secret",
+                        clientSecret = Secret("client-secret"),
                         tokenUrl = ""
                     )
                 )
@@ -1485,7 +1485,7 @@ class ConfigValidatorTest {
                     path = "/api",
                     auth = DestinationAuthConfig.Basic(
                         username = "user",
-                        password = "pass"
+                        password = Secret("pass")
                     )
                 )
             ),
@@ -1504,7 +1504,7 @@ class ConfigValidatorTest {
                     path = "/api",
                     auth = DestinationAuthConfig.Basic(
                         username = "",
-                        password = "pass"
+                        password = Secret("pass")
                     )
                 )
             ),
@@ -1525,7 +1525,7 @@ class ConfigValidatorTest {
                     path = "/api",
                     auth = DestinationAuthConfig.Basic(
                         username = "user",
-                        password = ""
+                        password = Secret("")
                     )
                 )
             ),
@@ -1544,7 +1544,7 @@ class ConfigValidatorTest {
                     path = "/v1",
                     auth = DestinationAuthConfig.Header(
                         headerName = "X-API-Key",
-                        headerValue = "my-api-key"
+                        headerValue = Secret("my-api-key")
                     )
                 )
             ),
@@ -1563,7 +1563,7 @@ class ConfigValidatorTest {
                     path = "/v1",
                     auth = DestinationAuthConfig.Header(
                         headerName = "",
-                        headerValue = "my-api-key"
+                        headerValue = Secret("my-api-key")
                     )
                 )
             ),
@@ -1584,7 +1584,7 @@ class ConfigValidatorTest {
                     path = "/v1",
                     auth = DestinationAuthConfig.Header(
                         headerName = "X-API-Key",
-                        headerValue = ""
+                        headerValue = Secret("")
                     )
                 )
             ),
@@ -1621,7 +1621,7 @@ class ConfigValidatorTest {
                     idempotencyKeyPath = "$.id",
                     eventTypePath = "$.type",
                     auth = InboxAuthConfig.HmacSignature(
-                        secret = "stripe-secret",
+                        secret = Secret("stripe-secret"),
                         algorithm = "HmacSHA256"
                     )
                 ),
@@ -1630,7 +1630,7 @@ class ConfigValidatorTest {
                     idempotencyKeyPath = "$.delivery",
                     eventTypePath = "$.type",
                     auth = InboxAuthConfig.HmacSignature(
-                        secret = "github-secret",
+                        secret = Secret("github-secret"),
                         algorithm = "HmacSHA256",
                         headerName = "X-Hub-Signature-256"
                     )
@@ -1641,7 +1641,7 @@ class ConfigValidatorTest {
                     baseUrl = "https://oauth.api.com",
                     auth = DestinationAuthConfig.OAuth2(
                         clientId = "id",
-                        clientSecret = "secret",
+                        clientSecret = Secret("secret"),
                         tokenUrl = "https://auth.com/token"
                     )
                 ),
@@ -1649,7 +1649,7 @@ class ConfigValidatorTest {
                     baseUrl = "https://basic.api.com",
                     auth = DestinationAuthConfig.Basic(
                         username = "user",
-                        password = "pass"
+                        password = Secret("pass")
                     )
                 )
             ),

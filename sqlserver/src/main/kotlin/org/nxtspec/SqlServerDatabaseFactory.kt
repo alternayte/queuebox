@@ -18,7 +18,7 @@ object SqlServerDatabaseFactory {
         val hikariConfig = HikariConfig().apply {
             jdbcUrl = config.url
             username = config.username
-            password = config.password
+            password = config.password.reveal()
             driverClassName = "com.microsoft.sqlserver.jdbc.SQLServerDriver"
             maximumPoolSize = config.poolSize
             connectionTimeout = config.connectionTimeoutMs

@@ -45,6 +45,7 @@ object ConfigLoader {
      */
     fun load(path: String = "queuebox.yml", optional: Boolean = false): QueueBoxConfig {
         val config = ConfigLoaderBuilder.default()
+            .addDecoder(SecretDecoder())
             .addResourceSource("/$path", optional = optional)
             .addPropertySource(createEnvSource())
             .build()
@@ -72,6 +73,7 @@ object ConfigLoader {
         }
 
         val config = ConfigLoaderBuilder.default()
+            .addDecoder(SecretDecoder())
             .addPropertySource(createEnvSource())
             .build()
             .loadConfigOrThrow<QueueBoxConfig>()

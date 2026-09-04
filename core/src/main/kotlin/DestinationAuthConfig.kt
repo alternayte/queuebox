@@ -17,7 +17,7 @@ sealed class DestinationAuthConfig {
     @SerialName("oauth2")
     data class OAuth2(
         val clientId: String,
-        val clientSecret: String,
+        val clientSecret: Secret,
         val tokenUrl: String,
         val scope: String? = null,
         val extraParams: Map<String, String> = emptyMap()
@@ -31,7 +31,7 @@ sealed class DestinationAuthConfig {
     @SerialName("basic")
     data class Basic(
         val username: String,
-        val password: String
+        val password: Secret
     ) : DestinationAuthConfig()
 
     /**
@@ -42,6 +42,6 @@ sealed class DestinationAuthConfig {
     @SerialName("header")
     data class Header(
         val headerName: String = "Authorization",
-        val headerValue: String
+        val headerValue: Secret
     ) : DestinationAuthConfig()
 }

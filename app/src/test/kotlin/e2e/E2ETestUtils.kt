@@ -1,5 +1,6 @@
 package org.nxtspec.e2e
 
+import org.nxtspec.Secret
 import com.rabbitmq.client.AMQP
 import com.rabbitmq.client.ConnectionFactory
 import com.rabbitmq.client.DefaultConsumer
@@ -67,7 +68,7 @@ object E2ETestUtils {
             database = DatabaseConfig(
                 url = postgres.jdbcUrl,
                 username = postgres.username,
-                password = postgres.password,
+                password = Secret(postgres.password),
                 poolSize = 5
             ),
             outbox = outboxConfig,

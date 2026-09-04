@@ -83,7 +83,7 @@ class OAuth2TokenManager(
                 formParameters = Parameters.build {
                     append("grant_type", "client_credentials")
                     append("client_id", config.clientId)
-                    append("client_secret", config.clientSecret)
+                    append("client_secret", config.clientSecret.reveal())
                     config.scope?.let { append("scope", it) }
                     config.extraParams.forEach { (k, v) -> append(k, v) }
                 }

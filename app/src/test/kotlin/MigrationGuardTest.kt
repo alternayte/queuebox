@@ -1,5 +1,6 @@
 package org.nxtspec.app
 
+import org.nxtspec.Secret
 import org.nxtspec.ColumnMappingConfig
 import org.nxtspec.DatabaseConfig
 import org.nxtspec.InboxColumnMapping
@@ -16,7 +17,7 @@ class MigrationGuardTest {
     private fun database() = DatabaseConfig(
         url = "jdbc:postgresql://localhost:5432/queuebox",
         username = "postgres",
-        password = "secret"
+        password = Secret("secret")
     )
 
     @Test

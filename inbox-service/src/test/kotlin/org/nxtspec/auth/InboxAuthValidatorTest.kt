@@ -1,5 +1,6 @@
 package org.nxtspec.auth
 
+import org.nxtspec.Secret
 import io.ktor.http.*
 import io.ktor.server.application.*
 import io.ktor.server.request.*
@@ -18,7 +19,7 @@ class InboxAuthValidatorTest {
 
     @Test
     fun `bearer - valid token returns success`() = testApplication {
-        val config = InboxAuthConfig.Bearer(token = "secret-token")
+        val config = InboxAuthConfig.Bearer(token = Secret("secret-token"))
         val request = mockRequest(headers = mapOf("Authorization" to "Bearer secret-token"))
 
         val result = validator.validate(request, config)
@@ -28,7 +29,7 @@ class InboxAuthValidatorTest {
 
     @Test
     fun `bearer - invalid token returns failure`() = testApplication {
-        val config = InboxAuthConfig.Bearer(token = "secret-token")
+        val config = InboxAuthConfig.Bearer(token = Secret("secret-token"))
         val request = mockRequest(headers = mapOf("Authorization" to "Bearer wrong-token"))
 
         val result = validator.validate(request, config)
@@ -40,7 +41,7 @@ class InboxAuthValidatorTest {
 
     @Test
     fun `bearer - missing header returns failure`() = testApplication {
-        val config = InboxAuthConfig.Bearer(token = "secret-token")
+        val config = InboxAuthConfig.Bearer(token = Secret("secret-token"))
         val request = mockRequest()
 
         val result = validator.validate(request, config)
@@ -52,7 +53,7 @@ class InboxAuthValidatorTest {
 
     @Test
     fun `api key - valid key returns success`() = testApplication {
-        val config = InboxAuthConfig.ApiKey(headerName = "X-API-Key", key = "my-api-key")
+        val config = InboxAuthConfig.ApiKey(headerName = "X-API-Key", key = Secret("my-api-key"))
         val request = mockRequest(headers = mapOf("X-API-Key" to "my-api-key"))
 
         val result = validator.validate(request, config)
@@ -62,7 +63,7 @@ class InboxAuthValidatorTest {
 
     @Test
     fun `api key - invalid key returns failure`() = testApplication {
-        val config = InboxAuthConfig.ApiKey(headerName = "X-API-Key", key = "my-api-key")
+        val config = InboxAuthConfig.ApiKey(headerName = "X-API-Key", key = Secret("my-api-key"))
         val request = mockRequest(headers = mapOf("X-API-Key" to "wrong-key"))
 
         val result = validator.validate(request, config)
@@ -74,7 +75,7 @@ class InboxAuthValidatorTest {
 
     @Test
     fun `api key - missing header returns failure`() = testApplication {
-        val config = InboxAuthConfig.ApiKey(headerName = "X-API-Key", key = "my-api-key")
+        val config = InboxAuthConfig.ApiKey(headerName = "X-API-Key", key = Secret("my-api-key"))
         val request = mockRequest()
 
         val result = validator.validate(request, config)
@@ -86,7 +87,7 @@ class InboxAuthValidatorTest {
 
     @Test
     fun `api key - custom header name works`() = testApplication {
-        val config = InboxAuthConfig.ApiKey(headerName = "X-Custom-Auth", key = "custom-key")
+        val config = InboxAuthConfig.ApiKey(headerName = "X-Custom-Auth", key = Secret("custom-key"))
         val request = mockRequest(headers = mapOf("X-Custom-Auth" to "custom-key"))
 
         val result = validator.validate(request, config)
@@ -101,7 +102,7 @@ class InboxAuthValidatorTest {
         val expectedSignature = validator.computeHmac(body, secret, "HmacSHA256", "sha256=")
 
         val config = InboxAuthConfig.HmacSignature(
-            secret = secret,
+            secret = Secret(secret),
             headerName = "X-Signature",
             algorithm = "HmacSHA256",
             signaturePrefix = "sha256="
@@ -120,7 +121,7 @@ class InboxAuthValidatorTest {
     @Test
     fun `hmac - invalid signature returns failure`() = testApplication {
         val config = InboxAuthConfig.HmacSignature(
-            secret = "webhook-secret",
+            secret = Secret("webhook-secret"),
             headerName = "X-Signature",
             algorithm = "HmacSHA256",
             signaturePrefix = "sha256="
@@ -142,7 +143,7 @@ class InboxAuthValidatorTest {
     @Test
     fun `hmac - missing signature header returns failure`() = testApplication {
         val config = InboxAuthConfig.HmacSignature(
-            secret = "webhook-secret",
+            secret = Secret("webhook-secret"),
             headerName = "X-Signature",
             algorithm = "HmacSHA256",
             signaturePrefix = "sha256="
@@ -160,7 +161,7 @@ class InboxAuthValidatorTest {
     @Test
     fun `hmac - missing body returns failure`() = testApplication {
         val config = InboxAuthConfig.HmacSignature(
-            secret = "webhook-secret",
+            secret = Secret("webhook-secret"),
             headerName = "X-Signature",
             algorithm = "HmacSHA256",
             signaturePrefix = "sha256="
@@ -183,7 +184,7 @@ class InboxAuthValidatorTest {
         val oldTimestamp = (System.currentTimeMillis() - 600000).toString() // 10 minutes ago
 
         val config = InboxAuthConfig.HmacSignature(
-            secret = secret,
+            secret = Secret(secret),
             headerName = "X-Signature",
             algorithm = "HmacSHA256",
             signaturePrefix = "sha256=",
@@ -213,7 +214,7 @@ class InboxAuthValidatorTest {
         val currentTimestamp = System.currentTimeMillis().toString()
 
         val config = InboxAuthConfig.HmacSignature(
-            secret = secret,
+            secret = Secret(secret),
             headerName = "X-Signature",
             algorithm = "HmacSHA256",
             signaturePrefix = "sha256=",
@@ -241,7 +242,7 @@ class InboxAuthValidatorTest {
         val expectedSignature = validator.computeHmac(body, secret, "HmacSHA512", "sha512=")
 
         val config = InboxAuthConfig.HmacSignature(
-            secret = secret,
+            secret = Secret(secret),
             headerName = "X-Signature",
             algorithm = "HmacSHA512",
             signaturePrefix = "sha512="

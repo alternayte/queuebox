@@ -1,5 +1,6 @@
 package org.nxtspec.e2e
 
+import org.nxtspec.Secret
 import com.zaxxer.hikari.HikariDataSource
 import io.ktor.http.*
 import io.ktor.server.application.*
@@ -90,7 +91,7 @@ abstract class E2ETestBase {
                 val config = DatabaseConfig(
                     url = postgres.jdbcUrl,
                     username = postgres.username,
-                    password = postgres.password,
+                    password = Secret(postgres.password),
                     poolSize = 10
                 )
                 val created = DatabaseFactory.create(config)

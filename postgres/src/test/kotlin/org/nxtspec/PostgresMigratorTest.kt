@@ -41,7 +41,7 @@ class PostgresMigratorTest {
         val config = DatabaseConfig(
             url = container.jdbcUrl,
             username = container.username,
-            password = container.password,
+            password = Secret(container.password),
             poolSize = 5
         )
         val dataSource = DatabaseFactory.create(config)
@@ -101,7 +101,7 @@ class PostgresMigratorTest {
         val config = DatabaseConfig(
             url = url,
             username = container.username,
-            password = container.password,
+            password = Secret(container.password),
             poolSize = 5
         )
         val dataSource = DatabaseFactory.create(config)

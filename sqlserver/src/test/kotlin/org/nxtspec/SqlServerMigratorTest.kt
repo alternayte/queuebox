@@ -30,7 +30,7 @@ class SqlServerMigratorTest {
             type = "sqlserver",
             url = url,
             username = SqlServerTestBase.sqlserver.username,
-            password = SqlServerTestBase.sqlserver.password,
+            password = Secret(SqlServerTestBase.sqlserver.password),
             poolSize = 5
         )
         val dataSource = SqlServerDatabaseFactory.create(config)
@@ -70,7 +70,7 @@ class SqlServerMigratorTest {
             type = "sqlserver",
             url = url,
             username = SqlServerTestBase.sqlserver.username,
-            password = SqlServerTestBase.sqlserver.password,
+            password = Secret(SqlServerTestBase.sqlserver.password),
             poolSize = 5
         )
         val dataSource = SqlServerDatabaseFactory.create(config)

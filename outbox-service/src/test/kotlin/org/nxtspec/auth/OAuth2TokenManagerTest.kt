@@ -1,5 +1,6 @@
 package org.nxtspec.auth
 
+import org.nxtspec.Secret
 import io.ktor.client.*
 import io.ktor.client.engine.mock.*
 import io.ktor.client.plugins.contentnegotiation.*
@@ -34,7 +35,7 @@ class OAuth2TokenManagerTest {
         val tokenManager = OAuth2TokenManager(mockClient)
         val config = DestinationAuthConfig.OAuth2(
             clientId = "client-id",
-            clientSecret = "client-secret",
+            clientSecret = Secret("client-secret"),
             tokenUrl = "https://auth.example.com/token"
         )
 
@@ -61,7 +62,7 @@ class OAuth2TokenManagerTest {
         val tokenManager = OAuth2TokenManager(mockClient)
         val config = DestinationAuthConfig.OAuth2(
             clientId = "client-id",
-            clientSecret = "client-secret",
+            clientSecret = Secret("client-secret"),
             tokenUrl = "https://auth.example.com/token"
         )
 
@@ -90,7 +91,7 @@ class OAuth2TokenManagerTest {
         val tokenManager = OAuth2TokenManager(mockClient)
         val config = DestinationAuthConfig.OAuth2(
             clientId = "client-id",
-            clientSecret = "client-secret",
+            clientSecret = Secret("client-secret"),
             tokenUrl = "https://auth.example.com/token",
             scope = "read write"
         )
@@ -117,7 +118,7 @@ class OAuth2TokenManagerTest {
         val tokenManager = OAuth2TokenManager(mockClient)
         val config = DestinationAuthConfig.OAuth2(
             clientId = "client-id",
-            clientSecret = "client-secret",
+            clientSecret = Secret("client-secret"),
             tokenUrl = "https://auth.example.com/token",
             extraParams = mapOf("audience" to "https://api.example.com")
         )
@@ -143,7 +144,7 @@ class OAuth2TokenManagerTest {
         val tokenManager = OAuth2TokenManager(mockClient)
         val config = DestinationAuthConfig.OAuth2(
             clientId = "client-id",
-            clientSecret = "client-secret",
+            clientSecret = Secret("client-secret"),
             tokenUrl = "https://auth.example.com/token"
         )
 
@@ -174,7 +175,7 @@ class OAuth2TokenManagerTest {
         val tokenManager = OAuth2TokenManager(mockClient)
         val config = DestinationAuthConfig.OAuth2(
             clientId = "client-id",
-            clientSecret = "client-secret",
+            clientSecret = Secret("client-secret"),
             tokenUrl = "https://auth.example.com/token"
         )
 
@@ -208,7 +209,7 @@ class OAuth2TokenManagerTest {
         val tokenManager = OAuth2TokenManager(mockClient)
         val config = DestinationAuthConfig.OAuth2(
             clientId = "client-id",
-            clientSecret = "client-secret",
+            clientSecret = Secret("client-secret"),
             tokenUrl = "https://auth.example.com/token"
         )
 
@@ -238,7 +239,7 @@ class OAuth2TokenManagerTest {
         val tokenManager = OAuth2TokenManager(mockClient)
         val config = DestinationAuthConfig.OAuth2(
             clientId = "client-id",
-            clientSecret = "client-secret",
+            clientSecret = Secret("client-secret"),
             tokenUrl = "https://auth.example.com/token"
         )
 
@@ -270,12 +271,12 @@ class OAuth2TokenManagerTest {
         val tokenManager = OAuth2TokenManager(mockClient)
         val config1 = DestinationAuthConfig.OAuth2(
             clientId = "client-1",
-            clientSecret = "secret",
+            clientSecret = Secret("secret"),
             tokenUrl = "https://auth.example.com/token"
         )
         val config2 = DestinationAuthConfig.OAuth2(
             clientId = "client-2",
-            clientSecret = "secret",
+            clientSecret = Secret("secret"),
             tokenUrl = "https://auth.example.com/token"
         )
 
@@ -308,12 +309,12 @@ class OAuth2TokenManagerTest {
         val tokenManager = OAuth2TokenManager(mockClient)
         val config1 = DestinationAuthConfig.OAuth2(
             clientId = "client-id",
-            clientSecret = "secret",
+            clientSecret = Secret("secret"),
             tokenUrl = "https://auth1.example.com/token"
         )
         val config2 = DestinationAuthConfig.OAuth2(
             clientId = "client-id",
-            clientSecret = "secret",
+            clientSecret = Secret("secret"),
             tokenUrl = "https://auth2.example.com/token"
         )
 
@@ -346,7 +347,7 @@ class OAuth2TokenManagerTest {
         val tokenManager = OAuth2TokenManager(mockClient)
         val config = DestinationAuthConfig.OAuth2(
             clientId = "client-id",
-            clientSecret = "client-secret",
+            clientSecret = Secret("client-secret"),
             tokenUrl = "https://auth.example.com/token"
         )
 

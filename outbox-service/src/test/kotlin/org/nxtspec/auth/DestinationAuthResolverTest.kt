@@ -1,5 +1,6 @@
 package org.nxtspec.auth
 
+import org.nxtspec.Secret
 import io.mockk.coEvery
 import io.mockk.mockk
 import kotlinx.coroutines.test.runTest
@@ -26,7 +27,7 @@ class DestinationAuthResolverTest {
         val tokenManager = mockk<OAuth2TokenManager>()
         val config = DestinationAuthConfig.OAuth2(
             clientId = "client-id",
-            clientSecret = "client-secret",
+            clientSecret = Secret("client-secret"),
             tokenUrl = "https://auth.example.com/token"
         )
 
@@ -46,7 +47,7 @@ class DestinationAuthResolverTest {
 
         val config = DestinationAuthConfig.Basic(
             username = "user",
-            password = "pass"
+            password = Secret("pass")
         )
 
         val headers = resolver.resolveAuthHeaders(config)
@@ -63,7 +64,7 @@ class DestinationAuthResolverTest {
 
         val config = DestinationAuthConfig.Basic(
             username = "user@example.com",
-            password = "p@ss:word!"
+            password = Secret("p@ss:word!")
         )
 
         val headers = resolver.resolveAuthHeaders(config)
@@ -80,7 +81,7 @@ class DestinationAuthResolverTest {
 
         val config = DestinationAuthConfig.Header(
             headerName = "X-API-Key",
-            headerValue = "my-api-key"
+            headerValue = Secret("my-api-key")
         )
 
         val headers = resolver.resolveAuthHeaders(config)
@@ -96,7 +97,7 @@ class DestinationAuthResolverTest {
 
         val config = DestinationAuthConfig.Header(
             headerName = "Authorization",
-            headerValue = "Bearer static-token"
+            headerValue = Secret("Bearer static-token")
         )
 
         val headers = resolver.resolveAuthHeaders(config)

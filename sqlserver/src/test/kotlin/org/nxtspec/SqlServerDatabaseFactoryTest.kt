@@ -35,7 +35,7 @@ class SqlServerDatabaseFactoryTest {
             type = "sqlserver",
             url = sqlserver.jdbcUrl,
             username = sqlserver.username,
-            password = sqlserver.password,
+            password = Secret(sqlserver.password),
             poolSize = 5
         )
 
@@ -55,7 +55,7 @@ class SqlServerDatabaseFactoryTest {
             type = "sqlserver",
             url = sqlserver.jdbcUrl,
             username = sqlserver.username,
-            password = sqlserver.password,
+            password = Secret(sqlserver.password),
             poolSize = 5
         )
 
@@ -80,7 +80,7 @@ class SqlServerDatabaseFactoryTest {
             type = "sqlserver",
             url = sqlserver.jdbcUrl,
             username = sqlserver.username,
-            password = sqlserver.password,
+            password = Secret(sqlserver.password),
             poolSize = 3,
             connectionTimeoutMs = 5000
         )
