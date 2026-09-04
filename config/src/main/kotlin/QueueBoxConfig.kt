@@ -181,7 +181,16 @@ data class InboxRelayConfig(
     val pollIntervalMs: Long = 100,
     val batchSize: Int = 100,
     /** Visibility timeout. A claim older than this returns to state 'pending'. See F-006. */
-    val claimTimeoutMs: Long = 300000
+    val claimTimeoutMs: Long = 300000,
+    /**
+     * The dead-letter ceiling that the relay writes into the `max_attempts` column of every
+     * row it creates.
+     *
+     * Leave it unset. `ConfigValidator` then fills it with `outbox.maxAttempts`, so the
+     * configured ceiling reaches every relayed message. Set it only to give the relayed
+     * messages a ceiling that differs from the ceiling of the rest of the outbox.
+     */
+    val maxAttempts: Int? = null
 )
 
 @Serializable

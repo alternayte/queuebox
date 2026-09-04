@@ -1,6 +1,5 @@
 package org.nxtspec
 
-import org.nxtspec.http.HttpPublishException
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -65,11 +64,11 @@ class ErrorSanitizerTest {
 
     @Test
     fun `sanitize of a failed http publish keeps the body and redacts it`() {
-        val error = HttpPublishException(
-            message = "HTTP 500: Internal Server Error",
-            statusCode = 500,
-            body = """{"error":"boom","token":"leaked-value-123"}"""
-        )
+        // `HttpPublishException` lives in `outbox-service`, which `core` cannot see. The contract
+        // under test is `SanitizableDetail`, so the test uses its own implementation of it.
+        val error = object : Exception("HTTP 500: Internal Server Error"), SanitizableDetail {
+            override val detail: String = """{"error":"boom","token":"leaked-value-123"}"""
+        }
 
         val result = ErrorSanitizer.sanitize(error)!!
 
@@ -292,5 +291,123 @@ class ErrorSanitizerTest {
         val result = ErrorSanitizer.sanitize("amqp://user:pa@ss/word@broker:5672/vhost")!!
 
         assertEquals("amqp://***@broker:5672/vhost", result)
+    }
+
+    // --- The whitespace leak of the third review gate ---
+
+    @Test
+    fun `sanitize masks a url password that holds two spaces`() {
+        val result = ErrorSanitizer.sanitize("Illegal character at index 18: amqp://user:aa  bb@rabbit:5672/vh")!!
+
+        assertFalse(result.contains("aa  bb"), result)
+        assertTrue(result.contains("rabbit:5672"), result)
+    }
+
+    @Test
+    fun `sanitize masks a url password that holds a tab`() {
+        val result = ErrorSanitizer.sanitize("connect failed amqp://user:aa\tbb@rabbit:5672/vh")!!
+
+        assertFalse(result.contains("aa\tbb"), result)
+        assertTrue(result.contains("rabbit:5672"), result)
+    }
+
+    @Test
+    fun `sanitize masks a url password that holds a newline`() {
+        val result = ErrorSanitizer.sanitize("connect failed amqp://user:aa\nbb@rabbit:5672/vh")!!
+
+        assertFalse(result.contains("aa\nbb"), result)
+        assertTrue(result.contains("rabbit:5672"), result)
+    }
+
+    @Test
+    fun `sanitize masks a url password that holds a space and an at sign`() {
+        val result = ErrorSanitizer.sanitize("bad uri amqp://user:a b@c d@rabbit:5672/vh")!!
+
+        assertEquals("bad uri amqp://***@rabbit:5672/vh", result)
+    }
+
+    @Test
+    fun `sanitize keeps prose that names a url and a mail address`() {
+        val text = "amqp://rabbit:5672/vh failed for nate@example.com"
+
+        assertEquals(text, ErrorSanitizer.sanitize(text))
+    }
+
+    @Test
+    fun `sanitize redacts the whole tail of an unquoted colon value`() {
+        val result = ErrorSanitizer.sanitize("password: my secret pass")!!
+
+        assertFalse(result.contains("secret pass"), result)
+        assertFalse(result.contains("my"), result)
+    }
+
+    @Test
+    fun `sanitize keeps the tail of an unquoted equals value`() {
+        val result = ErrorSanitizer.sanitize("PGPASSWORD=hunter2 psql failed")!!
+
+        assertFalse(result.contains("hunter2"), result)
+        assertTrue(result.contains("psql failed"), result)
+    }
+
+    // --- Hostile inputs of the third gate ---
+
+    @Test
+    fun `sanitize masks a url password that holds a space, a slash and an at sign`() {
+        val result = ErrorSanitizer.sanitize("bad uri amqp://user:a b/c@d e@rabbit:5672/vh")!!
+
+        assertEquals("bad uri amqp://***@rabbit:5672/vh", result)
+    }
+
+    @Test
+    fun `sanitize masks a whitespace password of a nested cause`() {
+        val cause = IllegalArgumentException("bad uri amqp://guest:hun ter2@rabbit:5672/vh")
+        val error = RuntimeException("publish failed", cause)
+
+        val result = ErrorSanitizer.sanitize(error)!!
+
+        assertFalse(result.contains("hun ter2"), result)
+        assertTrue(result.contains("rabbit:5672"), result)
+    }
+
+    @Test
+    fun `sanitize masks a whitespace password before a prose mail address`() {
+        val result = ErrorSanitizer.sanitize("amqp://user:a b@rabbit:5672/vh failed for nate@example.com")!!
+
+        assertEquals("amqp://***@rabbit:5672/vh failed for nate@example.com", result)
+    }
+
+    @Test
+    fun `sanitize masks a whitespace password and still truncates`() {
+        val text = "amqp://user:aa  bb@rabbit:5672/vh " + "x".repeat(5000)
+
+        val result = ErrorSanitizer.sanitize(text)!!
+
+        assertFalse(result.contains("aa  bb"), "The password must not print")
+        assertEquals(ErrorSanitizer.MAX_LENGTH, result.length)
+    }
+
+    // --- The reversed trade of the fourth review gate ---
+
+    @Test
+    fun `sanitize masks a whitespace password of a url with no port and no path`() {
+        val result = ErrorSanitizer.sanitize("connect failed amqp://user:pass word@rabbit")!!
+
+        assertEquals("connect failed amqp://***@rabbit", result)
+    }
+
+    // The mask of the mail address is DELIBERATE. The URL holds no path, so the pattern cannot
+    // tell the prose from a real authority. A leaked password outranks a mangled word.
+    @Test
+    fun `sanitize deliberately masks prose after a port only url`() {
+        val result = ErrorSanitizer.sanitize("amqp://rabbit:5672 refused for nate@example.com")!!
+
+        assertEquals("amqp://***@example.com", result)
+    }
+
+    @Test
+    fun `sanitize keeps a message with no scheme`() {
+        val text = "delivery failed for nate@example.com after 3 attempts"
+
+        assertEquals(text, ErrorSanitizer.sanitize(text))
     }
 }

@@ -176,6 +176,18 @@ object ConfigValidator {
         if (config.retention.enabled) {
             validateTableRetention("outbox", config.retention.outbox)
             validateTableRetention("inbox", config.retention.inbox)
+            require(config.retention.inbox.policy != RetentionPolicy.COUNT) {
+                "The inbox retention does not support the count policy. QueueBox deletes no " +
+                    "inbox row under that policy, so the table grows without bound. Use " +
+                    "'age' or 'disabled'. " + setVia("retention.inbox.policy")
+            }
+        }
+
+        // The relay ceiling. See the third review gate, defect 1.
+        config.inbox.relay.maxAttempts?.let { ceiling ->
+            require(ceiling > 0) {
+                "The relay maxAttempts must be greater than 0. " + setVia("inbox.relay.maxAttempts")
+            }
         }
 
         // Validate column mapping
@@ -183,6 +195,17 @@ object ConfigValidator {
 
         // Validate table names (F-011)
         validateTableNames(config.database)
+
+        // The relay stamps a dead-letter ceiling on every row it creates. An operator who does
+        // not name a relay ceiling gets the configured outbox ceiling, so 'outbox.maxAttempts'
+        // holds for a relayed message too. See the third review gate, defect 1.
+        if (config.inbox.relay.maxAttempts == null) {
+            return config.copy(
+                inbox = config.inbox.copy(
+                    relay = config.inbox.relay.copy(maxAttempts = config.outbox.maxAttempts)
+                )
+            )
+        }
 
         return config
     }

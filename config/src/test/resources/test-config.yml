@@ -72,7 +72,7 @@ retention:
     cleanupInterval: 1h
     batchSize: 1000
   inbox:
-    policy: COUNT
-    maxCount: 100000
+    policy: AGE
+    maxAge: 30d
     cleanupInterval: 6h
     batchSize: 1000

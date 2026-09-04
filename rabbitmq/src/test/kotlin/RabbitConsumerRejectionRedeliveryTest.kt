@@ -28,7 +28,7 @@ import kotlin.test.assertTrue
 /**
  * Covers the three defects of the second adversarial review gate.
  *
- * 1. A redelivery after a failed mark-dead must still mark the row dead.
+ * 1. A redelivery after a failed store of the dead row must still store it.
  * 2. A message with no explicit key must get a stable key, so a redelivery deduplicates.
  * 3. A missing mark-dead callback must not acknowledge the delivery.
  */
@@ -136,9 +136,9 @@ class RabbitConsumerRejectionRedeliveryTest {
         onError = TransformErrorStrategy.Fail
     )
 
-    /** Defect 1. */
+    /** Defect 1: the store of the dead row is retried after a failure. */
     @Test
-    fun `a redelivery marks the duplicate row dead after the first mark fails`() = runBlocking {
+    fun `a redelivery stores the dead row after the first store fails`() = runBlocking {
         val attempts = AtomicInteger(0)
         val config = RabbitConsumerConfig(
             queueName = TEST_QUEUE,
@@ -152,11 +152,13 @@ class RabbitConsumerRejectionRedeliveryTest {
             config = config,
             transformPipeline = rejectingPipeline(),
             sourceTransform = rejectingTransform,
-            markDead = { _, key ->
+            markDead = { _, key -> deadKeys.add(key) },
+            storeDeadMessage = { message ->
                 if (attempts.incrementAndGet() == 1) {
                     error("Simulated database outage")
                 }
-                deadKeys.add(key)
+                deadKeys.add(message.idempotencyKey)
+                mockStore(message)
             }
         )
         consumer.start()
@@ -171,14 +173,57 @@ class RabbitConsumerRejectionRedeliveryTest {
         assertTrue(
             deadKeys.contains(id),
             "after redelivery: stored=${storedMessages.size} dead=${deadKeys.size}. " +
-                "The redelivered duplicate must mark the stored row dead."
+                "The redelivery must store the dead row."
         )
         assertEquals(0L, queueDepth(), "The queue must be empty after the acknowledgement.")
     }
 
-    /** Defect 1, second door: no callback means no acknowledgement. */
+    /**
+     * Defect 1, duplicate path: an earlier attempt can have left a pending row. The store of the
+     * dead row then answers Duplicate, and the mark by key must still run.
+     */
     @Test
-    fun `a missing mark-dead callback keeps the message in the broker`() = runBlocking {
+    fun `a duplicate row that is still pending is marked dead`() = runBlocking {
+        val id = "duplicate-${UUID.randomUUID()}"
+        val config = RabbitConsumerConfig(
+            queueName = TEST_QUEUE,
+            sourceName = "test-source",
+            idempotencyKeyPath = "$.id"
+        )
+        // The earlier attempt already stored a pending row for this key.
+        mockStore(
+            InboxMessage(
+                source = "test-source",
+                idempotencyKey = id,
+                payload = kotlinx.serialization.json.JsonObject(emptyMap())
+            )
+        )
+
+        consumer = RabbitConsumer(
+            connection = connection,
+            storeMessage = mockStore,
+            extractor = extractor,
+            config = config,
+            transformPipeline = rejectingPipeline(),
+            sourceTransform = rejectingTransform,
+            markDead = { _, key -> deadKeys.add(key) },
+            storeDeadMessage = mockStore
+        )
+        consumer.start()
+
+        publishMessage("""{"id": "$id", "data": "test"}""")
+
+        delay(2000)
+        consumer.stop()
+
+        assertEquals(1, storedMessages.size, "The duplicate must add no second row.")
+        assertTrue(deadKeys.contains(id), "The pending duplicate row must be marked dead.")
+        assertEquals(0L, queueDepth(), "The queue must be empty after the acknowledgement.")
+    }
+
+    /** Defect 1, second door: no dead-letter store means no acknowledgement. */
+    @Test
+    fun `a missing dead-letter store keeps the message in the broker`() = runBlocking {
         val config = RabbitConsumerConfig(
             queueName = TEST_QUEUE,
             sourceName = "test-source",
@@ -191,7 +236,8 @@ class RabbitConsumerRejectionRedeliveryTest {
             config = config,
             transformPipeline = rejectingPipeline(),
             sourceTransform = rejectingTransform,
-            markDead = null
+            markDead = null,
+            storeDeadMessage = null
         )
         consumer.start()
 

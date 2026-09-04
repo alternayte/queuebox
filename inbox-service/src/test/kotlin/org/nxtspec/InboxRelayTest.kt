@@ -28,6 +28,8 @@ class InboxRelayTest {
 
         override suspend fun store(message: InboxMessage): InboxResult = InboxResult.Stored
 
+        override suspend fun storeDead(message: InboxMessage): InboxResult = InboxResult.Stored
+
         override suspend fun claimPending(batchSize: Int): List<InboxMessage> {
             val claimed = pending.take(batchSize)
             pending.removeAll(claimed)
@@ -117,9 +119,10 @@ class InboxRelayTest {
         inbox: FakeInboxRepository,
         outbox: FakeOutboxRepository,
         metrics: MetricsCollectorInterface? = null,
-        topics: Map<String, String> = emptyMap()
+        topics: Map<String, String> = emptyMap(),
+        config: InboxRelayConfig = InboxRelayConfig()
     ) = InboxRelay(
-        config = InboxRelayConfig(),
+        config = config,
         inboxRepository = inbox,
         outboxRepository = outbox,
         transactionRunner = DirectTransactionRunner(),
@@ -148,6 +151,17 @@ class InboxRelayTest {
         assertEquals("evt_1", row.headers["x-idempotency-key"])
         assertEquals(listOf(message.id), inbox.processed)
         assertEquals(1, metrics.forwarded)
+    }
+
+    @Test
+    fun `stamps the configured dead-letter ceiling on the relayed row`() = runBlocking {
+        val message = inboxMessage()
+        val inbox = FakeInboxRepository(mutableListOf(message))
+        val outbox = FakeOutboxRepository()
+
+        relay(inbox, outbox, config = InboxRelayConfig(maxAttempts = 1)).relayBatch()
+
+        assertEquals(1, outbox.inserted.single().maxAttempts)
     }
 
     @Test

@@ -56,6 +56,9 @@ class RetentionBatchingTest {
         val deleteCalls = mutableListOf<Pair<String, Int>>()
 
         override suspend fun store(message: InboxMessage): InboxResult = InboxResult.Stored
+
+        override suspend fun storeDead(message: InboxMessage): InboxResult = InboxResult.Stored
+
         override suspend fun claimPending(batchSize: Int): List<InboxMessage> = emptyList()
         override suspend fun markProcessed(id: UUID) = Unit
         override suspend fun markDead(id: UUID) = Unit

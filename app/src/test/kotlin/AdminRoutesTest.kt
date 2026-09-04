@@ -140,7 +140,9 @@ class AdminRoutesTest {
         val context = json["context"]?.jsonObject
         assertNotNull(context)
         assertEquals("custom.topic", context["topic"]?.jsonPrimitive?.content)
-        assertEquals(1, context["attempt"]?.jsonPrimitive?.content?.toInt())
+        // `attempt` counts the FAILED deliveries, so a first delivery sees 0. The poller passes
+        // 0, so the admin test route must show 0 too. See the third review gate, defect 4.
+        assertEquals(0, context["attempt"]?.jsonPrimitive?.content?.toInt())
         assertNotNull(context["messageId"]?.jsonPrimitive?.content)
         assertNotNull(context["timestamp"]?.jsonPrimitive?.content)
     }
@@ -190,7 +192,7 @@ class AdminRoutesTest {
         val json = Json.parseToJsonElement(body).jsonObject
         val result = json["result"]?.jsonObject
         assertEquals("my.event", result?.get("topic")?.jsonPrimitive?.content)
-        assertEquals(1, result?.get("attempt")?.jsonPrimitive?.content?.toInt())
+        assertEquals(0, result?.get("attempt")?.jsonPrimitive?.content?.toInt())
     }
 
     @Test

@@ -28,7 +28,9 @@ Replace each placeholder with a real value before you run a statement.
 
 ## Scenario 1: Inspect dead-lettered messages
 
-A message reaches the state `dead` after `outbox.maxAttempts` failed delivery attempts. The
+A message reaches the state `dead` when its `attempt` count reaches the `max_attempts` column of
+its own row. QueueBox writes `outbox.maxAttempts` into that column for every row it creates, and
+the application can set a different value per row. The
 column `last_error` holds the redacted reason for the last failure.
 
 Count the dead messages per topic:

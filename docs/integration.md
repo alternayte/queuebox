@@ -28,7 +28,7 @@ The shipped schema is `postgres/src/main/resources/db/postgresql/` and
 | `headers` | `JSONB` | `NVARCHAR(MAX)` | no | `'{}'` | the application. Optional. |
 | `state` | `VARCHAR(50)` | `NVARCHAR(50)` | no | `'pending'` | QueueBox |
 | `attempt` | `INTEGER` | `INT` | no | `0` | QueueBox |
-| `max_attempts` | `INTEGER` | `INT` | no | `5` | the application, or the default |
+| `max_attempts` | `INTEGER` | `INT` | no | `5` | the application. QueueBox writes `outbox.maxAttempts` into every row it creates. |
 | `scheduled_at` | `TIMESTAMP WITH TIME ZONE` | `DATETIME2` | no | `CURRENT_TIMESTAMP` / `GETUTCDATE()` | the application, or the default |
 | `created_at` | `TIMESTAMP WITH TIME ZONE` | `DATETIME2` | no | `CURRENT_TIMESTAMP` / `GETUTCDATE()` | the default |
 | `updated_at` | `TIMESTAMP WITH TIME ZONE` | `DATETIME2` | no | `CURRENT_TIMESTAMP` / `GETUTCDATE()` | QueueBox |
@@ -37,6 +37,12 @@ The shipped schema is `postgres/src/main/resources/db/postgresql/` and
 
 **Only two columns are required: `topic` and `payload`.** Every other column has a default, or
 accepts null.
+
+The `attempt` column counts the failed deliveries. It is `0` on the first delivery, and the retry
+raises it. The poller compares it against the `max_attempts` column of the SAME row, so a row
+value overrides the configured `outbox.maxAttempts`. Set `max_attempts` on the insert to give one
+message a different ceiling. Omit it, and the row takes the schema default of `5`.
+[configuration.md](configuration.md) states the precedence in full.
 
 ### Can `headers` be null?
 

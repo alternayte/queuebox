@@ -7,6 +7,7 @@ import org.nxtspec.metrics.MetricsCollectorInterface
 import org.nxtspec.repository.InboxRepositoryInterface
 import org.nxtspec.repository.OutboxRepositoryInterface
 import kotlin.test.Test
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
@@ -186,6 +187,54 @@ class RetentionServiceTest {
         // Should have called deleteExceptMostRecent for both "sent" and "dead" states
         coVerify(atLeast = 1) { outboxRepository.deleteExceptMostRecent("sent", 1000, any()) }
         coVerify(atLeast = 1) { outboxRepository.deleteExceptMostRecent("dead", 1000, any()) }
+    }
+
+    @Test
+    fun `should reject the count policy for the inbox instead of a silent no-op`() = runBlocking {
+        val outboxRepository = mockk<OutboxRepositoryInterface>(relaxed = true)
+        val inboxRepository = mockk<InboxRepositoryInterface>(relaxed = true)
+
+        val config = RetentionConfig(
+            enabled = true,
+            outbox = TableRetentionConfig(policy = RetentionPolicy.DISABLED),
+            inbox = TableRetentionConfig(
+                policy = RetentionPolicy.COUNT,
+                maxCount = 1000,
+                cleanupInterval = "1s"
+            )
+        )
+
+        val service = RetentionService(
+            config = config,
+            outboxRepository = outboxRepository,
+            inboxRepository = inboxRepository
+        )
+
+        val error = assertFailsWith<IllegalStateException> { service.runInboxCleanupOnce() }
+        assertTrue(
+            error.message!!.contains("inbox retention does not support the count policy"),
+            "The message must name the unsupported policy. It was: ${error.message}"
+        )
+    }
+
+    @Test
+    fun `should keep the count ceiling per state for the outbox`() = runBlocking {
+        val outboxRepository = mockk<OutboxRepositoryInterface>(relaxed = true)
+        val inboxRepository = mockk<InboxRepositoryInterface>(relaxed = true)
+
+        coEvery { outboxRepository.deleteExceptMostRecent(any(), any(), any()) } returns 0
+
+        val service = RetentionService(
+            config = createCountBasedOutboxConfig(maxCount = 1000),
+            outboxRepository = outboxRepository,
+            inboxRepository = inboxRepository
+        )
+
+        service.runOutboxCleanupOnce()
+
+        // The documented ceiling is per state. Each of 'sent' and 'dead' keeps maxCount rows.
+        coVerify(exactly = 1) { outboxRepository.deleteExceptMostRecent("sent", 1000, any()) }
+        coVerify(exactly = 1) { outboxRepository.deleteExceptMostRecent("dead", 1000, any()) }
     }
 
     @Test

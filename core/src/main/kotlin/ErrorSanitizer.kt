@@ -7,6 +7,17 @@ package org.nxtspec
  * secret-bearing header, and of any key that names a token, a secret or a password. It then
  * truncates the result, so one row cannot hold an unbounded string.
  */
+/**
+ * A throwable that carries extra text worth reporting, which can hold a secret.
+ *
+ * `ErrorSanitizer` lives in `core`, so every module can redact a log line. It therefore cannot
+ * name a type of another module. A throwable that wants its detail reported implements this.
+ */
+interface SanitizableDetail {
+    /** The extra text, for example the response body of a failed HTTP publish. */
+    val detail: String?
+}
+
 object ErrorSanitizer {
 
     const val MAX_LENGTH: Int = 2000
@@ -44,39 +55,38 @@ object ErrorSanitizer {
     // The key accepts a prefix, so an environment variable such as "PGPASSWORD" matches. The key
     // still ends on a word boundary, so "passwordless" does not match.
     //
-    // The separator is ':' or '='. A quoted value ends at its closing quote, so a comma inside
-    // the quotes cannot cut the redaction short. An unquoted value ends at whitespace or at a
-    // separator character. An unquoted value can start with an authentication scheme name, so
+    // A quoted value ends at its closing quote, so a comma inside the quotes cannot cut the
+    // redaction short.
+    //
+    // An unquoted value depends on the separator, because the two separators belong to two
+    // notations.
+    //
+    // A ':' separator is the log, the YAML and the header notation. A value there can hold a
+    // space, so the value runs to a comma, a semicolon, a closing brace, a closing bracket, an
+    // ampersand, a quote or the end of the line. "password: my secret pass" therefore loses its
+    // whole tail.
+    //
+    // An '=' separator is the environment and the query notation. A value there ends at the first
+    // whitespace, so "PGPASSWORD=hunter2 psql failed" keeps the words that follow.
+    //
+    // An unquoted value can start with an authentication scheme name, so
     // "Authorization: Bearer <token>" redacts the token as well.
+    private const val QUOTED_VALUE = "\"(?:\\\\.|[^\"\\\\\\n])*\"?|'(?:\\\\.|[^'\\\\\\n])*'?"
+
+    private val schemePrefix: String = "(?:(?:" + AUTH_SCHEMES.joinToString("|") + ")\\s+)?"
+
     private val secretPattern: Regex = Regex(
         "(?i)([A-Za-z0-9_]*(?:" + SECRET_KEYS.joinToString("|") { keyAlternative(it) } +
-            "))\\b\"?\\s*[:=]+\\s*" +
-            "(?:\"(?:\\\\.|[^\"\\\\\\n])*\"?|'(?:\\\\.|[^'\\\\\\n])*'?|" +
-            "(?:(?:" + AUTH_SCHEMES.joinToString("|") + ")\\s+)?[^\\s,;}\\]&\\n\"]*)"
+            "))\\b\"?\\s*(?:" +
+            ":+\\s*(?:" + QUOTED_VALUE + "|" + schemePrefix + "[^,;}\\]&\\n\"]*)" +
+            "|" +
+            "=+\\s*(?:" + QUOTED_VALUE + "|" + schemePrefix + "[^\\s,;}\\]&\\n\"]*)" +
+            ")"
     )
 
     // Matches a bare authentication scheme and the token that follows it.
     private val schemePattern: Regex = Regex(
         "(?i)\\b(" + AUTH_SCHEMES.joinToString("|") + ")\\s+[A-Za-z0-9._~+/\\-]+=*"
-    )
-
-    // Matches the user information of a URL. `CredentialMasking.maskUrl` rejects a password that
-    // holds a space, and a broker reports such a URL in its error text. This pattern accepts one
-    // space.
-    //
-    // The pattern ends at the LAST at sign of the authority, so a password with an at sign
-    // cannot leak its tail. A slash is accepted only after the ':' of the password, so a path
-    // that holds an at sign keeps its host. The host that follows carries no at sign, so the
-    // pattern cannot run past one authority into a later word.
-    //
-    // The alternation is deliberate. An optional group makes the Java engine keep the FIRST '@',
-    // and a password with an '@' then leaks its tail.
-    private const val PASSWORD_RUN = "(?:(?!://)\\S)*"
-
-    private val userInfoPattern: Regex = Regex(
-        "([a-zA-Z][a-zA-Z0-9+.\\-]*://)" +
-            "(?:[^\\s/@]*:(?:$PASSWORD_RUN $PASSWORD_RUN|$PASSWORD_RUN)|[^\\s/@]*)" +
-            "@(?=[^/?#\\s@]*(?:[/?#\\s]|$))"
     )
 
     /**
@@ -90,9 +100,9 @@ object ErrorSanitizer {
         }
 
         // F-038: the password of an AMQP URI or a JDBC URL is not a "key=value" pair. The host
-        // and the port stay, because an operator needs them.
+        // and the port stay, because an operator needs them. CredentialMasking owns the one
+        // URL pattern, so the two files cannot drift apart.
         redacted = CredentialMasking.maskUrl(redacted)
-        redacted = userInfoPattern.replace(redacted) { match -> match.groupValues[1] + "***@" }
 
         redacted = schemePattern.replace(redacted) { match ->
             "${match.groupValues[1]} $REDACTED"
@@ -113,7 +123,7 @@ object ErrorSanitizer {
      */
     fun sanitize(error: Throwable): String? {
         val head = describeChain(error)
-        val body = (error as? org.nxtspec.http.HttpPublishException)?.body
+        val body = (error as? SanitizableDetail)?.detail
         val text = if (body.isNullOrBlank()) head else "$head | body: $body"
         return sanitize(text)
     }

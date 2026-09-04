@@ -18,6 +18,19 @@ interface InboxRepositoryInterface {
     suspend fun store(message: InboxMessage): InboxResult
 
     /**
+     * Stores a message that is already dead, in ONE transaction, with the same idempotency check.
+     *
+     * Third review gate, defect 1. A store in state 'pending' followed by a separate mark dead
+     * commits a claimable row first. The relay runs in its own coroutine, so it can claim that
+     * row and forward a payload that the transform rejected. The single transaction removes the
+     * window: the row never exists in state 'pending'.
+     *
+     * @return InboxResult.Stored on the first delivery, InboxResult.Duplicate when the pair
+     *     (source, idempotencyKey) already exists, InboxResult.Error on a database failure
+     */
+    suspend fun storeDead(message: InboxMessage): InboxResult
+
+    /**
      * Claims a batch of pending messages for processing.
      * Atomically selects and marks messages as processing.
      */

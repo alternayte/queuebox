@@ -81,20 +81,33 @@ The transform can reject a message. The two source types answer differently.
 - **HTTP source.** QueueBox answers 422. The caller still holds the message, and the caller can
   correct it and send it again. QueueBox stores no row.
 - **AMQP source.** No caller holds the message. QueueBox therefore stores the inbox row with the
-  original payload, marks the row `dead`, and only then acknowledges the delivery. QueueBox
-  declares no dead-letter exchange, so the row is the only copy.
+  original payload in state `dead`, and only then acknowledges the delivery. QueueBox declares no
+  dead-letter exchange, so the row is the only copy.
+
+The row is written in state `dead` in ONE transaction. A store in state `pending` followed by a
+separate mark dead commits a claimable row first. The relay polls in its own coroutine, so it can
+claim that row and forward a payload that the transform rejected. The single transaction removes
+that window. The row never exists in state `pending`.
 
 The order is mandatory. If the store fails, QueueBox does not acknowledge the delivery. It nacks
-with requeue, and the broker keeps the message. The mark dead step has the same rule. If the mark
-fails, QueueBox nacks with requeue.
+with requeue, and the broker keeps the message.
 
 A repeat of the same idempotency key hits the unique index. The earlier row already holds the
-payload, so QueueBox stores nothing more. QueueBox marks the earlier row dead again, and only
-then acknowledges the delivery. The repeat of the mark is necessary. An earlier mark can have
-failed, and the row can still be `pending`.
+payload, so QueueBox stores nothing more. QueueBox then marks the earlier row dead by its natural
+key, and only then acknowledges the delivery. This mark is necessary. An earlier attempt can have
+stored the row in state `pending`, for example through the normal path before a later transform
+change, so the row can still be claimable.
 
 A message with no idempotency key gets a stable SHA-256 digest of the body as its key. A
 redelivery of the identical message therefore hits the unique index, and the inbox holds one row.
+
+**Configure a key source when two events can carry the same body.** The digest is the last resort.
+QueueBox uses it only when the `x-idempotency-key` header, the configured `idempotencyKeyPath` and
+the AMQP `messageId` property all give nothing. In that case the publisher has given QueueBox
+nothing that separates one message from another, so QueueBox treats identical bytes as one
+message. Two distinct events with an identical body then deduplicate to one row, and the second
+event is NOT forwarded. Set `idempotencyKeyPath`, or publish the `x-idempotency-key` header, or
+set the `messageId` property.
 
 The relay never forwards a `dead` row. An operator can read the row, correct the transform, and
 replay the payload.

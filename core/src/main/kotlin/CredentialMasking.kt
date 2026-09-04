@@ -18,7 +18,9 @@ object CredentialMasking {
      * by a star opens a comment inside a comment.
      */
     fun maskUrl(url: String): String {
-        var masked = USER_INFO.replace(url) { match -> match.groupValues[1] + "***@" }
+        var masked = USER_INFO_SPACE_WITH_SLASH.replace(url) { match -> match.groupValues[1] + "***@" }
+        masked = USER_INFO_SPACE_NO_SLASH.replace(masked) { match -> match.groupValues[1] + "***@" }
+        masked = USER_INFO_NO_SPACE.replace(masked) { match -> match.groupValues[1] + "***@" }
         masked = PASSWORD_PARAMETER.replace(masked) { match -> match.groupValues[1] + "=***" }
         return masked
     }
@@ -34,17 +36,55 @@ object CredentialMasking {
         SECRET_HEADER_NAMES.any { name.equals(it, ignoreCase = true) } ||
             SECRET_HEADER_PARTS.any { name.contains(it, ignoreCase = true) }
 
-    // Matches "<scheme>://<user information>@" and keeps the scheme. The user information can
-    // hold a slash after the ':' of the password, and an at sign, so the pattern ends at the LAST
-    // at sign of the authority. The host that follows carries no at sign, so the pattern stays
-    // inside one authority. A path that holds an at sign keeps its host.
+    // Matches "<scheme>://<user information>@" and keeps the scheme.
     //
-    // The alternation is deliberate. An optional group makes the Java engine keep the FIRST at
-    // sign, and a password with an at sign then leaks its tail.
-    private val USER_INFO = Regex(
-        "([a-zA-Z][a-zA-Z0-9+.-]*://)" +
-            "(?:[^\\s/@]*:(?:(?!://)\\S)*|[^\\s/@]*)" +
-            "@(?=[^/?#\\s@]*(?:[/?#\\s]|$))"
+    // The user information has three shapes. The masking applies them in the order below.
+    //
+    // Two shapes hold whitespace in the password. A password with a space, a tab or a newline is
+    // exactly the reason a URI reaches an error text, because whitespace is illegal in an
+    // authority. The two shapes trade a slash against the strictness of the host.
+    //
+    // SPACE_WITH_SLASH accepts a slash in the password, so it demands a plausible host after the
+    // at sign: a host with a port, or a host that a path, a query or a fragment follows.
+    //
+    // SPACE_NO_SLASH stops at a slash, so it accepts any host, even a bare host with no port and
+    // no path. "amqp://user:pass word@rabbit" is a normal AMQP configuration, and the mask must
+    // cover it. The cost is prose of the form "amqp://rabbit:5672 refused for nate@example.com",
+    // which becomes "amqp://***@example.com". That mask is DELIBERATE. A leaked broker password is
+    // a security defect. A mangled word is an inconvenience. The slash stop still protects the
+    // common prose "amqp://rabbit:5672/vh failed for nate@example.com", which stays whole.
+    //
+    // Neither whitespace shape can cross a second "://", so a message that names two URLs keeps
+    // both hosts.
+    //
+    // The third shape holds no whitespace. It accepts a slash and an at sign after the ':' of the
+    // password, so an unencoded slash cannot break the mask.
+    //
+    // Every shape ends at the LAST at sign of the authority. The alternation is deliberate. An
+    // optional group makes the Java engine keep the FIRST at sign, and a password with an at sign
+    // then leaks its tail.
+    private const val SCHEME = "([a-zA-Z][a-zA-Z0-9+.-]*://)"
+
+    private const val USER = "[^\\s/?#@]*:"
+
+    private const val HOST_AFTER = "(?=[^/?#\\s@]*(?:[/?#\\s]|$))"
+
+    private const val PLAUSIBLE_HOST_AFTER = "(?=[^/?#\\s@]*:[0-9]+(?:[/?#\\s]|$)|[^/?#\\s@]*[/?#])"
+
+    private const val SLASH_RUN = "(?:(?!://)[^?#])*"
+
+    private const val NO_SLASH_RUN = "[^/?#]*"
+
+    private val USER_INFO_SPACE_WITH_SLASH = Regex(
+        SCHEME + USER + SLASH_RUN + "\\s" + SLASH_RUN + "@" + PLAUSIBLE_HOST_AFTER
+    )
+
+    private val USER_INFO_SPACE_NO_SLASH = Regex(
+        SCHEME + USER + NO_SLASH_RUN + "\\s" + NO_SLASH_RUN + "@" + HOST_AFTER
+    )
+
+    private val USER_INFO_NO_SPACE = Regex(
+        SCHEME + "(?:[^\\s/@]*:(?:(?!://)\\S)*|[^\\s/@]*)@" + HOST_AFTER
     )
 
     // Matches a password query parameter, whatever its separator.

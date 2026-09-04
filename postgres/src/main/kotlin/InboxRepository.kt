@@ -34,7 +34,18 @@ class InboxRepository(
         require(!identifier.contains('"')) { "Invalid SQL identifier: '$identifier'" }
         return "\"$identifier\""
     }
-    override suspend fun store(message: InboxMessage): InboxResult = joinOrNewTransaction {
+    override suspend fun store(message: InboxMessage): InboxResult = insert(message, "pending")
+
+    /**
+     * Third review gate, defect 1: stores the row already in state 'dead', in ONE transaction.
+     *
+     * A store in state 'pending' followed by a mark dead commits a claimable row first. The
+     * relay polls in its own coroutine, so it can claim that row and forward a payload that the
+     * transform rejected. One transaction closes the window.
+     */
+    override suspend fun storeDead(message: InboxMessage): InboxResult = insert(message, "dead")
+
+    private suspend fun insert(message: InboxMessage, initialState: String): InboxResult = joinOrNewTransaction {
         try {
             val now = Clock.System.now()
             val inserted = table.insertIgnore {
@@ -44,7 +55,7 @@ class InboxRepository(
                 it[aggregateId] = message.aggregateId
                 it[eventType] = message.eventType
                 it[payload] = message.payload
-                it[state] = "pending"
+                it[state] = initialState
                 it[createdAt] = now
                 it[correlationId] = message.correlationId
             }

@@ -36,6 +36,41 @@ class SqlServerInboxRepositoryTest : SqlServerTestBase() {
     }
 
     @Test
+    fun `storeDead writes the row directly in state dead`() = runTest {
+        val message = InboxMessage(
+            source = "order-service",
+            idempotencyKey = "dead-1",
+            eventType = "OrderCreated",
+            payload = JsonObject(mapOf("orderId" to JsonPrimitive("123")))
+        )
+
+        assertEquals(InboxResult.Stored, repository.storeDead(message))
+        assertEquals(0, repository.claimPending(10).size, "A dead row must never be claimable.")
+        assertEquals(1L, repository.countByState("dead"))
+        assertEquals(0L, repository.countByState("pending"))
+    }
+
+    @Test
+    fun `storeDead returns Duplicate for an existing key`() = runTest {
+        val message = InboxMessage(
+            source = "order-service",
+            idempotencyKey = "dead-2",
+            payload = JsonObject(mapOf("orderId" to JsonPrimitive("123")))
+        )
+
+        repository.store(message)
+        val result = repository.storeDead(
+            InboxMessage(
+                source = "order-service",
+                idempotencyKey = "dead-2",
+                payload = JsonObject(mapOf("orderId" to JsonPrimitive("456")))
+            )
+        )
+
+        assertEquals(InboxResult.Duplicate, result)
+    }
+
+    @Test
     fun `store returns Duplicate for same source and idempotencyKey`() = runTest {
         val message1 = InboxMessage(
             source = "order-service",

@@ -38,6 +38,40 @@ class InboxRepositoryTest : PostgresTestBase() {
     }
 
     @Test
+    fun `storeDead should write the row directly in state dead`() = runBlocking {
+        val message = InboxMessage(
+            source = "stripe",
+            idempotencyKey = "evt_dead_1",
+            payload = JsonObject(mapOf("secretField" to JsonPrimitive("rejected-payload")))
+        )
+
+        assertEquals(InboxResult.Stored, repository.storeDead(message))
+        assertEquals(0, repository.claimPending(10).size, "A dead row must never be claimable.")
+        assertEquals(1L, repository.countByState("dead"))
+        assertEquals(0L, repository.countByState("pending"))
+    }
+
+    @Test
+    fun `storeDead should return Duplicate when the key already exists`() = runBlocking {
+        val first = InboxMessage(
+            source = "stripe",
+            idempotencyKey = "evt_dead_2",
+            payload = JsonObject(emptyMap())
+        )
+        repository.store(first)
+
+        val result = repository.storeDead(
+            InboxMessage(
+                source = "stripe",
+                idempotencyKey = "evt_dead_2",
+                payload = JsonObject(emptyMap())
+            )
+        )
+
+        assertEquals(InboxResult.Duplicate, result)
+    }
+
+    @Test
     fun `store should return Duplicate when same source and key`() = runBlocking {
         val msg1 = InboxMessage(
             source = "stripe",

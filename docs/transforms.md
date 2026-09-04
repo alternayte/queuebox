@@ -18,9 +18,14 @@ Transforms have access to context variables:
 |----------|-------------|
 | `$messageId` | UUID of the message |
 | `$topic` | Message topic |
-| `$attempt` | Current delivery attempt (1-based) |
+| `$attempt` | The number of failed deliveries so far. It is `0` on the first delivery. The retry raises it. |
 | `$timestamp` | Current ISO timestamp |
 | `$source` | Source name (inbox only) |
+
+The count matches the `attempt` column of the outbox row, and it matches the `X-Attempt`
+header that the HTTP publisher sends. [integration.md](integration.md) documents the column.
+The test `outbox-service/src/test/kotlin/org/nxtspec/OutboxPollerTest.kt` pins the value `0` on
+the first delivery.
 
 ### Examples
 

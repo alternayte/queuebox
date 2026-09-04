@@ -68,7 +68,10 @@ class InboxRelay(
                     throw e
                 } catch (e: Exception) {
                     metricsCollector?.recordInboxRelayError()
-                    log.error("The inbox relay cycle failed. The next cycle retries.", e)
+                    log.error(
+                        "The inbox relay cycle failed. The next cycle retries. Reason: {}",
+                        ErrorSanitizer.sanitize(e)
+                    )
                 }
                 delay(config.pollIntervalMs)
             }
@@ -191,6 +194,10 @@ class InboxRelay(
                 // forwards every message header.
                 message.correlationId?.let { put(CORRELATION_ID_HEADER, it) }
             },
+            // The configured 'outbox.maxAttempts' reaches the row. A row value that an adopter
+            // writes himself wins, because QueueBox reads the column. See the third review
+            // gate, defect 1.
+            maxAttempts = config.maxAttempts ?: DEFAULT_MAX_ATTEMPTS,
             state = MessageState.Pending,
             scheduledAt = now,
             createdAt = now,
@@ -200,5 +207,11 @@ class InboxRelay(
 
     companion object {
         const val DEFAULT_TOPIC_TEMPLATE: String = "{{ eventType }}"
+
+        /**
+         * The ceiling that the relay uses when the configuration names none. It equals the
+         * column default, so the behaviour does not change.
+         */
+        const val DEFAULT_MAX_ATTEMPTS: Int = 5
     }
 }

@@ -75,7 +75,7 @@ outbox:
   pollIntervalMs: 100                     # How often to check for pending messages
   batchSize: 100                          # Messages per poll cycle
   retryBaseDelayMs: 1000                  # Base delay for exponential backoff
-  maxAttempts: 5                          # Max delivery attempts before dead-letter
+  maxAttempts: 5                          # Default delivery ceiling. The row can override it.
   concurrency: 8                          # Messages published at the same time
   claimTimeoutMs: 300000                  # A claim older than this returns to pending
   pendingGaugeIntervalMs: 5000            # Minimum interval between pending count queries
@@ -147,7 +147,7 @@ sources:
     type: rabbitmq
     queueName: incoming-orders
     connectionUrl: amqp://localhost:5672
-    idempotencyKeyPath: $.messageId
+    idempotencyKeyPath: $.messageId       # Set this. See the note below.
     aggregateIdPath: $.orderId            # Optional: for ordered processing
     prefetchCount: 10
 
@@ -160,10 +160,42 @@ retention:
     cleanupInterval: 1h                   # Run cleanup every hour
     batchSize: 1000                       # Delete in batches
   inbox:
-    policy: COUNT
-    maxCount: 100000                      # Keep most recent 100k messages
+    policy: AGE                           # The inbox accepts 'AGE' or 'DISABLED' only
+    maxAge: 30d
     cleanupInterval: 6h
     batchSize: 1000
+```
+
+**Always give an AMQP source a key.** QueueBox reads the idempotency key from the
+`x-idempotency-key` header, then from `idempotencyKeyPath`, then from the AMQP `messageId`
+property. When all three give nothing, QueueBox falls back to a SHA-256 digest of the body. A
+redelivery then deduplicates, which is correct, but two DISTINCT events that carry an identical
+body also deduplicate, and the second event is NOT forwarded.
+[message-flow.md](message-flow.md) states the rule in full.
+
+### How QueueBox picks the dead-letter ceiling
+
+QueueBox compares the `attempt` column of a row against the `max_attempts` column of the SAME
+row. It never reads `outbox.maxAttempts` at delivery time. The precedence is therefore:
+
+1. **The row wins.** An application that inserts an outbox row can set `max_attempts` on that
+   row. That value is the ceiling for that one message. Use it to give a slow destination more
+   attempts than the rest of the system.
+2. **The configured value is the default.** QueueBox writes `outbox.maxAttempts` into
+   `max_attempts` for every row that QueueBox itself creates. The inbox relay creates such rows.
+   A message that arrives on an inbox endpoint therefore gets the configured ceiling.
+3. **The column default is the last resort.** A row that neither the application nor QueueBox
+   gives a value takes the schema default of `5`.
+
+`inbox.relay.maxAttempts` overrides step 2 for relayed rows only. Leave it unset, and the relay
+uses `outbox.maxAttempts`.
+
+```yaml
+outbox:
+  maxAttempts: 5
+inbox:
+  relay:
+    maxAttempts: 10                       # Optional. Relayed rows only. Default: outbox.maxAttempts
 ```
 
 ### Request Limits
@@ -348,11 +380,22 @@ When `auth` is specified, these fields become required based on auth type:
 
 When `retention.enabled: true`:
 
-| Policy | Required Field |
-|--------|----------------|
-| `AGE` | `maxAge`, for example `7d` or `24h` |
-| `COUNT` | `maxCount`, a positive integer |
-| `DISABLED` | None |
+| Policy | Required Field | Accepted for |
+|--------|----------------|--------------|
+| `AGE` | `maxAge`, for example `7d` or `24h` | `outbox` and `inbox` |
+| `COUNT` | `maxCount`, a positive integer | `outbox` only |
+| `DISABLED` | None | `outbox` and `inbox` |
+
+**The inbox rejects the count policy.** The inbox repository holds no count-based delete, so the
+policy deletes nothing. QueueBox stops at startup with an error that names
+`retention.inbox.policy`. Use `AGE` or `DISABLED` for the inbox.
+
+**The count ceiling counts per state, not per table.** The outbox count policy keeps `maxCount`
+rows of the state `sent` AND `maxCount` rows of the state `dead`. `maxCount: 100000` therefore
+keeps up to 200000 rows. The two states are counted apart on purpose. A flood of delivered
+messages then cannot evict the dead messages that an operator still has to inspect. Halve the
+number if you size the table against one total. The test
+`outbox-service/src/test/kotlin/org/nxtspec/RetentionServiceTest.kt` pins the rule.
 
 #### Which timestamp the age policy uses
 

@@ -2,6 +2,7 @@ package org.nxtspec
 
 import kotlin.test.Test
 import kotlin.test.assertContains
+import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
@@ -42,6 +43,39 @@ class ConfigValidatorTest {
         ),
         sources = emptyMap()
     )
+
+    // === Third review gate, defect 1 and defect 2 ===
+
+    @Test
+    fun `should reject the count retention policy for the inbox`() {
+        val config = createValidConfig().copy(
+            retention = RetentionConfig(
+                enabled = true,
+                outbox = TableRetentionConfig(policy = RetentionPolicy.DISABLED),
+                inbox = TableRetentionConfig(policy = RetentionPolicy.COUNT, maxCount = 100000)
+            )
+        )
+        val error = assertFailsWith<IllegalArgumentException> { ConfigValidator.validate(config) }
+        assertContains(error.message!!, "inbox retention does not support the count policy")
+    }
+
+    @Test
+    fun `should give the relay the configured dead-letter ceiling`() {
+        val config = createValidConfig().copy(outbox = createValidConfig().outbox.copy(maxAttempts = 3))
+        val validated = ConfigValidator.validate(config)
+        assertEquals(3, validated.inbox.relay.maxAttempts)
+    }
+
+    @Test
+    fun `should keep an explicit relay dead-letter ceiling`() {
+        val base = createValidConfig()
+        val config = base.copy(
+            outbox = base.outbox.copy(maxAttempts = 3),
+            inbox = base.inbox.copy(relay = base.inbox.relay.copy(maxAttempts = 9))
+        )
+        val validated = ConfigValidator.validate(config)
+        assertEquals(9, validated.inbox.relay.maxAttempts)
+    }
 
     // === Valid Configuration Tests ===
 
@@ -462,7 +496,7 @@ class ConfigValidatorTest {
         val config = createValidConfig().copy(
             retention = RetentionConfig(
                 enabled = true,
-                inbox = TableRetentionConfig(
+                outbox = TableRetentionConfig(
                     policy = RetentionPolicy.COUNT,
                     maxCount = 100000,
                     cleanupInterval = "6h",
@@ -625,14 +659,14 @@ class ConfigValidatorTest {
             retention = RetentionConfig(
                 enabled = true,
                 outbox = TableRetentionConfig(
-                    policy = RetentionPolicy.AGE,
-                    maxAge = "7d",
+                    policy = RetentionPolicy.COUNT,
+                    maxCount = 100000,
                     cleanupInterval = "1h",
                     batchSize = 1000
                 ),
                 inbox = TableRetentionConfig(
-                    policy = RetentionPolicy.COUNT,
-                    maxCount = 100000,
+                    policy = RetentionPolicy.AGE,
+                    maxAge = "30d",
                     cleanupInterval = "6h",
                     batchSize = 500
                 )

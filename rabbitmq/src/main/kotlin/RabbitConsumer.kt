@@ -61,7 +61,15 @@ class RabbitConsumer(
      * The key addresses the row, not the row identifier. A redelivery holds a new row
      * identifier, but the same natural key, so this callback also works on the duplicate path.
      */
-    private val markDead: (suspend (String, String) -> Unit)? = null
+    private val markDead: (suspend (String, String) -> Unit)? = null,
+    /**
+     * Stores one rejected message that is already dead, in ONE transaction.
+     *
+     * Third review gate, defect 1. A store in state 'pending' followed by a mark dead commits a
+     * claimable row first, and the relay can forward the rejected payload before the mark runs.
+     * This callback removes the window, because the row never exists in state 'pending'.
+     */
+    private val storeDeadMessage: (suspend (InboxMessage) -> InboxResult)? = null
 ) {
     private val log = logger<RabbitConsumer>()
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
@@ -132,7 +140,7 @@ class RabbitConsumer(
                     openChannel.basicNack(command.deliveryTag, false, command.requeue)
             }
         } catch (e: Exception) {
-            log.error("Acknowledging delivery {} failed.", command.deliveryTag, e)
+            log.error("Acknowledging delivery {} failed. Reason: {}", command.deliveryTag, ErrorSanitizer.sanitize(e))
         }
     }
 
@@ -255,7 +263,11 @@ class RabbitConsumer(
                 }
             }
         } catch (e: Exception) {
-            log.error("Processing delivery {} failed. The message is requeued.", envelope.deliveryTag, e)
+            log.error(
+                "Processing delivery {} failed. The message is requeued. Reason: {}",
+                envelope.deliveryTag,
+                ErrorSanitizer.sanitize(e)
+            )
             sendNack(envelope.deliveryTag, true)
         }
     }
@@ -263,8 +275,9 @@ class RabbitConsumer(
     /**
      * Preserves a message that the transform rejected.
      *
-     * The order is mandatory. The row must be durable before the acknowledgement. A failed store
-     * therefore ends in a nack with requeue, and the broker keeps the message.
+     * The row is stored in state 'dead' in one transaction, so it is never claimable. The order
+     * is mandatory. The row must be durable before the acknowledgement. A failed store therefore
+     * ends in a nack with requeue, and the broker keeps the message.
      */
     private suspend fun storeRejected(envelope: Envelope, message: InboxMessage, reason: String) {
         log.warn(
@@ -274,16 +287,28 @@ class RabbitConsumer(
             reason
         )
 
+        val storeDead = storeDeadMessage
+        if (storeDead == null) {
+            log.error(
+                "No dead-letter store is configured for source '{}'. QueueBox requeues delivery " +
+                    "{} rather than store a rejected payload that the relay can forward.",
+                config.sourceName,
+                envelope.deliveryTag
+            )
+            sendNack(envelope.deliveryTag, true)
+            return
+        }
+
         val result = try {
-            storeMessage(message)
+            storeDead(message)
         } catch (e: Exception) {
             InboxResult.Error(e.message ?: e::class.simpleName ?: "unknown")
         }
 
         when (result) {
             is InboxResult.Stored -> {
-                val marked = markDeadRow(envelope, message.idempotencyKey)
-                if (!marked) return
+                // The row is already dead. No second statement is needed, and no window exists
+                // in which the relay can claim the row.
                 metricsCollector?.recordInboxRejection(InboxRejectionReason.TRANSFORM_FAILED)
                 sendAck(envelope.deliveryTag)
             }
@@ -424,7 +449,7 @@ class RabbitConsumer(
             try {
                 openChannel?.basicCancel(tag)
             } catch (e: Exception) {
-                log.warn("Cancelling the consumer tag {} failed.", tag, e)
+                log.warn("Cancelling the consumer tag {} failed. Reason: {}", tag, ErrorSanitizer.sanitize(e))
             }
         }
         consumerTag = null
@@ -449,7 +474,7 @@ class RabbitConsumer(
         try {
             openChannel?.close()
         } catch (e: Exception) {
-            log.warn("Closing the AMQP channel failed.", e)
+            log.warn("Closing the AMQP channel failed. Reason: {}", ErrorSanitizer.sanitize(e))
         }
         channel = null
     }

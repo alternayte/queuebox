@@ -49,7 +49,7 @@ class OutboxPoller(
                     throw e
                 } catch (e: Exception) {
                     // Log error but continue polling
-                    log.error("The poll cycle failed. The next cycle retries.", e)
+                    log.error("The poll cycle failed. The next cycle retries. Reason: {}", ErrorSanitizer.sanitize(e))
                 }
                 delay(config.pollIntervalMs)
             }

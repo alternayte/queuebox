@@ -352,7 +352,13 @@ class RabbitConsumerIntegrationTest {
             config = config,
             transformPipeline = rejectingPipeline(),
             sourceTransform = rejectingTransform,
-            markDead = { _, key -> deadKeys.add(key) }
+            markDead = { _, key -> deadKeys.add(key) },
+            // The row is stored dead in one transaction. The key is recorded here, so the
+            // assertions of this test stay the same.
+            storeDeadMessage = { m ->
+                deadKeys.add(m.idempotencyKey)
+                mockStore(m)
+            }
         )
         consumer.start()
 
@@ -391,7 +397,8 @@ class RabbitConsumerIntegrationTest {
             config = config,
             transformPipeline = rejectingPipeline(),
             sourceTransform = rejectingTransform,
-            markDead = { _, key -> deadKeys.add(key) }
+            markDead = { _, key -> deadKeys.add(key) },
+            storeDeadMessage = throwingStore
         )
         consumer.start()
 

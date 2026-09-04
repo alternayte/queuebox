@@ -248,6 +248,44 @@ class OutboxPollerTest {
     }
 
     @Test
+    fun `should give the transform context attempt 0 on the first delivery`() = runBlocking {
+        val repository = mockk<OutboxRepositoryInterface>(relaxed = true)
+        val router = mockk<MessageRouter>()
+        val publisher = mockk<Publisher>()
+        val transformPipeline = mockk<TransformPipeline>()
+
+        val message = createTestMessage(attempt = 0)
+        val destination = createHttpDestination()
+        val transformConfig = TransformConfig(expression = "{ transformed: true }")
+        val routingResult = RoutingResult(destination, "test.topic", routeTransform = transformConfig)
+        val contexts = mutableListOf<org.nxtspec.transform.TransformContext>()
+
+        coEvery { repository.claimBatch(any()) } returns listOf(message) andThen emptyList()
+        coEvery { repository.countByState("pending") } returns 0L
+        every { router.route(any(), any()) } returns routingResult
+        every { publisher.supports(any()) } returns true
+        coEvery { publisher.publish(any(), any(), any()) } returns Result.success(Unit)
+        coEvery { transformPipeline.transform(any(), any(), any(), capture(contexts)) } returns
+            TransformResult.Success(message.payload)
+
+        val poller = OutboxPoller(
+            config = defaultConfig,
+            repository = repository,
+            router = router,
+            publishers = listOf(publisher),
+            retryStrategy = retryStrategy,
+            transformPipeline = transformPipeline
+        )
+
+        poller.start()
+        delay(150)
+        poller.shutdown()
+
+        // The column default is 0 and only scheduleRetry raises it. The documents state this.
+        kotlin.test.assertEquals(0, contexts.first().attempt)
+    }
+
+    @Test
     fun `should apply transform when routeTransform configured`() = runBlocking {
         val repository = mockk<OutboxRepositoryInterface>(relaxed = true)
         val router = mockk<MessageRouter>()

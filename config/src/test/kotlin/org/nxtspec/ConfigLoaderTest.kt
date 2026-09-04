@@ -134,8 +134,8 @@ class ConfigLoaderTest {
 
         // Verify inbox retention config
         val inbox = config.retention.inbox
-        assertEquals(RetentionPolicy.COUNT, inbox.policy)
-        assertEquals(100000, inbox.maxCount)
+        assertEquals(RetentionPolicy.AGE, inbox.policy)
+        assertEquals("30d", inbox.maxAge)
         assertEquals("6h", inbox.cleanupInterval)
         assertEquals(1000, inbox.batchSize)
     }

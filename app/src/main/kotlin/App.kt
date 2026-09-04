@@ -204,7 +204,7 @@ fun main() {
         .filterValues { it is SourceConfig.RabbitMQ }
         .map { (sourceName, sourceConfig) ->
             val rabbitConfig = sourceConfig as SourceConfig.RabbitMQ
-            val connection = RabbitConnection(rabbitConfig.connectionUrl)
+            val connection = createSourceConnection(sourceName, rabbitConfig.connectionUrl)
             RabbitConsumer(
                 connection = connection,
                 storeMessage = inboxRepository::store,
@@ -215,8 +215,12 @@ fun main() {
                 sourceTransform = rabbitConfig.transform,
                 // A transform rejection on an AMQP source must not destroy the message. The
                 // consumer stores the original payload, and this callback marks the row dead so
-                // the relay never forwards a rejected payload.
-                markDead = inboxRepository::markDeadByKey
+                // the relay never forwards a rejected payload. The mark serves the duplicate
+                // path, where an earlier row can still be pending.
+                markDead = inboxRepository::markDeadByKey,
+                // Third review gate, defect 1: the first store already writes state 'dead' in
+                // one transaction, so the relay never sees a claimable rejected row.
+                storeDeadMessage = inboxRepository::storeDead
             ) to connection
         }
 
@@ -354,10 +358,42 @@ fun main() {
         managementServer?.start(wait = false)
         server.start(wait = true)
     } catch (e: Exception) {
-        log.error("The start failed. QueueBox releases every resource that it holds.", e)
+        log.error(
+            "The start failed. QueueBox releases every resource that it holds. Reason: {}",
+            ErrorSanitizer.sanitize(e)
+        )
         runBlocking { shutdownSequence.run() }
         throw e
     }
+}
+
+/**
+ * Builds the AMQP connection of one inbox source.
+ *
+ * `RabbitConnection` parses the URI in its constructor, and the message of a
+ * `URISyntaxException` embeds the whole URI, which carries the broker password. An uncaught
+ * failure leaves `main`, and the JVM prints it to stderr, which is the container log. The call
+ * therefore runs inside a try, and the replacement message names the source alone.
+ *
+ * The start fails. QueueBox does not continue without the source. A source that fails silently
+ * consumes nothing, so the queue grows and no operator is told. `RabbitPublisher` treats the
+ * same failure the same way, as a sanitised failure rather than a raw URI.
+ *
+ * The cause is not attached, because the cause message carries the URI as well.
+ */
+internal fun createSourceConnection(sourceName: String, connectionUrl: String): RabbitConnection = try {
+    RabbitConnection(connectionUrl)
+} catch (e: Exception) {
+    log.error(
+        "The connection URL of the RabbitMQ source '{}' is not a valid AMQP URI. " +
+            "QueueBox does not print the URL, because it carries the broker password.",
+        sourceName
+    )
+    throw IllegalStateException(
+        "The connection URL of the RabbitMQ source '" + sourceName +
+            "' is not a valid AMQP URI. Correct sources." + sourceName +
+            ".connectionUrl. The URL is not printed, because it carries the broker password."
+    )
 }
 
 /**
@@ -420,7 +456,7 @@ private suspend fun stopQuietly(what: String, action: suspend () -> Unit) {
     try {
         action()
     } catch (e: Exception) {
-        log.warn("Stopping {} failed. The shutdown continues.", what, e)
+        log.warn("Stopping {} failed. The shutdown continues. Reason: {}", what, ErrorSanitizer.sanitize(e))
     }
 }
 

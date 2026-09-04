@@ -67,4 +67,115 @@ class CredentialMaskingTest {
         assertEquals(Secret.MASK, masked["X-Api-Key"])
         assertEquals("application/json", masked["Accept"])
     }
+
+    // --- The whitespace leak of the third review gate ---
+
+    @Test
+    fun `maskUrl masks a password that holds two spaces`() {
+        val result = CredentialMasking.maskUrl("amqp://user:aa  bb@rabbit:5672/vh")
+
+        assertFalse(result.contains("aa  bb"), result)
+        assertTrue(result.contains("rabbit:5672"), result)
+    }
+
+    @Test
+    fun `maskUrl masks a password that holds a tab`() {
+        val result = CredentialMasking.maskUrl("amqp://user:aa\tbb@rabbit:5672/vh")
+
+        assertFalse(result.contains("aa\tbb"), result)
+        assertTrue(result.contains("rabbit:5672"), result)
+    }
+
+    @Test
+    fun `maskUrl masks a password that holds a newline`() {
+        val result = CredentialMasking.maskUrl("amqp://user:aa\nbb@rabbit:5672/vh")
+
+        assertFalse(result.contains("aa\nbb"), result)
+        assertTrue(result.contains("rabbit:5672"), result)
+    }
+
+    @Test
+    fun `maskUrl masks a password that holds a space and an at sign`() {
+        val result = CredentialMasking.maskUrl("amqp://user:a b@c d@rabbit:5672/vh")
+
+        assertEquals("amqp://***@rabbit:5672/vh", result)
+    }
+
+    // --- The prose that must stay readable ---
+
+    @Test
+    fun `maskUrl keeps prose that names a url and a mail address`() {
+        val text = "amqp://rabbit:5672/vh failed for nate@example.com"
+
+        assertEquals(text, CredentialMasking.maskUrl(text))
+    }
+
+    @Test
+    fun `maskUrl masks both urls of one message`() {
+        val result = CredentialMasking.maskUrl("amqp://a:b@h1:5672/v failed, amqp://c:d@h2:5672/v failed")
+
+        assertEquals("amqp://***@h1:5672/v failed, amqp://***@h2:5672/v failed", result)
+    }
+
+    // --- Hostile inputs of my own invention ---
+
+    @Test
+    fun `maskUrl masks a password that holds a space, a slash and an at sign`() {
+        val result = CredentialMasking.maskUrl("amqp://user:a b/c@d e@rabbit:5672/vh")
+
+        assertEquals("amqp://***@rabbit:5672/vh", result)
+    }
+
+    @Test
+    fun `maskUrl masks a password that holds a carriage return`() {
+        val result = CredentialMasking.maskUrl("amqp://user:aa\rbb@rabbit:5672/vh")
+
+        assertFalse(result.contains("aa\rbb"), result)
+    }
+
+    @Test
+    fun `maskUrl masks a password of whitespace only`() {
+        val result = CredentialMasking.maskUrl("amqp://user:   @rabbit:5672/vh")
+
+        assertEquals("amqp://***@rabbit:5672/vh", result)
+    }
+
+    @Test
+    fun `maskUrl masks a whitespace password before a prose mail address`() {
+        val result = CredentialMasking.maskUrl("amqp://user:a b@rabbit:5672/vh failed for nate@example.com")
+
+        assertEquals("amqp://***@rabbit:5672/vh failed for nate@example.com", result)
+    }
+
+    // --- The reversed trade of the fourth review gate ---
+
+    @Test
+    fun `maskUrl masks a whitespace password of a url with no port and no path`() {
+        val result = CredentialMasking.maskUrl("amqp://user:pass word@rabbit")
+
+        assertEquals("amqp://***@rabbit", result)
+    }
+
+    // The mask of the mail address is DELIBERATE. The URL holds no path, so the pattern cannot
+    // tell the prose from a real authority. A leaked password outranks a mangled word.
+    @Test
+    fun `maskUrl deliberately masks prose after a port only url`() {
+        val result = CredentialMasking.maskUrl("amqp://rabbit:5672 refused for nate@example.com")
+
+        assertEquals("amqp://***@example.com", result)
+    }
+
+    @Test
+    fun `maskUrl keeps a message with no scheme`() {
+        val text = "The password was wrong and the broker closed the channel"
+
+        assertEquals(text, CredentialMasking.maskUrl(text))
+    }
+
+    @Test
+    fun `maskUrl keeps a mail address on its own`() {
+        val text = "delivery failed for nate@example.com"
+
+        assertEquals(text, CredentialMasking.maskUrl(text))
+    }
 }

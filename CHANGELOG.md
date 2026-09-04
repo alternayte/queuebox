@@ -83,6 +83,18 @@ release exists.
   tests for the exact code 200 must accept 202 as well.
   `docs/adr/0002-inbox-accept-returns-202.md` records the decision.
 
+- **`retention.inbox.policy: COUNT` fails the startup.** The value was accepted and then did
+  nothing: the service logged a warning and deleted no row, so the inbox table grew without bound
+  while the startup looked clean. QueueBox now rejects the value at startup and names the two that
+  work, `AGE` and `DISABLED`. A deployment that set `COUNT` was never getting the cleanup it asked
+  for, so the loud failure reports a defect that already existed.
+
+- **`outbox.maxAttempts` now reaches the message.** The value was validated and never applied.
+  Every message that QueueBox created took the schema default of 5, whatever the configuration
+  said. QueueBox now stamps the configured value on every row it creates. A deployment that set a
+  value other than 5 sees its retry ceiling change to the value it configured. The `max_attempts`
+  column still wins, so an adopter can still override the ceiling for one message.
+
 ### Security
 
 - The inbox HMAC check covers the timestamp and the body together, which blocks a replay of the

@@ -1,6 +1,9 @@
 # Dead letters: inspection and replay
 
-A message reaches the state `dead` after `outbox.maxAttempts` failed delivery attempts. QueueBox
+A message reaches the state `dead` when its `attempt` count reaches the `max_attempts` column of
+its own row. QueueBox writes `outbox.maxAttempts` into that column for every row it creates, so
+the configured value is the ceiling unless the application set a different one on the row.
+[configuration.md](../configuration.md) states the precedence in full. QueueBox
 never deletes a dead message on its own. The retention job removes it after `retention.outbox.maxAge`.
 
 This document gives the supported SQL to list a dead message and to requeue one.

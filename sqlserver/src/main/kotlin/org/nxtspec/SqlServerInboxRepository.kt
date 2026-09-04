@@ -31,7 +31,18 @@ class SqlServerInboxRepository(
 ) : InboxRepositoryInterface {
     private val table = SqlServerDynamicInboxTable(columnMapping, tableName)
 
-    override suspend fun store(message: InboxMessage): InboxResult = joinOrNewTransaction {
+    override suspend fun store(message: InboxMessage): InboxResult = insert(message, "pending")
+
+    /**
+     * Third review gate, defect 1: stores the row already in state 'dead', in ONE transaction.
+     *
+     * A store in state 'pending' followed by a mark dead commits a claimable row first. The
+     * relay polls in its own coroutine, so it can claim that row and forward a payload that the
+     * transform rejected. One transaction closes the window.
+     */
+    override suspend fun storeDead(message: InboxMessage): InboxResult = insert(message, "dead")
+
+    private suspend fun insert(message: InboxMessage, initialState: String): InboxResult = joinOrNewTransaction {
         try {
             val now = Clock.System.now()
             val nowTimestamp = Timestamp.from(
@@ -61,21 +72,27 @@ class SqlServerInboxRepository(
                 ON target.$sourceCol = src.source AND target.$idempotencyKeyCol = src.idempotency_key
                 WHEN NOT MATCHED THEN
                     INSERT ($insertColumns)
-                    VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?);
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
             """.trimIndent()
 
             val conn = TransactionManager.current().connection.connection as java.sql.Connection
             val rowsAffected = conn.prepareStatement(sql).use { stmt ->
-                stmt.setString(1, message.source)
-                stmt.setString(2, message.idempotencyKey)
-                stmt.setString(3, message.id.toString())
-                stmt.setString(4, message.source)
-                stmt.setString(5, message.idempotencyKey)
-                stmt.setString(6, message.aggregateId)
-                stmt.setString(7, message.eventType)
-                stmt.setString(8, message.payload.toString())
-                stmt.setTimestamp(9, nowTimestamp)
-                stmt.setString(10, message.correlationId)
+                // The parameters are bound in the order of the statement text. An index counter
+                // keeps the order correct and holds no literal position.
+                var index = 0
+                fun nextString(value: String?) = stmt.setString(++index, value)
+
+                nextString(message.source)
+                nextString(message.idempotencyKey)
+                nextString(message.id.toString())
+                nextString(message.source)
+                nextString(message.idempotencyKey)
+                nextString(message.aggregateId)
+                nextString(message.eventType)
+                nextString(message.payload.toString())
+                nextString(initialState)
+                stmt.setTimestamp(++index, nowTimestamp)
+                nextString(message.correlationId)
                 stmt.executeUpdate()
             }
 

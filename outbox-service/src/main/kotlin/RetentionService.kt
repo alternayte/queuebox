@@ -53,7 +53,11 @@ class RetentionService(
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: Exception) {
-                    log.error("The retention cleanup of the {} table failed.", table, e)
+                    log.error(
+                        "The retention cleanup of the {} table failed. Reason: {}",
+                        table,
+                        ErrorSanitizer.sanitize(e)
+                    )
                 }
                 interruptibleDelay(interval.inWholeMilliseconds)
             }
@@ -102,12 +106,14 @@ class RetentionService(
             }
         }
         RetentionPolicy.COUNT -> {
-            // Inbox only supports age-based retention
-            log.warn(
-                "The inbox does not support the count retention policy. The cleanup is " +
-                    "skipped. Use the age policy for the inbox."
+            // The inbox repository has no count-based delete, so the policy deletes nothing.
+            // A silent skip lets the table grow without bound. ConfigValidator rejects the
+            // policy at startup. This branch guards a service that another caller builds.
+            // See the third review gate, defect 2.
+            error(
+                "The inbox retention does not support the count policy. Use 'age' or " +
+                    "'disabled' for 'retention.inbox.policy'."
             )
-            0
         }
         RetentionPolicy.DISABLED -> 0
     }

@@ -101,7 +101,9 @@ fun Application.configureAdminRoutes(
                 val context = TransformContext(
                     messageId = UUID.randomUUID(),
                     topic = request.mockTopic ?: "test.topic",
-                    attempt = 1,
+                    // The poller passes 0 on a first delivery, because `attempt` counts the
+                    // failed deliveries. The test route must show the operator the same value.
+                    attempt = 0,
                     timestamp = Clock.System.now(),
                     source = request.mockSource
                 )
