@@ -1,5 +1,9 @@
 # QueueBox
 
+[![ci](https://github.com/alternayte/queuebox/actions/workflows/ci.yml/badge.svg)](https://github.com/alternayte/queuebox/actions/workflows/ci.yml)
+[![security](https://github.com/alternayte/queuebox/actions/workflows/security.yml/badge.svg)](https://github.com/alternayte/queuebox/actions/workflows/security.yml)
+[![release](https://img.shields.io/github/v/tag/alternayte/queuebox?label=release&sort=semver)](https://github.com/alternayte/queuebox/releases)
+
 A message processing service implementing reliable inbox and outbox patterns for distributed systems. QueueBox handles message ingestion, deduplication, transformation, routing, and delivery with automatic retries and dead-letter handling.
 
 ## Why QueueBox?
@@ -14,10 +18,47 @@ Distributed systems face common messaging challenges: lost webhooks, duplicate e
 
 ## Quick Start
 
+### Requirements
+
+- Docker, to run the published image.
+- PostgreSQL 14, 15 or 16, or SQL Server 2019 or 2022.
+- A Java Development Kit, version 21, only to build from the source or to run without a container.
+  QueueBox targets Java 21, the long term support release. Java 22 and Java 23 also compile the
+  code. Java 20 and earlier do not.
+
+### Run the published image
+
+QueueBox publishes a multi-architecture image for `linux/amd64` and `linux/arm64` to GitHub
+Container Registry.
+
+```bash
+docker pull ghcr.io/alternayte/queuebox:latest
+```
+
+Run the image against an existing database:
+
+```bash
+docker run --rm -p 8080:8080 \
+  -e DB_URL=jdbc:postgresql://host.docker.internal:5432/queuebox \
+  -e DB_USER=queuebox \
+  -e DB_PASSWORD=secret \
+  ghcr.io/alternayte/queuebox:latest
+```
+
+The service listens on `http://localhost:8080`.
+
+Three tag forms exist. Pin the exact version in production.
+
+| Tag | Meaning |
+|---|---|
+| `ghcr.io/alternayte/queuebox:1.2.3` | The exact release. |
+| `ghcr.io/alternayte/queuebox:1.2` | The newest patch of that minor release. |
+| `ghcr.io/alternayte/queuebox:latest` | The newest release. |
+
 ### Using Docker Compose
 
 ```bash
-git clone https://github.com/your-org/queuebox.git
+git clone https://github.com/alternayte/queuebox.git
 cd queuebox
 docker compose up -d
 ```
@@ -30,49 +71,7 @@ To include RabbitMQ:
 docker compose --profile rabbitmq up -d
 ```
 
-### Building the Docker Image
-
-**Local build:**
-
-```bash
-docker build -t queuebox .
-```
-
-**Multi-platform build** (for cross-platform compatibility):
-
-```bash
-# Create a builder instance (one-time setup)
-docker buildx create --name queuebox-builder --use
-
-# Build for multiple architectures
-docker buildx build --platform linux/amd64,linux/arm64 -t queuebox .
-```
-
-**Build and push to Docker Hub:**
-
-```bash
-# Tag with your Docker Hub username
-docker buildx build \
-  --platform linux/amd64,linux/arm64 \
-  -t yourusername/queuebox:latest \
-  -t yourusername/queuebox:1.0.0 \
-  --push .
-```
-
-**Build with cloud builder** (faster for multi-platform builds):
-
-```bash
-# Use Docker's cloud build infrastructure
-docker buildx build \
-  --platform linux/amd64,linux/arm64 \
-  --builder cloud-yourusername-default \
-  -t yourusername/queuebox:latest \
-  --push .
-```
-
 ### Manual Setup
-
-**Requirements:** JDK 21+, PostgreSQL 14+
 
 1. Create a PostgreSQL database:
 ```sql
@@ -90,10 +89,13 @@ export DB_USER=postgres
 export DB_PASSWORD=secret
 ```
 
-3. Run the application:
-```bash
-./gradlew run
-```
+3. Start the container, or build from the source and run `./gradlew run`. See
+   [docs/development/building.md](docs/development/building.md).
+
+### Building the Docker Image
+
+To build the image yourself, see [docs/development/building.md](docs/development/building.md). That
+document holds the local build, the multi-architecture build and the release procedure.
 
 ## Configuration
 

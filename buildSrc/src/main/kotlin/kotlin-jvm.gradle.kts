@@ -27,24 +27,38 @@ tasks.jacocoTestReport {
 // Classes that carry no testable logic, or that only a running process exercises.
 // TESTING.md names each exclusion and its reason.
 val coverageExclusions = listOf(
-    "**/*Table.class",
-    "**/*Tables.class",
+    // F-070: an explicit class list, never a suffix pattern. A suffix pattern hid
+    // DynamicTables, which carries the column mapping feature.
+    "**/OutboxTable.class",
+    "**/InboxTable.class",
+    "**/SqlServerOutboxTable.class",
+    "**/SqlServerInboxTable.class",
     "**/AppKt.class",
     "**/AppKt$*.class"
 )
 
+/**
+ * The compiled classes of the module, with the excluded classes removed.
+ *
+ * The default class directories of the JaCoCo tasks are the whole main output, which also holds
+ * the processed resources. A report has no reason to read a resource, and reading one makes
+ * Gradle report a missing task dependency. The compiled classes alone are the right input.
+ */
+fun Project.coveredClassDirectories(): FileCollection {
+    val mainClasses = extensions.getByType<SourceSetContainer>()
+        .named("main").get().output.classesDirs
+    return files(mainClasses.map { fileTree(it) { exclude(coverageExclusions) } })
+        .builtBy(mainClasses)
+}
+
 tasks.jacocoTestReport {
-    classDirectories.setFrom(
-        files(classDirectories.files.map { fileTree(it) { exclude(coverageExclusions) } })
-    )
+    classDirectories.setFrom(coveredClassDirectories())
 }
 
 tasks.jacocoTestCoverageVerification {
     dependsOn(tasks.jacocoTestReport)
 
-    classDirectories.setFrom(
-        files(classDirectories.files.map { fileTree(it) { exclude(coverageExclusions) } })
-    )
+    classDirectories.setFrom(coveredClassDirectories())
 
     violationRules {
         // Per-module line coverage. Decision 3 of section 2A of hardening-doc.md sets it.

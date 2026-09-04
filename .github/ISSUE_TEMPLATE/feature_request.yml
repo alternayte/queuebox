@@ -1,0 +1,65 @@
+name: Feature request
+description: Suggest a capability for QueueBox.
+title: "feat: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for the suggestion. Describe the problem before the solution.
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: State the problem that you have today. Do not state the solution here.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: The proposed capability
+      description: Describe what QueueBox must do.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives that you considered
+      description: Name the workaround that you use today, if one exists.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Inbox
+        - Outbox
+        - Transforms
+        - RabbitMQ
+        - PostgreSQL
+        - SQL Server
+        - Configuration
+        - Observability
+        - Documentation
+        - Other
+    validations:
+      required: true
+  - type: dropdown
+    id: compatibility
+    attributes:
+      label: Compatibility
+      description: See docs/development/releasing.md for the policy.
+      options:
+        - The change keeps every existing deployment working.
+        - The change breaks an existing deployment.
+        - I do not know.
+    validations:
+      required: true
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks
+      options:
+        - label: I searched the existing issues and found no duplicate.
+          required: true
+        - label: I read CONTRIBUTING.md.
+          required: true

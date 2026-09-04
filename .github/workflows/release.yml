@@ -1,0 +1,108 @@
+# F-063: a `v*` tag publishes a multi-architecture container image to GHCR.
+# QueueBox ships as a container image only. The build publishes no Maven artifact.
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+  GRADLE_OPTS: -Dorg.gradle.daemon=false
+
+jobs:
+  release:
+    name: Publish the image and the release
+    runs-on: ubuntu-latest
+    permissions:
+      # `packages: write` pushes to GHCR. `id-token: write` signs the provenance attestation.
+      # `attestations: write` records it. `contents: write` creates the GitHub release.
+      contents: write
+      packages: write
+      id-token: write
+      attestations: write
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+        with:
+          # The version comes from the Git tag, so the build needs the tags.
+          fetch-depth: 0
+
+      - name: Read the version from the tag
+        id: version
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          minor="${version%.*}"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "minor=${minor}" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Build the software bill of materials
+        # F-043. The CycloneDX plugin does not support the Gradle configuration cache.
+        run: ./gradlew sbom --no-configuration-cache -PqueueboxVersion=${{ steps.version.outputs.version }}
+
+      - name: Set up QEMU
+        # QEMU gives the amd64 runner the emulation that the arm64 build needs.
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build the image and push it
+        id: push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          # The exact version, the minor version and `latest`.
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.version }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.minor }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.version=${{ steps.version.outputs.version }}
+            org.opencontainers.image.revision=${{ github.sha }}
+          # The registry keeps the bill of materials and the provenance beside the image.
+          sbom: true
+          provenance: mode=max
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Attest the provenance of the image
+        # F-044. The attestation names the workflow that produced the image digest.
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          subject-digest: ${{ steps.push.outputs.digest }}
+          push-to-registry: true
+
+      - name: Create the GitHub release
+        # The release carries the bill of materials that the earlier step built.
+        uses: softprops/action-gh-release@v2
+        with:
+          name: ${{ github.ref_name }}
+          generate_release_notes: true
+          files: build/reports/queuebox-*-sbom.json
+          fail_on_unmatched_files: true

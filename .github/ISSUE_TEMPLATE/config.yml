@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/AlterNayte/queuebox/security/advisories/new
+    about: Report a vulnerability privately. Do not open a public issue.
+  - name: Contributing guide
+    url: https://github.com/AlterNayte/queuebox/blob/main/CONTRIBUTING.md
+    about: Read how to build QueueBox and how to submit a change.

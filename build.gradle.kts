@@ -7,7 +7,36 @@ plugins {
 
 // The CycloneDX plugin needs a coordinate for the root component of the bill of materials.
 group = "org.nxtspec"
-version = (findProperty("queueboxVersion") as String?) ?: "0.1.0-SNAPSHOT"
+
+/**
+ * F-063: the version comes from the Git tag.
+ *
+ * The order of precedence is:
+ * 1. The `queueboxVersion` Gradle property. A release workflow can set it.
+ * 2. The nearest Git tag that starts with `v`. The tag `v1.2.3` gives the version `1.2.3`.
+ *    A commit after the tag gives `1.2.3-<count>-g<hash>`. A dirty tree adds `-SNAPSHOT`.
+ * 3. `0.0.0-SNAPSHOT` for an untagged build, or when Git is not available.
+ *
+ * QueueBox ships as a container image only. The build publishes no Maven artifact, so this
+ * version names the image and the bill of materials.
+ */
+fun gitVersion(): String {
+    // `providers.exec` runs the command through the configuration cache, so the build stays
+    // cacheable. A plain ProcessBuilder at configuration time breaks the configuration cache.
+    val result = providers.exec {
+        workingDir = rootDir
+        commandLine("git", "describe", "--tags", "--match", "v*", "--dirty=-SNAPSHOT", "--always")
+        isIgnoreExitValue = true
+    }
+    if (result.result.get().exitValue != 0) return "0.0.0-SNAPSHOT"
+    val described = result.standardOutput.asText.get().trim()
+
+    // `git describe --always` falls back to a bare commit hash when no tag matches.
+    if (!described.startsWith("v")) return "0.0.0-SNAPSHOT"
+    return described.removePrefix("v")
+}
+
+version = (findProperty("queueboxVersion") as String?) ?: gitVersion()
 
 /**
  * F-043: publishes the software bill of materials under the released name.
@@ -100,9 +129,13 @@ gradle.projectsEvaluated {
         val classDir = subproject.layout.buildDirectory.dir("classes/kotlin/main").get().asFile
         if (classDir.exists()) {
             fileTree(classDir) {
-                // See TESTING.md for the reason behind every exclusion.
-                exclude("**/*Table.class")
-                exclude("**/*Tables.class")
+                // F-070: the exclusions name a class, not a suffix. A suffix pattern hid
+                // DynamicTables, which carries the column mapping feature. TESTING.md names
+                // every entry and its reason.
+                exclude("**/OutboxTable.class")
+                exclude("**/InboxTable.class")
+                exclude("**/SqlServerOutboxTable.class")
+                exclude("**/SqlServerInboxTable.class")
                 exclude("**/AppKt.class")
                 exclude("**/AppKt$*.class")
             }

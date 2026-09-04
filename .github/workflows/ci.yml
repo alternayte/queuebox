@@ -1,0 +1,184 @@
+# F-059: continuous integration. Every push and every pull request runs these jobs.
+# F-062: the matrix enforces the supported Java range. QueueBox supports Java 21 only.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  # A new push to the same branch cancels the previous run.
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # The Gradle daemon adds no value in a fresh runner.
+  GRADLE_OPTS: -Dorg.gradle.daemon=false
+
+jobs:
+  build:
+    name: Build on Java ${{ matrix.java }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # F-062: 21 is the supported release. The build target is Java 21 bytecode.
+        # The build also runs on 22 and 23 to prove that a newer JDK compiles the code.
+        java: ["21", "22", "23"]
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+        with:
+          # The version comes from the Git tag, so the build needs the tags.
+          fetch-depth: 0
+
+      - name: Set up Java ${{ matrix.java }}
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ matrix.java }}
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Assemble the project
+        # `-x test` keeps the container tests in the test job, which holds the database matrix.
+        run: ./gradlew build -x test
+
+  test:
+    name: Test on ${{ matrix.database }} ${{ matrix.version }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - database: postgres
+            version: "14"
+            image_env: QUEUEBOX_TEST_POSTGRES_IMAGE
+            image: postgres:14
+          - database: postgres
+            version: "15"
+            image_env: QUEUEBOX_TEST_POSTGRES_IMAGE
+            image: postgres:15
+          - database: postgres
+            version: "16"
+            image_env: QUEUEBOX_TEST_POSTGRES_IMAGE
+            image: postgres:16
+          - database: sqlserver
+            version: "2019"
+            image_env: QUEUEBOX_TEST_SQLSERVER_IMAGE
+            image: mcr.microsoft.com/mssql/server:2019-latest
+          - database: sqlserver
+            version: "2022"
+            image_env: QUEUEBOX_TEST_SQLSERVER_IMAGE
+            image: mcr.microsoft.com/mssql/server:2022-latest
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Run the checks
+        # The Ubuntu runner provides the Docker daemon that Testcontainers needs.
+        # The matrix sets one image variable. The other database keeps its default image.
+        env:
+          MATRIX_IMAGE_ENV: ${{ matrix.image_env }}
+          MATRIX_IMAGE: ${{ matrix.image }}
+        run: |
+          export "${MATRIX_IMAGE_ENV}=${MATRIX_IMAGE}"
+          ./gradlew check jacocoAggregatedReport
+
+      - name: Upload the coverage report
+        # The report helps a reviewer even when the checks fail.
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-${{ matrix.database }}-${{ matrix.version }}
+          path: build/reports/jacoco/aggregated
+          if-no-files-found: warn
+
+      - name: Upload the test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-${{ matrix.database }}-${{ matrix.version }}
+          path: "**/build/reports/tests/test"
+          if-no-files-found: warn
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    # The ktlint and detekt plugins arrive with F-066. Until they land, this job fails, and
+    # that failure is the signal that the work is not finished.
+    continue-on-error: false
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Run ktlint and detekt
+        run: ./gradlew ktlintCheck detekt
+
+      - name: Upload the lint reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lint-reports
+          path: "**/build/reports/detekt"
+          if-no-files-found: warn
+
+  docker:
+    name: Docker image
+    # F-059 asks for an image build and a Trivy scan. The Trivy scan stays in
+    # `.github/workflows/security.yml`, which already scans the image and the bill of
+    # materials on every pull request. A second scan here would double the runtime and
+    # report the same findings twice, so this job proves only that the image builds and
+    # starts.
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Docker buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build the image
+        # The pull request build stays on one architecture, because the release workflow holds
+        # the multi-architecture build. `load` puts the image into the local daemon.
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          load: true
+          tags: queuebox:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Start the image
+        # A build that produces an image which cannot start is not a passing build.
+        run: docker run --rm --entrypoint java queuebox:ci -version

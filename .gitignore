@@ -71,4 +71,14 @@ node_modules/
 
 # Task files
 # tasks.json
-# tasks/ 
+# tasks/
+
+### Agent tooling (F-065)
+# These are personal workflow files. They add noise to a public repository, they publish
+# internal planning documents, and they advertise AI provider key names that QueueBox does not
+# need. The files stay on disk. Version control does not carry them.
+.taskmaster/
+.cursor/
+.claude/
+.mcp.json
+CLAUDE.md
