@@ -414,7 +414,8 @@ internal fun rabbitConsumerConfig(sourceName: String, source: SourceConfig.Rabbi
         sourceName = sourceName,
         prefetchCount = source.prefetchCount,
         idempotencyKeyPath = source.idempotencyKeyPath,
-        aggregateIdPath = source.aggregateIdPath
+        aggregateIdPath = source.aggregateIdPath,
+        eventTypePath = source.eventTypePath
     )
 
 /**

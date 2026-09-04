@@ -276,9 +276,26 @@ sealed class SourceConfig {
         val connectionUrl: String,
         val idempotencyKeyPath: String = "$.id",
         val aggregateIdPath: String? = null,
+        /**
+         * Optional JSONPath to the event type in the message body, like the HTTP source.
+         * The consumer reads this path first, and it falls back to the `x-event-type` header.
+         */
+        val eventTypePath: String? = null,
+        /**
+         * Declares that every publisher of this queue sets the `x-event-type` header.
+         *
+         * The header is the only other source of the event type. Set this to true to use
+         * `{{ eventType }}` in the topic template without an `eventTypePath`. The declaration
+         * is explicit, because a missing event type makes the relay mark the message dead.
+         */
+        val eventTypeFromHeader: Boolean = false,
         val prefetchCount: Int = 10,
         override val transform: TransformConfig? = null,
-        override val topic: String = "{{ eventType }}",
+        /**
+         * The default renders the source name, which every message carries. A template that
+         * uses `{{ eventType }}` needs `eventTypePath` or `eventTypeFromHeader`.
+         */
+        override val topic: String = "{{ source }}",
         override val rateLimit: RateLimitConfig? = null
     ) : SourceConfig() {
         /**
@@ -287,6 +304,7 @@ sealed class SourceConfig {
         override fun toString(): String = "RabbitMQ(queueName=$queueName, " +
             "connectionUrl=${CredentialMasking.maskUrl(connectionUrl)}, " +
             "idempotencyKeyPath=$idempotencyKeyPath, aggregateIdPath=$aggregateIdPath, " +
+            "eventTypePath=$eventTypePath, eventTypeFromHeader=$eventTypeFromHeader, " +
             "prefetchCount=$prefetchCount, transform=$transform, topic=$topic, " +
             "rateLimit=$rateLimit)"
     }

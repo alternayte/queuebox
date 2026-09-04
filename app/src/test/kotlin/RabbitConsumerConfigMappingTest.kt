@@ -28,4 +28,19 @@ class RabbitConsumerConfigMappingTest {
         assertEquals("$.id", config.idempotencyKeyPath)
         assertEquals("$.orderId", config.aggregateIdPath, "The aggregate identifier path must be wired.")
     }
+
+    @Test
+    fun `the event type path reaches the consumer configuration`() {
+        // Fifth review gate. An AMQP source reads the event type from the body, like an HTTP
+        // source. The path must reach the consumer.
+        val source = SourceConfig.RabbitMQ(
+            queueName = "orders",
+            connectionUrl = "amqp://guest:guest@localhost:5672",
+            eventTypePath = "$.type"
+        )
+
+        val config = rabbitConsumerConfig("orders-source", source)
+
+        assertEquals("$.type", config.eventTypePath, "The event type path must be wired.")
+    }
 }

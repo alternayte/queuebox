@@ -2,6 +2,7 @@ package org.nxtspec
 
 import kotlinx.datetime.Clock
 import kotlinx.serialization.json.JsonElement
+import org.nxtspec.logging.logger
 import org.nxtspec.metrics.InboxRejectionReason
 import org.nxtspec.metrics.MetricsCollectorInterface
 import org.nxtspec.repository.InboxRepositoryInterface
@@ -24,6 +25,8 @@ class InboxHandler(
     private val metricsCollector: MetricsCollectorInterface? = null,
     private val transformPipeline: InboxTransformPipeline? = null
 ) {
+    private val log = logger<InboxHandler>()
+
     suspend fun handle(
         source: String,
         sourceConfig: SourceConfig.Http,
@@ -43,11 +46,7 @@ class InboxHandler(
 
         val idempotencyKey = extracted[IDEMPOTENCY_KEY]
         if (idempotencyKey == null) {
-            // F-052: the reason is a fixed enumeration, never the path or the payload.
-            metricsCollector?.recordInboxRejection(InboxRejectionReason.EXTRACTION_FAILED)
-            return InboxHandlerResult.ExtractionFailed(
-                "Path not found: ${sourceConfig.idempotencyKeyPath}"
-            )
+            return rejectMissingKey(source, sourceConfig.idempotencyKeyPath)
         }
         val aggregateId = extracted[AGGREGATE_ID_KEY]
         val eventType = extracted[EVENT_TYPE_KEY]
@@ -104,5 +103,26 @@ class InboxHandler(
         const val IDEMPOTENCY_KEY = "idempotencyKey"
         const val AGGREGATE_ID_KEY = "aggregateId"
         const val EVENT_TYPE_KEY = "eventType"
+    }
+
+    /**
+     * Rejects a message whose idempotency key path matched nothing.
+     *
+     * F-052: the reason is a fixed enumeration, never the path or the payload. The reason reaches
+     * the 400 response body, and the caller of an inbox source is an untrusted webhook sender. The
+     * configured JSONPath is internal configuration, so it must not travel back. The operator
+     * needs it, so the log line carries it instead.
+     */
+    private fun rejectMissingKey(source: String, path: String): InboxHandlerResult {
+        metricsCollector?.recordInboxRejection(InboxRejectionReason.EXTRACTION_FAILED)
+        log.warn(
+            "The idempotency key path '{}' of source '{}' matched nothing. The message is " +
+                "rejected with 400.",
+            path,
+            source
+        )
+        return InboxHandlerResult.ExtractionFailed(
+            "The request body does not carry the idempotency key that this source needs."
+        )
     }
 }

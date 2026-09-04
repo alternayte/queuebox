@@ -32,7 +32,12 @@ data class RabbitConsumerConfig(
     val sourceName: String,
     val prefetchCount: Int = 10,
     val idempotencyKeyPath: String = "$.id",
-    val aggregateIdPath: String? = null
+    val aggregateIdPath: String? = null,
+    /**
+     * Optional JSONPath to the event type in the message body. The consumer reads this path
+     * first, and it falls back to the `x-event-type` AMQP header.
+     */
+    val eventTypePath: String? = null
 )
 
 private sealed interface AckCommand {
@@ -183,8 +188,8 @@ class RabbitConsumer(
             // Extract optional aggregate ID with fallback to header (from ORIGINAL payload)
             val aggregateId = extractAggregateId(properties, payload)
 
-            // Extract optional event type from header
-            val eventType = properties.headers?.get("x-event-type")?.toString()
+            // Extract the optional event type from the body, then from the header.
+            val eventType = extractEventType(properties, payload)
 
             // F-047: the identifier follows an AMQP message as well. A header name is case
             // sensitive in AMQP, so both spellings are accepted.
@@ -378,6 +383,26 @@ class RabbitConsumer(
     private fun bodyDigest(body: ByteArray): String {
         val digest = java.security.MessageDigest.getInstance("SHA-256").digest(body)
         return "sha256:" + digest.joinToString("") { "%02x".format(it) }
+    }
+
+    /**
+     * Reads the event type of a delivery. See the fifth review gate.
+     *
+     * Priority 1 is the `eventTypePath` in the body, which gives an AMQP source the same
+     * capability as an HTTP source. Priority 2 is the `x-event-type` AMQP header.
+     */
+    private fun extractEventType(
+        properties: AMQP.BasicProperties,
+        payload: kotlinx.serialization.json.JsonElement
+    ): String? {
+        config.eventTypePath?.let { path ->
+            val extracted = extractor.extract(payload, path)
+            if (extracted.isSuccess) {
+                return extracted.getOrThrow()
+            }
+        }
+
+        return properties.headers?.get("x-event-type")?.toString()
     }
 
     private fun extractAggregateId(

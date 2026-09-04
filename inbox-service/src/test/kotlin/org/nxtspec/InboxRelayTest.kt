@@ -163,6 +163,29 @@ class InboxRelayTest {
     }
 
     @Test
+    fun `the default topic of a RabbitMQ source keeps a message with no event type`() = runBlocking {
+        // Fifth review gate. The default must never destroy a message. An AMQP publisher that
+        // sets no event type is normal, so the default template must not need one.
+        val source = SourceConfig.RabbitMQ(
+            queueName = "orders",
+            connectionUrl = "amqp://guest:guest@localhost:5672"
+        )
+        val message = inboxMessage(source = "orders-queue", eventType = null)
+        val inbox = FakeInboxRepository(mutableListOf(message))
+        val outbox = FakeOutboxRepository()
+
+        val forwarded = relay(
+            inbox,
+            outbox,
+            topics = mapOf("orders-queue" to source.topic)
+        ).relayBatch()
+
+        assertEquals(1, forwarded, "The message must reach the outbox.")
+        assertEquals(0, inbox.dead.size, "The message must not become dead.")
+        assertEquals("orders-queue", outbox.inserted.single().topic)
+    }
+
+    @Test
     fun `renders the configured source topic template`() = runBlocking {
         val message = inboxMessage()
         val inbox = FakeInboxRepository(mutableListOf(message))

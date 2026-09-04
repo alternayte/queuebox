@@ -48,6 +48,11 @@ The first request answers `202 Accepted`. The same request again answers `200 OK
 `docker-compose.yml` mounts [examples/queuebox.yml](examples/queuebox.yml) at
 `/etc/queuebox/queuebox.yml`. Edit that file and restart the container. You do not rebuild.
 
+The database credentials come from [.env.example](.env.example), which the Compose file names in
+its `env_file` block. `--env-file .env.example` is therefore optional above, and the command works
+without it. Copy `.env.example` to your own file and point `env_file` at it for a real
+deployment.
+
 [docs/getting-started.md](docs/getting-started.md) holds the full walkthrough, and
 [docs/integration.md](docs/integration.md) holds the contract your application writes against.
 

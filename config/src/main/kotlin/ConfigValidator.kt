@@ -258,7 +258,8 @@ object ConfigValidator {
             )
             is SourceConfig.RabbitMQ -> listOf(
                 "idempotencyKeyPath" to source.idempotencyKeyPath,
-                "aggregateIdPath" to source.aggregateIdPath
+                "aggregateIdPath" to source.aggregateIdPath,
+                "eventTypePath" to source.eventTypePath
             )
         }
 
@@ -290,13 +291,34 @@ object ConfigValidator {
                 "${EnvConfigLoader.yamlPathToEnvKey("sources.$name.topic")} env var."
         }
 
-        if (source is SourceConfig.Http && source.topic.contains("eventType")) {
-            require(source.eventTypePath != null) {
-                "Source '$name' topic template '${source.topic}' uses eventType, but " +
-                    "'sources.$name.eventTypePath' is not set. The inbox relay would mark every " +
-                    "message of this source as dead. Set 'sources.$name.eventTypePath', or set a " +
-                    "'sources.$name.topic' template that does not use eventType."
-            }
+        if (!source.topic.contains("eventType")) {
+            return
+        }
+
+        when (source) {
+            is SourceConfig.Http ->
+                require(source.eventTypePath != null) {
+                    "Source '$name' topic template '${source.topic}' uses eventType, but " +
+                        "'sources.$name.eventTypePath' is not set. The inbox relay would mark every " +
+                        "message of this source as dead. Set 'sources.$name.eventTypePath', or set a " +
+                        "'sources.$name.topic' template that does not use eventType."
+                }
+
+            is SourceConfig.RabbitMQ ->
+                // Fifth review gate. An AMQP source has two sources of the event type: the
+                // 'eventTypePath' in the body, and the 'x-event-type' header. A publisher that
+                // sets neither gives an empty topic, and the relay marks the message dead. The
+                // header cannot be checked at startup, so the operator declares it.
+                require(source.eventTypePath != null || source.eventTypeFromHeader) {
+                    "Source '$name' topic template '${source.topic}' uses eventType, but " +
+                        "'sources.$name.eventTypePath' is not set and " +
+                        "'sources.$name.eventTypeFromHeader' is false. The inbox relay would mark " +
+                        "every message with no event type as dead. Set " +
+                        "'sources.$name.eventTypePath', or set " +
+                        "'sources.$name.eventTypeFromHeader' to true when every publisher sets the " +
+                        "'x-event-type' AMQP header, or set a 'sources.$name.topic' template that " +
+                        "does not use eventType."
+                }
         }
     }
 

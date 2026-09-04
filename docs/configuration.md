@@ -149,7 +149,9 @@ sources:
     connectionUrl: amqp://localhost:5672
     idempotencyKeyPath: $.messageId       # Set this. See the note below.
     aggregateIdPath: $.orderId            # Optional: for ordered processing
+    eventTypePath: $.type                 # Optional: extract the event type from the body
     prefetchCount: 10
+    topic: "{{ source }}"                 # Outbox topic template. The default needs no event type.
 
 # Automatic cleanup of old messages
 retention:
@@ -172,6 +174,34 @@ property. When all three give nothing, QueueBox falls back to a SHA-256 digest o
 redelivery then deduplicates, which is correct, but two DISTINCT events that carry an identical
 body also deduplicate, and the second event is NOT forwarded.
 [message-flow.md](message-flow.md) states the rule in full.
+
+**The event type of an AMQP source.** QueueBox reads the event type from `eventTypePath` in the
+message body first. When that gives nothing, QueueBox reads the AMQP header `x-event-type`. The
+header name is fixed. A message with no event type renders `{{ eventType }}` as an empty string,
+and the relay marks such a message dead. The default topic template of an AMQP source is therefore
+`{{ source }}`, which every message can render. To use `{{ eventType }}` in the template, set
+`eventTypePath`, or set `eventTypeFromHeader: true` to declare that every publisher of the queue
+sets the `x-event-type` header. QueueBox refuses the start when the template uses `{{ eventType }}`
+and neither field is set.
+
+```yaml
+sources:
+  orders-queue:
+    type: rabbitmq
+    queueName: incoming-orders
+    connectionUrl: amqp://localhost:5672
+    idempotencyKeyPath: $.messageId
+    eventTypePath: $.type                 # The body carries the event type
+    topic: "{{ source }}.{{ eventType }}"
+
+  audit-queue:
+    type: rabbitmq
+    queueName: audit
+    connectionUrl: amqp://localhost:5672
+    idempotencyKeyPath: $.messageId
+    eventTypeFromHeader: true             # Every publisher sets the x-event-type AMQP header
+    topic: "{{ eventType }}"
+```
 
 ### How QueueBox picks the dead-letter ceiling
 
@@ -353,8 +383,10 @@ These fields are required only when configuring specific features:
 | `connectionUrl` | Yes | — |
 | `idempotencyKeyPath` | No | `$.id` |
 | `aggregateIdPath` | No | — |
+| `eventTypePath` | No | — |
+| `eventTypeFromHeader` | No | `false` |
 | `prefetchCount` | No | `10` |
-| `topic` | No | `{{ eventType }}` |
+| `topic` | No | `{{ source }}` |
 
 #### Authentication Requirements
 

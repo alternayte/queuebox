@@ -53,8 +53,14 @@ deliver.
 | `payload` | The stored inbox payload |
 | `headers` | `x-inbox-id`, `x-source`, and `x-idempotency-key` |
 
-The topic template supports `{{ source }}` and `{{ eventType }}`. The default is
-`{{ eventType }}`. The relay marks the message `dead` when the template renders empty.
+The topic template supports `{{ source }}` and `{{ eventType }}`. The default of an HTTP source is
+`{{ eventType }}`. The default of an AMQP source is `{{ source }}`, because an AMQP message carries
+no event type of its own. The relay marks the message `dead` when the template renders empty.
+
+An AMQP source takes the event type from `eventTypePath` in the body, and then from the AMQP header
+`x-event-type`. To use `{{ eventType }}` in the template of an AMQP source, set `eventTypePath`, or
+set `eventTypeFromHeader: true` to declare that every publisher sets the header. QueueBox refuses
+the start when the template uses `{{ eventType }}` and neither field is set.
 
 ```yaml
 inbox:

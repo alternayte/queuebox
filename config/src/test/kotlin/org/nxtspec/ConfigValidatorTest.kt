@@ -2167,4 +2167,93 @@ class ConfigValidatorTest {
 
         assertNotNull(validated)
     }
+    // === RabbitMQ source event type. Fifth review gate. ===
+
+    @Test
+    fun `the default topic of a rabbitmq source does not use the event type`() {
+        val source = SourceConfig.RabbitMQ(
+            queueName = "orders",
+            connectionUrl = "amqp://localhost:5672"
+        )
+
+        assertEquals(
+            "{{ source }}",
+            source.topic,
+            "The default must render from a value that every AMQP message carries."
+        )
+
+        val validated = ConfigValidator.validate(
+            createValidConfig().copy(sources = mapOf("order-events" to source))
+        )
+
+        assertNotNull(validated)
+    }
+
+    @Test
+    fun `should fail when a rabbitmq source topic uses the event type with no source for it`() {
+        val config = createValidConfig().copy(
+            sources = mapOf(
+                "order-events" to SourceConfig.RabbitMQ(
+                    queueName = "orders",
+                    connectionUrl = "amqp://localhost:5672",
+                    topic = "{{ eventType }}"
+                )
+            )
+        )
+
+        val exception = assertFailsWith<IllegalArgumentException> { ConfigValidator.validate(config) }
+
+        assertContains(exception.message!!, "order-events")
+        assertContains(exception.message!!, "sources.order-events.eventTypePath")
+        assertContains(exception.message!!, "eventTypeFromHeader")
+    }
+
+    @Test
+    fun `should pass when a rabbitmq source topic uses the event type with an event type path`() {
+        val config = createValidConfig().copy(
+            sources = mapOf(
+                "order-events" to SourceConfig.RabbitMQ(
+                    queueName = "orders",
+                    connectionUrl = "amqp://localhost:5672",
+                    eventTypePath = "$.type",
+                    topic = "{{ source }}.{{ eventType }}"
+                )
+            )
+        )
+
+        assertNotNull(ConfigValidator.validate(config))
+    }
+
+    @Test
+    fun `should pass when a rabbitmq source declares the event type header`() {
+        val config = createValidConfig().copy(
+            sources = mapOf(
+                "order-events" to SourceConfig.RabbitMQ(
+                    queueName = "orders",
+                    connectionUrl = "amqp://localhost:5672",
+                    eventTypeFromHeader = true,
+                    topic = "{{ eventType }}"
+                )
+            )
+        )
+
+        assertNotNull(ConfigValidator.validate(config))
+    }
+
+    @Test
+    fun `should fail when a rabbitmq source event type path is indefinite`() {
+        val config = createValidConfig().copy(
+            sources = mapOf(
+                "order-events" to SourceConfig.RabbitMQ(
+                    queueName = "orders",
+                    connectionUrl = "amqp://localhost:5672",
+                    eventTypePath = "$..type"
+                )
+            )
+        )
+
+        val exception = assertFailsWith<IllegalArgumentException> { ConfigValidator.validate(config) }
+
+        assertContains(exception.message!!, "eventTypePath")
+    }
 }

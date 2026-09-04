@@ -77,6 +77,17 @@ release exists.
 
 ### Breaking changes
 
+- **The default `topic` of a RabbitMQ source is now `{{ source }}`.** The default was
+  `{{ eventType }}`. A RabbitMQ source reads the event type from the AMQP header `x-event-type`
+  only, and that header was documented nowhere. A publisher that did not set it produced an empty
+  topic, and the relay marked every such message dead after the acknowledgement to the broker. The
+  message was destroyed. The new default renders the source name, which every message carries, so
+  no default can destroy a message. A RabbitMQ source can now also set `eventTypePath`, which
+  reads the event type from the message body, like an HTTP source. QueueBox refuses the start when
+  the topic template of a RabbitMQ source uses `{{ eventType }}` and neither `eventTypePath` nor
+  `eventTypeFromHeader` is set. A deployment that relied on the old default must set
+  `topic: "{{ eventType }}"` and one of those two fields.
+
 - **The inbox accepts a new message with 202.** The `POST /inbox/<source>` route returned 200 for a
   message that it stored. It now returns 202 Accepted, because the message is stored but not yet
   forwarded. A duplicate message still returns 200. There is no compatibility flag. A client that
