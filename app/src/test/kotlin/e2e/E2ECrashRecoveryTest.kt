@@ -1,7 +1,6 @@
 package org.nxtspec.e2e
 
 import io.ktor.http.*
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.datetime.Clock
 import kotlinx.serialization.json.JsonObject

@@ -1,6 +1,5 @@
 package org.nxtspec.auth
 
-import org.nxtspec.Secret
 import io.ktor.http.*
 import io.ktor.server.application.*
 import io.ktor.server.request.*
@@ -9,11 +8,12 @@ import io.ktor.util.*
 import io.mockk.every
 import io.mockk.mockk
 import org.nxtspec.InboxAuthConfig
+import org.nxtspec.Secret
 import org.nxtspec.SignaturePayloadFormat
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertIs
 import kotlin.test.assertFalse
+import kotlin.test.assertIs
 import kotlin.test.assertTrue
 
 class InboxAuthValidatorTest {
@@ -407,10 +407,7 @@ class InboxAuthValidatorTest {
         return request
     }
 
-    private fun mockRequestWithBody(
-        headers: Map<String, String> = emptyMap(),
-        body: ByteArray
-    ): ApplicationRequest {
+    private fun mockRequestWithBody(headers: Map<String, String> = emptyMap(), body: ByteArray): ApplicationRequest {
         val call = mockk<ApplicationCall>()
         val request = mockk<ApplicationRequest>()
         val headersBuilder = Headers.build {

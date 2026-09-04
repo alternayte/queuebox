@@ -8,6 +8,7 @@ import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Tag
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.assertDoesNotThrow
 import org.testcontainers.containers.GenericContainer
 import org.testcontainers.containers.wait.strategy.Wait
 import org.testcontainers.junit.jupiter.Container
@@ -19,7 +20,6 @@ import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
-import org.junit.jupiter.api.assertDoesNotThrow
 
 @Tag("integration")
 @Testcontainers
@@ -92,11 +92,7 @@ class RabbitConsumerIntegrationTest {
         }
     }
 
-    private fun publishMessage(
-        payload: String,
-        headers: Map<String, Any>? = null,
-        messageId: String? = null
-    ) {
+    private fun publishMessage(payload: String, headers: Map<String, Any>? = null, messageId: String? = null) {
         val factory = ConnectionFactory().apply { setUri(amqpUrl) }
         factory.newConnection().use { conn ->
             conn.createChannel().use { channel ->
@@ -281,7 +277,10 @@ class RabbitConsumerIntegrationTest {
         delay(1000)
 
         assertEquals(5, processedCount.get(), "All messages should be processed")
-        assertTrue(maxConcurrent.get() <= 2, "Max concurrent should not exceed prefetch count of 2, was ${maxConcurrent.get()}")
+        assertTrue(
+            maxConcurrent.get() <= 2,
+            "Max concurrent should not exceed prefetch count of 2, was ${maxConcurrent.get()}"
+        )
     }
 
     @Test

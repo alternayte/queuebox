@@ -62,7 +62,11 @@ class RabbitConnectionTest {
 
         assertTrue(channel1.isOpen, "First channel should be open")
         assertTrue(channel2.isOpen, "Second channel should be open")
-        assertNotEquals(channel1.channelNumber, channel2.channelNumber, "Channels should have different channel numbers")
+        assertNotEquals(
+            channel1.channelNumber,
+            channel2.channelNumber,
+            "Channels should have different channel numbers"
+        )
 
         channel1.close()
         channel2.close()

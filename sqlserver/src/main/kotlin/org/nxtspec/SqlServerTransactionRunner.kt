@@ -10,6 +10,5 @@ import org.nxtspec.repository.TransactionRunner
  * transaction in the coroutine context. See F-002.
  */
 class SqlServerTransactionRunner : TransactionRunner {
-    override suspend fun <T> inTransaction(block: suspend () -> T): T =
-        newSuspendedTransaction { block() }
+    override suspend fun <T> inTransaction(block: suspend () -> T): T = newSuspendedTransaction { block() }
 }

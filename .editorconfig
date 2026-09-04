@@ -11,6 +11,9 @@ indent_size = 4
 max_line_length = 120
 
 [*.{kt,kts}]
+# The `ktlint_official` style rewrites almost every file. `intellij_idea` matches the official
+# Kotlin coding conventions, which CONTRIBUTING.md already names as the standard of the project.
+ktlint_code_style = intellij_idea
 # The Ktor routing DSL and the Exposed SQL DSL are designed around a wildcard import.
 # The detekt rule `WildcardImport` is disabled for the same reason.
 ktlint_standard_no-wildcard-imports = disabled

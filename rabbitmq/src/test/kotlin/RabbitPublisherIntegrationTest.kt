@@ -212,7 +212,11 @@ class RabbitPublisherIntegrationTest {
 
                 val headers = response.props.headers
                 assertNotNull(headers, "Message should have headers")
-                assertEquals(routingKey, headers["x-topic"]?.toString(), "x-topic header should contain the message topic")
+                assertEquals(
+                    routingKey,
+                    headers["x-topic"]?.toString(),
+                    "x-topic header should contain the message topic"
+                )
                 assertNotNull(headers["x-attempt"], "x-attempt header should be present")
             }
         }
@@ -249,7 +253,6 @@ class RabbitPublisherIntegrationTest {
                 // exchangeDeclarePassive will throw if exchange doesn't exist
                 channel.exchangeDeclarePassive(uniqueExchange)
                 // If we get here without exception, the exchange exists
-                
             }
         }
 

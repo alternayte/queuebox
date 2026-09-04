@@ -1793,22 +1793,20 @@ class ConfigValidatorTest {
 
     // === F-040: destination URL validation ===
 
-    private fun configWithBaseUrl(
-        baseUrl: String,
-        blockPrivateAddresses: Boolean = false
-    ): QueueBoxConfig = createValidConfig().let { base ->
-        base.copy(
-            http = HttpConfig(blockPrivateAddresses = blockPrivateAddresses),
-            destinations = mapOf(
-                "webhook-api" to DestinationConfig.Http(
-                    baseUrl = baseUrl,
-                    path = "/webhooks",
-                    timeoutMs = 30000
-                )
-            ),
-            routes = listOf(RouteConfig(topicPattern = "order.*", destination = "webhook-api"))
-        )
-    }
+    private fun configWithBaseUrl(baseUrl: String, blockPrivateAddresses: Boolean = false): QueueBoxConfig =
+        createValidConfig().let { base ->
+            base.copy(
+                http = HttpConfig(blockPrivateAddresses = blockPrivateAddresses),
+                destinations = mapOf(
+                    "webhook-api" to DestinationConfig.Http(
+                        baseUrl = baseUrl,
+                        path = "/webhooks",
+                        timeoutMs = 30000
+                    )
+                ),
+                routes = listOf(RouteConfig(topicPattern = "order.*", destination = "webhook-api"))
+            )
+        }
 
     @Test
     fun `should fail when destination baseUrl has no scheme`() {

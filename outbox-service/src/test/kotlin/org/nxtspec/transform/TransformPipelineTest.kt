@@ -19,10 +19,7 @@ class TransformPipelineTest {
     private val engine = TransformEngine()
     private val pipeline = TransformPipeline(engine)
 
-    private fun createContext(
-        topic: String = "test.topic",
-        attempt: Int = 1
-    ) = TransformContext(
+    private fun createContext(topic: String = "test.topic", attempt: Int = 1) = TransformContext(
         messageId = UUID.fromString("550e8400-e29b-41d4-a716-446655440000"),
         topic = topic,
         attempt = attempt,
@@ -312,7 +309,7 @@ class TransformPipelineTest {
         val context = createContext()
         val routeTransform = TransformConfig(
             expression = "${"$"}reduce([1..10000], function(${"$"}acc, ${"$"}v) { ${"$"}acc + ${"$"}v }, 0)",
-            timeoutMs = 1,  // Very short timeout
+            timeoutMs = 1, // Very short timeout
             onError = TransformErrorStrategy.Fail
         )
 
@@ -331,7 +328,9 @@ class TransformPipelineTest {
 
     @Test
     fun `should handle complex payload transformation through pipeline`() = runBlocking {
-        val payload = parseJson("""
+        val payload =
+            parseJson(
+                """
             {
                 "order": {
                     "id": "ORD-001",
@@ -341,7 +340,8 @@ class TransformPipelineTest {
                     ]
                 }
             }
-        """.trimIndent())
+                """.trimIndent()
+            )
         val context = createContext(topic = "order.completed")
 
         // Route transform: flatten and calculate total

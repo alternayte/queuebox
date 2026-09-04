@@ -27,10 +27,7 @@ data class TokenResponse(
 /**
  * Cached token with expiration timestamp.
  */
-internal data class CachedToken(
-    val token: String,
-    val expiresAt: Long
-)
+internal data class CachedToken(val token: String, val expiresAt: Long)
 
 /**
  * Manages OAuth2 tokens with caching and thread-safe refresh.

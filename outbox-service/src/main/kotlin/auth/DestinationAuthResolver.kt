@@ -7,9 +7,7 @@ import java.util.Base64
  * Resolves authentication configuration to HTTP headers.
  * Supports OAuth2, Basic Auth, and custom header authentication.
  */
-class DestinationAuthResolver(
-    private val tokenManager: OAuth2TokenManager
-) {
+class DestinationAuthResolver(private val tokenManager: OAuth2TokenManager) {
     /**
      * Resolves the authentication configuration to HTTP headers.
      *

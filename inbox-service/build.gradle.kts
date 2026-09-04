@@ -16,7 +16,7 @@ dependencies {
     implementation(project(":core"))
     implementation(project(":config"))
     implementation(project(":postgres"))
-    implementation(project(":outbox-service"))  // For TransformEngine reuse
+    implementation(project(":outbox-service")) // For TransformEngine reuse
 
     // Ktor server
     implementation(libs.bundles.ktorServerEcosystem)

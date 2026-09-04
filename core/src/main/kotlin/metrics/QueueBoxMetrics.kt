@@ -76,14 +76,12 @@ class QueueBoxMetrics(private val registry: MeterRegistry) {
     private val httpStatusCounters = mutableMapOf<String, Counter>()
 
     @Synchronized
-    fun getPublishTimer(destinationType: String): Timer {
-        return publishTimers.getOrPut(destinationType) {
-            Timer.builder("queuebox_outbox_publish_duration_seconds")
-                .description("Time taken to publish to destination")
-                .tag("destination_type", destinationType)
-                .publishPercentiles(0.5, 0.95, 0.99)
-                .register(registry)
-        }
+    fun getPublishTimer(destinationType: String): Timer = publishTimers.getOrPut(destinationType) {
+        Timer.builder("queuebox_outbox_publish_duration_seconds")
+            .description("Time taken to publish to destination")
+            .tag("destination_type", destinationType)
+            .publishPercentiles(0.5, 0.95, 0.99)
+            .register(registry)
     }
 
     // Inbox counters
@@ -153,42 +151,36 @@ class QueueBoxMetrics(private val registry: MeterRegistry) {
      * Get or create a cleanup deleted counter for a specific table.
      */
     @Synchronized
-    private fun getCleanupCounter(table: String): Counter {
-        return cleanupCounters.getOrPut(table) {
-            Counter.builder("queuebox_cleanup_messages_deleted_total")
-                .description("Total messages deleted by retention cleanup")
-                .tag("table", table)
-                .register(registry)
-        }
+    private fun getCleanupCounter(table: String): Counter = cleanupCounters.getOrPut(table) {
+        Counter.builder("queuebox_cleanup_messages_deleted_total")
+            .description("Total messages deleted by retention cleanup")
+            .tag("table", table)
+            .register(registry)
     }
 
     /**
      * Get or create a cleanup duration timer for a specific table.
      */
     @Synchronized
-    private fun getCleanupTimer(table: String): Timer {
-        return cleanupTimers.getOrPut(table) {
-            Timer.builder("queuebox_cleanup_duration_seconds")
-                .description("Time taken to run retention cleanup")
-                .tag("table", table)
-                .publishPercentiles(0.5, 0.95, 0.99)
-                .register(registry)
-        }
+    private fun getCleanupTimer(table: String): Timer = cleanupTimers.getOrPut(table) {
+        Timer.builder("queuebox_cleanup_duration_seconds")
+            .description("Time taken to run retention cleanup")
+            .tag("table", table)
+            .publishPercentiles(0.5, 0.95, 0.99)
+            .register(registry)
     }
 
     /**
      * Get or create a cleanup last run timestamp gauge for a specific table.
      */
     @Synchronized
-    private fun getOrCreateCleanupLastRunGauge(table: String): AtomicLong {
-        return cleanupLastRunTimestamps.getOrPut(table) {
-            val timestamp = AtomicLong(0)
-            Gauge.builder("queuebox_cleanup_last_run_timestamp", timestamp) { it.get().toDouble() }
-                .description("Unix timestamp of last cleanup run")
-                .tag("table", table)
-                .register(registry)
-            timestamp
-        }
+    private fun getOrCreateCleanupLastRunGauge(table: String): AtomicLong = cleanupLastRunTimestamps.getOrPut(table) {
+        val timestamp = AtomicLong(0)
+        Gauge.builder("queuebox_cleanup_last_run_timestamp", timestamp) { it.get().toDouble() }
+            .description("Unix timestamp of last cleanup run")
+            .tag("table", table)
+            .register(registry)
+        timestamp
     }
 
     /**
@@ -203,15 +195,14 @@ class QueueBoxMetrics(private val registry: MeterRegistry) {
     // --- F-052: the metric gaps ---
 
     @Synchronized
-    private fun getDestinationCounter(destination: String, outcome: String): Counter {
-        return destinationCounters.getOrPut(destination to outcome) {
+    private fun getDestinationCounter(destination: String, outcome: String): Counter =
+        destinationCounters.getOrPut(destination to outcome) {
             Counter.builder("queuebox_outbox_destination_messages_total")
                 .description("Total outbox messages per destination and outcome")
                 .tag("destination", destination)
                 .tag("outcome", outcome)
                 .register(registry)
         }
-    }
 
     /**
      * Record one message that reached the destination.

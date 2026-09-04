@@ -1,9 +1,9 @@
 package org.nxtspec.app
 
+import io.mockk.Runs
 import io.mockk.every
 import io.mockk.just
 import io.mockk.mockk
-import io.mockk.Runs
 import io.mockk.verify
 import org.nxtspec.OutboxPoller
 import java.sql.Connection
@@ -140,36 +140,35 @@ class HealthManagerTest {
     // --- F-049 and F-050: a slow check must not hold the answer ---
 
     @Test
-    fun `a contributor that never answers counts as down inside the bound`() =
-        kotlinx.coroutines.runBlocking {
-            val mockConnection = mockk<Connection>()
-            val mockDataSource = mockk<DataSource>()
-            every { mockDataSource.connection } returns mockConnection
-            every { mockConnection.isValid(any()) } returns true
-            every { mockConnection.close() } just Runs
+    fun `a contributor that never answers counts as down inside the bound`() = kotlinx.coroutines.runBlocking {
+        val mockConnection = mockk<Connection>()
+        val mockDataSource = mockk<DataSource>()
+        every { mockDataSource.connection } returns mockConnection
+        every { mockConnection.isValid(any()) } returns true
+        every { mockConnection.close() } just Runs
 
-            val healthManager = HealthManager(
-                dataSource = mockDataSource,
-                contributors = listOf(
-                    SimpleHealthContributor("frozen") {
-                        Thread.sleep(30000)
-                        true
-                    }
-                ),
-                checkTimeoutMs = 200
-            )
+        val healthManager = HealthManager(
+            dataSource = mockDataSource,
+            contributors = listOf(
+                SimpleHealthContributor("frozen") {
+                    Thread.sleep(30000)
+                    true
+                }
+            ),
+            checkTimeoutMs = 200
+        )
 
-            val elapsed = kotlin.system.measureTimeMillis {
-                val status = healthManager.ready()
+        val elapsed = kotlin.system.measureTimeMillis {
+            val status = healthManager.ready()
 
-                assertEquals("unhealthy", status.status)
-                assertEquals("down", status.components["frozen"]?.status)
-                assertEquals("up", status.components["database"]?.status)
-            }
-
-            assertTrue(
-                elapsed < 5000,
-                "Readiness must answer inside the bound, not wait for the check. Took ${elapsed}ms"
-            )
+            assertEquals("unhealthy", status.status)
+            assertEquals("down", status.components["frozen"]?.status)
+            assertEquals("up", status.components["database"]?.status)
         }
+
+        assertTrue(
+            elapsed < 5000,
+            "Readiness must answer inside the bound, not wait for the check. Took ${elapsed}ms"
+        )
+    }
 }

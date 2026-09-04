@@ -12,6 +12,8 @@ import org.junit.jupiter.api.Test
 import org.nxtspec.Destination
 import org.nxtspec.IdempotencyExtractor
 import org.nxtspec.InboxHandler
+import org.nxtspec.InboxHandlerResult
+import org.nxtspec.InboxRepository
 import org.nxtspec.MessageRouter
 import org.nxtspec.OutboxConfig
 import org.nxtspec.OutboxPoller
@@ -21,8 +23,6 @@ import org.nxtspec.RouteConfig
 import org.nxtspec.SourceConfig
 import org.nxtspec.app.MetricsCollector
 import org.nxtspec.http.HttpPublisher
-import org.nxtspec.InboxRepository
-import org.nxtspec.InboxHandlerResult
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
@@ -95,9 +95,11 @@ class E2EMetricsFlowTest : E2ETestBase() {
         )
 
         // Insert message into outbox
-        val payload = JsonObject(mapOf(
-            "testId" to JsonPrimitive("metrics-test-1")
-        ))
+        val payload = JsonObject(
+            mapOf(
+                "testId" to JsonPrimitive("metrics-test-1")
+            )
+        )
         insertOutboxMessage(
             topic = "metrics.test",
             payload = payload

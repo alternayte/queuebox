@@ -264,10 +264,12 @@ class DynamicTablesTest : PostgresTestBase() {
         } catch (e: Exception) {
             exceptionThrown = true
             // Expected to fail due to unique constraint
-            assertTrue(e.message?.contains("duplicate key", ignoreCase = true) == true ||
+            assertTrue(
+                e.message?.contains("duplicate key", ignoreCase = true) == true ||
                     e.message?.contains("unique constraint", ignoreCase = true) == true ||
                     e.cause?.message?.contains("duplicate key", ignoreCase = true) == true ||
-                    e.cause?.message?.contains("unique constraint", ignoreCase = true) == true)
+                    e.cause?.message?.contains("unique constraint", ignoreCase = true) == true
+            )
         }
 
         assertTrue(exceptionThrown, "Expected unique constraint violation")
@@ -283,7 +285,9 @@ class DynamicTablesTest : PostgresTestBase() {
 
         // Verify index exists by checking table metadata
         val hasIndex = transaction {
-            exec("SELECT indexname FROM pg_indexes WHERE tablename = 'inbox' AND indexdef LIKE '%aggregate_id%'") { rs ->
+            exec(
+                "SELECT indexname FROM pg_indexes WHERE tablename = 'inbox' AND indexdef LIKE '%aggregate_id%'"
+            ) { rs ->
                 rs.next()
             }
         }

@@ -16,10 +16,7 @@ class UnsupportedDestinationException(message: String) : RuntimeException(messag
  *
  * @throws UnsupportedDestinationException when one or more destinations have no publisher
  */
-fun validatePublisherCoverage(
-    destinations: Map<String, Destination>,
-    publishers: List<Publisher>
-) {
+fun validatePublisherCoverage(destinations: Map<String, Destination>, publishers: List<Publisher>) {
     val unsupported = destinations.filter { (_, destination) ->
         publishers.none { it.supports(destination) }
     }

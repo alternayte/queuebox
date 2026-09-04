@@ -2,23 +2,21 @@ package org.nxtspec
 
 import kotlinx.datetime.Clock
 import kotlinx.datetime.Instant
-import kotlinx.datetime.toKotlinInstant
 import kotlinx.serialization.json.Json
 import org.jetbrains.exposed.sql.ResultRow
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
-import org.jetbrains.exposed.sql.SqlExpressionBuilder.isNull
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.inList
+import org.jetbrains.exposed.sql.SqlExpressionBuilder.isNull
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.less
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.lessEq
 import org.jetbrains.exposed.sql.and
-import org.jetbrains.exposed.sql.or
 import org.jetbrains.exposed.sql.deleteWhere
+import org.jetbrains.exposed.sql.or
 import org.jetbrains.exposed.sql.selectAll
 import org.jetbrains.exposed.sql.transactions.TransactionManager
 import org.jetbrains.exposed.sql.transactions.experimental.newSuspendedTransaction
 import org.jetbrains.exposed.sql.update
 import org.nxtspec.repository.InboxRepositoryInterface
-import java.sql.ResultSet
 import java.sql.Timestamp
 import java.util.UUID
 import kotlin.time.Duration
@@ -128,21 +126,20 @@ class SqlServerInboxRepository(
         // release runs in a finally block.
         acquireClaimLock(conn)
         try {
+            // The aggregate exclusion runs as its own statement. Inside the claim statement the
+            // subquery reads the same table without the locking hints, and SQL Server then returns
+            // no rows to a second concurrent claimer. The set of aggregates in state 'processing'
+            // is bounded by the number of replicas and by the batch size, so the list stays small.
+            val lockedAggregates = readLockedAggregates(conn, t, aggregateIdCol, stateCol)
 
-        // The aggregate exclusion runs as its own statement. Inside the claim statement the
-        // subquery reads the same table without the locking hints, and SQL Server then returns
-        // no rows to a second concurrent claimer. The set of aggregates in state 'processing'
-        // is bounded by the number of replicas and by the batch size, so the list stays small.
-        val lockedAggregates = readLockedAggregates(conn, t, aggregateIdCol, stateCol)
+            val exclusion = if (lockedAggregates.isEmpty()) {
+                ""
+            } else {
+                val placeholders = lockedAggregates.joinToString(", ") { "?" }
+                "AND ( $aggregateIdCol IS NULL OR $aggregateIdCol NOT IN ($placeholders) )"
+            }
 
-        val exclusion = if (lockedAggregates.isEmpty()) {
-            ""
-        } else {
-            val placeholders = lockedAggregates.joinToString(", ") { "?" }
-            "AND ( $aggregateIdCol IS NULL OR $aggregateIdCol NOT IN ($placeholders) )"
-        }
-
-        val sql = """
+            val sql = """
             WITH candidates AS (
                 SELECT TOP (?) $idCol, $stateCol, $claimedAtCol
                 FROM $t WITH (ROWLOCK, UPDLOCK, READPAST)
@@ -153,46 +150,46 @@ class SqlServerInboxRepository(
             UPDATE candidates
             SET $stateCol = 'processing', $claimedAtCol = ?
             OUTPUT INSERTED.$idCol AS $idCol
-        """.trimIndent()
+            """.trimIndent()
 
-        val now = Clock.System.now()
-        val nowTimestamp = Timestamp.from(
-            java.time.Instant.ofEpochSecond(now.epochSeconds, now.nanosecondsOfSecond.toLong())
-        )
+            val now = Clock.System.now()
+            val nowTimestamp = Timestamp.from(
+                java.time.Instant.ofEpochSecond(now.epochSeconds, now.nanosecondsOfSecond.toLong())
+            )
 
-        val claimedIds = conn.prepareStatement(sql).use { stmt ->
-            var parameterIndex = 1
-            stmt.setInt(parameterIndex++, batchSize)
-            lockedAggregates.forEach { stmt.setString(parameterIndex++, it) }
-            stmt.setTimestamp(parameterIndex, nowTimestamp)
-            stmt.executeQuery().use { rs ->
-                val ids = mutableListOf<UUID>()
-                while (rs.next()) {
-                    ids.add(UUID.fromString(rs.getString(columnMapping.id)))
-                }
-                ids
-            }
-        }
-
-        if (claimedIds.isEmpty()) {
-            emptyList()
-        } else {
-            val claimed = table
-                .selectAll()
-                .where { table.id inList claimedIds }
-                .map { it.toInboxMessageFromRow() }
-
-            val (kept, released) = applyAggregateRule(claimed)
-
-            if (released.isNotEmpty()) {
-                table.update({ table.id inList released.map { it.id } }) {
-                    it[state] = "pending"
-                    it[claimedAt] = null
+            val claimedIds = conn.prepareStatement(sql).use { stmt ->
+                var parameterIndex = 1
+                stmt.setInt(parameterIndex++, batchSize)
+                lockedAggregates.forEach { stmt.setString(parameterIndex++, it) }
+                stmt.setTimestamp(parameterIndex, nowTimestamp)
+                stmt.executeQuery().use { rs ->
+                    val ids = mutableListOf<UUID>()
+                    while (rs.next()) {
+                        ids.add(UUID.fromString(rs.getString(columnMapping.id)))
+                    }
+                    ids
                 }
             }
 
-            kept
-        }
+            if (claimedIds.isEmpty()) {
+                emptyList()
+            } else {
+                val claimed = table
+                    .selectAll()
+                    .where { table.id inList claimedIds }
+                    .map { it.toInboxMessageFromRow() }
+
+                val (kept, released) = applyAggregateRule(claimed)
+
+                if (released.isNotEmpty()) {
+                    table.update({ table.id inList released.map { it.id } }) {
+                        it[state] = "pending"
+                        it[claimedAt] = null
+                    }
+                }
+
+                kept
+            }
         } finally {
             releaseClaimLock(conn)
         }
@@ -267,9 +264,7 @@ class SqlServerInboxRepository(
      * Keeps the oldest claimed message per aggregate identifier and returns the rest for
      * release. A message without an aggregate identifier is independent and is always kept.
      */
-    private fun applyAggregateRule(
-        claimed: List<InboxMessage>
-    ): Pair<List<InboxMessage>, List<InboxMessage>> {
+    private fun applyAggregateRule(claimed: List<InboxMessage>): Pair<List<InboxMessage>, List<InboxMessage>> {
         val kept = mutableListOf<InboxMessage>()
         val released = mutableListOf<InboxMessage>()
         val seenAggregates = mutableSetOf<String>()
@@ -328,20 +323,19 @@ class SqlServerInboxRepository(
     /**
      * F-008: deletes at most `limit` rows per statement.
      */
-    override suspend fun deleteOlderThan(state: String, cutoff: Instant, limit: Int): Int =
-        newSuspendedTransaction {
-            val ids = table
-                .select(table.id)
-                .where { (table.state eq state) and (table.createdAt less cutoff) }
-                .limit(limit)
-                .map { it[table.id] }
+    override suspend fun deleteOlderThan(state: String, cutoff: Instant, limit: Int): Int = newSuspendedTransaction {
+        val ids = table
+            .select(table.id)
+            .where { (table.state eq state) and (table.createdAt less cutoff) }
+            .limit(limit)
+            .map { it[table.id] }
 
-            if (ids.isEmpty()) {
-                0
-            } else {
-                table.deleteWhere { table.id inList ids }
-            }
+        if (ids.isEmpty()) {
+            0
+        } else {
+            table.deleteWhere { table.id inList ids }
         }
+    }
 
     private fun ResultRow.toInboxMessageFromRow(): InboxMessage = InboxMessage(
         id = this[table.id].value,

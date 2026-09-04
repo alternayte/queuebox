@@ -6,12 +6,10 @@ import io.ktor.serialization.kotlinx.json.*
 import io.ktor.server.application.*
 import io.ktor.server.plugins.contentnegotiation.*
 import io.ktor.server.testing.*
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
-import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
 import org.jetbrains.exposed.sql.selectAll
 import org.jetbrains.exposed.sql.transactions.transaction
 import org.junit.jupiter.api.AfterEach
@@ -189,15 +187,12 @@ class E2EInboxRelayTest : E2ETestBase() {
                     error("insert failed")
                 }
                 override suspend fun markSent(id: UUID) = Unit
-                        override suspend fun scheduleRetry(id: UUID, delayMs: Long, error: String?) = Unit
+                override suspend fun scheduleRetry(id: UUID, delayMs: Long, error: String?) = Unit
                 override suspend fun markDead(id: UUID, error: String?) = Unit
                 override suspend fun countByState(state: String): Long = 0
                 override suspend fun reclaimStale(olderThan: kotlin.time.Duration): Int = 0
-                override suspend fun deleteOlderThan(
-                    state: String,
-                    cutoff: kotlinx.datetime.Instant,
-                    limit: Int
-                ): Int = 0
+                override suspend fun deleteOlderThan(state: String, cutoff: kotlinx.datetime.Instant, limit: Int): Int =
+                    0
                 override suspend fun deleteExceptMostRecent(state: String, keepCount: Int, limit: Int): Int = 0
             }
         }

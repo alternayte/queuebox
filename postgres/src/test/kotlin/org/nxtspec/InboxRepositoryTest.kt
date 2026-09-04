@@ -262,7 +262,7 @@ class InboxRepositoryTest : PostgresTestBase() {
     fun `claimPending should mix aggregate and independent messages correctly`() = runBlocking {
         // Insert aggregate messages
         insertInboxMessage("source", "agg1", aggregateId = "order-1")
-        insertInboxMessage("source", "agg2", aggregateId = "order-1")  // Same aggregate, won't be claimed
+        insertInboxMessage("source", "agg2", aggregateId = "order-1") // Same aggregate, won't be claimed
         insertInboxMessage("source", "agg3", aggregateId = "order-2")
 
         // Insert independent messages

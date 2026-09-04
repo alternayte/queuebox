@@ -2,7 +2,6 @@ package org.nxtspec.transform
 
 import com.dashjoin.jsonata.Functions
 import com.dashjoin.jsonata.Jsonata
-import com.dashjoin.jsonata.json.Json as JsonataJson
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -11,6 +10,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import java.util.Collections
 import java.util.LinkedHashMap
+import com.dashjoin.jsonata.json.Json as JsonataJson
 
 /**
  * JSONata expression evaluation engine with caching and timeout protection.
@@ -20,14 +20,11 @@ import java.util.LinkedHashMap
  *
  * @property maxCacheSize Maximum number of compiled expressions to cache (default: 1000)
  */
-class TransformEngine(
-    private val maxCacheSize: Int = 1000
-) {
+class TransformEngine(private val maxCacheSize: Int = 1000) {
     private val expressionCache: MutableMap<String, Jsonata> = Collections.synchronizedMap(
         object : LinkedHashMap<String, Jsonata>(16, 0.75f, true) {
-            override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Jsonata>?): Boolean {
-                return size > maxCacheSize
-            }
+            override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Jsonata>?): Boolean =
+                size > maxCacheSize
         }
     )
 
@@ -121,24 +118,22 @@ class TransformEngine(
      * Converts the JSONata evaluation result to a JsonElement.
      */
     @Suppress("UNCHECKED_CAST")
-    private fun parseResult(result: Any?): JsonElement {
-        return when (result) {
-            null -> JsonNull
-            is String -> JsonPrimitive(result)
-            is Number -> JsonPrimitive(result)
-            is Boolean -> JsonPrimitive(result)
-            is Map<*, *> -> {
-                val map = result as Map<String, Any?>
-                JsonObject(map.mapValues { (_, v) -> parseResult(v) })
-            }
-            is List<*> -> {
-                JsonArray(result.map { parseResult(it) })
-            }
-            else -> {
-                // Fallback: use Functions.string for unknown types
-                val jsonString = Functions.string(result, false) ?: "null"
-                Json.parseToJsonElement(jsonString)
-            }
+    private fun parseResult(result: Any?): JsonElement = when (result) {
+        null -> JsonNull
+        is String -> JsonPrimitive(result)
+        is Number -> JsonPrimitive(result)
+        is Boolean -> JsonPrimitive(result)
+        is Map<*, *> -> {
+            val map = result as Map<String, Any?>
+            JsonObject(map.mapValues { (_, v) -> parseResult(v) })
+        }
+        is List<*> -> {
+            JsonArray(result.map { parseResult(it) })
+        }
+        else -> {
+            // Fallback: use Functions.string for unknown types
+            val jsonString = Functions.string(result, false) ?: "null"
+            Json.parseToJsonElement(jsonString)
         }
     }
 
@@ -158,7 +153,4 @@ class TransformEngine(
 /**
  * Exception thrown when a transform expression exceeds the configured timeout.
  */
-class TransformTimeoutException(
-    message: String,
-    cause: Throwable? = null
-) : RuntimeException(message, cause)
+class TransformTimeoutException(message: String, cause: Throwable? = null) : RuntimeException(message, cause)

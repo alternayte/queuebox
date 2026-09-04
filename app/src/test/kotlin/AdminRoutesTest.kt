@@ -10,13 +10,13 @@ import io.ktor.server.request.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
 import io.ktor.server.testing.*
+import io.mockk.slot
+import io.mockk.spyk
+import io.mockk.verify
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
-import io.mockk.slot
-import io.mockk.spyk
-import io.mockk.verify
 import org.nxtspec.AdminConfig
 import org.nxtspec.InboxAuthConfig
 import org.nxtspec.Secret
@@ -26,7 +26,6 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
-import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class AdminRoutesTest {
@@ -49,10 +48,7 @@ class AdminRoutesTest {
         }
     }
 
-    private fun Application.configureAdminApplication(
-        admin: AdminConfig,
-        engine: TransformEngine
-    ) {
+    private fun Application.configureAdminApplication(admin: AdminConfig, engine: TransformEngine) {
         install(ContentNegotiation) { json() }
         // Call the production wiring, so the test covers the shipped route.
         configureAdminRoutes(admin, InboxAuthValidator(), engine)
@@ -64,12 +60,14 @@ class AdminRoutesTest {
 
         val response = client.post("/admin/transform/test") {
             contentType(ContentType.Application.Json)
-            setBody("""
+            setBody(
+                """
                 {
                     "expression": "name",
                     "payload": {"name": "Alice"}
                 }
-            """.trimIndent())
+                """.trimIndent()
+            )
         }
 
         assertEquals(HttpStatusCode.OK, response.status)
@@ -86,12 +84,14 @@ class AdminRoutesTest {
 
         val response = client.post("/admin/transform/test") {
             contentType(ContentType.Application.Json)
-            setBody("""
+            setBody(
+                """
                 {
                     "expression": "{ unclosed",
                     "payload": {}
                 }
-            """.trimIndent())
+                """.trimIndent()
+            )
         }
 
         assertEquals(HttpStatusCode.BadRequest, response.status)
@@ -123,13 +123,15 @@ class AdminRoutesTest {
 
         val response = client.post("/admin/transform/test") {
             contentType(ContentType.Application.Json)
-            setBody("""
+            setBody(
+                """
                 {
                     "expression": "$",
                     "payload": {"test": true},
                     "mockTopic": "custom.topic"
                 }
-            """.trimIndent())
+                """.trimIndent()
+            )
         }
 
         assertEquals(HttpStatusCode.OK, response.status)
@@ -149,12 +151,14 @@ class AdminRoutesTest {
 
         val response = client.post("/admin/transform/test") {
             contentType(ContentType.Application.Json)
-            setBody("""
+            setBody(
+                """
                 {
                     "expression": "$",
                     "payload": {}
                 }
-            """.trimIndent())
+                """.trimIndent()
+            )
         }
 
         assertEquals(HttpStatusCode.OK, response.status)
@@ -170,13 +174,15 @@ class AdminRoutesTest {
 
         val response = client.post("/admin/transform/test") {
             contentType(ContentType.Application.Json)
-            setBody("""
+            setBody(
+                """
                 {
                     "expression": "{ \"topic\": ${"$"}topic, \"attempt\": ${"$"}attempt }",
                     "payload": {},
                     "mockTopic": "my.event"
                 }
-            """.trimIndent())
+                """.trimIndent()
+            )
         }
 
         assertEquals(HttpStatusCode.OK, response.status)
@@ -193,12 +199,14 @@ class AdminRoutesTest {
 
         val response = client.post("/admin/transform/test") {
             contentType(ContentType.Application.Json)
-            setBody("""
+            setBody(
+                """
                 {
                     "expression": "${"$"}sum(items.(price * qty))",
                     "payload": {"items": [{"price": 10, "qty": 2}, {"price": 5, "qty": 4}]}
                 }
-            """.trimIndent())
+                """.trimIndent()
+            )
         }
 
         assertEquals(HttpStatusCode.OK, response.status)
@@ -214,12 +222,14 @@ class AdminRoutesTest {
 
         val response = client.post("/admin/transform/test") {
             contentType(ContentType.Application.Json)
-            setBody("""
+            setBody(
+                """
                 {
                     "expression": "{ \"orderId\": id, \"customerName\": customer.name }",
                     "payload": {"id": "123", "customer": {"name": "Bob"}}
                 }
-            """.trimIndent())
+                """.trimIndent()
+            )
         }
 
         assertEquals(HttpStatusCode.OK, response.status)
@@ -237,12 +247,14 @@ class AdminRoutesTest {
         // Use an expression that will fail at runtime (call undefined variable)
         val response = client.post("/admin/transform/test") {
             contentType(ContentType.Application.Json)
-            setBody("""
+            setBody(
+                """
                 {
                     "expression": "${"$"}undefined()",
                     "payload": {}
                 }
-            """.trimIndent())
+                """.trimIndent()
+            )
         }
 
         assertEquals(HttpStatusCode.BadRequest, response.status)
@@ -259,13 +271,15 @@ class AdminRoutesTest {
         // Test with a reasonable timeout that should work
         val response = client.post("/admin/transform/test") {
             contentType(ContentType.Application.Json)
-            setBody("""
+            setBody(
+                """
                 {
                     "expression": "name",
                     "payload": {"name": "test"},
                     "timeoutMs": 1000
                 }
-            """.trimIndent())
+                """.trimIndent()
+            )
         }
 
         assertEquals(HttpStatusCode.OK, response.status)
@@ -280,12 +294,14 @@ class AdminRoutesTest {
 
         val response = client.post("/admin/transform/test") {
             contentType(ContentType.Application.Json)
-            setBody("""
+            setBody(
+                """
                 {
                     "expression": "name",
                     "payload": {"name": "test"}
                 }
-            """.trimIndent())
+                """.trimIndent()
+            )
         }
 
         assertEquals(ContentType.Application.Json, response.contentType()?.withoutParameters())
@@ -297,12 +313,14 @@ class AdminRoutesTest {
 
         val response = client.post("/admin/transform/test") {
             contentType(ContentType.Application.Json)
-            setBody("""
+            setBody(
+                """
                 {
                     "expression": "missing",
                     "payload": {"name": "test"}
                 }
-            """.trimIndent())
+                """.trimIndent()
+            )
         }
 
         assertEquals(HttpStatusCode.OK, response.status)
@@ -319,12 +337,14 @@ class AdminRoutesTest {
 
         val response = client.post("/admin/transform/test") {
             contentType(ContentType.Application.Json)
-            setBody("""
+            setBody(
+                """
                 {
                     "expression": "name",
                     "payload": {"name": "Alice"}
                 }
-            """.trimIndent())
+                """.trimIndent()
+            )
         }
 
         assertEquals(HttpStatusCode.Unauthorized, response.status)
@@ -337,12 +357,14 @@ class AdminRoutesTest {
         val response = client.post("/admin/transform/test") {
             contentType(ContentType.Application.Json)
             header(HttpHeaders.Authorization, "Bearer $TOKEN")
-            setBody("""
+            setBody(
+                """
                 {
                     "expression": "name",
                     "payload": {"name": "Alice"}
                 }
-            """.trimIndent())
+                """.trimIndent()
+            )
         }
 
         assertEquals(HttpStatusCode.OK, response.status)
@@ -370,13 +392,15 @@ class AdminRoutesTest {
 
         val response = client.post("/admin/transform/test") {
             contentType(ContentType.Application.Json)
-            setBody("""
+            setBody(
+                """
                 {
                     "expression": "name",
                     "payload": {"name": "Alice"},
                     "timeoutMs": 600000
                 }
-            """.trimIndent())
+                """.trimIndent()
+            )
         }
 
         assertEquals(HttpStatusCode.OK, response.status)
@@ -392,12 +416,14 @@ class AdminRoutesTest {
 
         val response = client.post("/admin/transform/test") {
             contentType(ContentType.Application.Json)
-            setBody("""
+            setBody(
+                """
                 {
                     "expression": "name",
                     "payload": {"name": "${"A".repeat(500)}"}
                 }
-            """.trimIndent())
+                """.trimIndent()
+            )
         }
 
         assertEquals(HttpStatusCode.PayloadTooLarge, response.status)

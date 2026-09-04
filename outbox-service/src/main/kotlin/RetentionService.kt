@@ -7,7 +7,6 @@ import org.nxtspec.metrics.MetricsCollectorInterface
 import org.nxtspec.repository.InboxRepositoryInterface
 import org.nxtspec.repository.OutboxRepositoryInterface
 import java.util.concurrent.atomic.AtomicBoolean
-import kotlin.time.Duration.Companion.milliseconds
 
 /**
  * Service that handles retention cleanup for outbox and inbox tables.
@@ -78,43 +77,39 @@ class RetentionService(
         return deleted
     }
 
-    private suspend fun cleanupOutbox(tableConfig: TableRetentionConfig): Int {
-        return when (tableConfig.policy) {
-            RetentionPolicy.AGE -> {
-                val maxAge = DurationParser.parse(tableConfig.maxAge!!)
-                val cutoff = Clock.System.now() - maxAge
-                deleteInBatches(outboxCompletedStates, tableConfig.batchSize) { state, limit ->
-                    outboxRepository.deleteOlderThan(state, cutoff, limit)
-                }
+    private suspend fun cleanupOutbox(tableConfig: TableRetentionConfig): Int = when (tableConfig.policy) {
+        RetentionPolicy.AGE -> {
+            val maxAge = DurationParser.parse(tableConfig.maxAge!!)
+            val cutoff = Clock.System.now() - maxAge
+            deleteInBatches(outboxCompletedStates, tableConfig.batchSize) { state, limit ->
+                outboxRepository.deleteOlderThan(state, cutoff, limit)
             }
-            RetentionPolicy.COUNT -> {
-                deleteInBatches(outboxCompletedStates, tableConfig.batchSize) { state, limit ->
-                    outboxRepository.deleteExceptMostRecent(state, tableConfig.maxCount!!, limit)
-                }
-            }
-            RetentionPolicy.DISABLED -> 0
         }
+        RetentionPolicy.COUNT -> {
+            deleteInBatches(outboxCompletedStates, tableConfig.batchSize) { state, limit ->
+                outboxRepository.deleteExceptMostRecent(state, tableConfig.maxCount!!, limit)
+            }
+        }
+        RetentionPolicy.DISABLED -> 0
     }
 
-    private suspend fun cleanupInbox(tableConfig: TableRetentionConfig): Int {
-        return when (tableConfig.policy) {
-            RetentionPolicy.AGE -> {
-                val maxAge = DurationParser.parse(tableConfig.maxAge!!)
-                val cutoff = Clock.System.now() - maxAge
-                deleteInBatches(inboxCompletedStates, tableConfig.batchSize) { state, limit ->
-                    inboxRepository.deleteOlderThan(state, cutoff, limit)
-                }
+    private suspend fun cleanupInbox(tableConfig: TableRetentionConfig): Int = when (tableConfig.policy) {
+        RetentionPolicy.AGE -> {
+            val maxAge = DurationParser.parse(tableConfig.maxAge!!)
+            val cutoff = Clock.System.now() - maxAge
+            deleteInBatches(inboxCompletedStates, tableConfig.batchSize) { state, limit ->
+                inboxRepository.deleteOlderThan(state, cutoff, limit)
             }
-            RetentionPolicy.COUNT -> {
-                // Inbox only supports age-based retention
-                log.warn(
-                    "The inbox does not support the count retention policy. The cleanup is " +
-                        "skipped. Use the age policy for the inbox."
-                )
-                0
-            }
-            RetentionPolicy.DISABLED -> 0
         }
+        RetentionPolicy.COUNT -> {
+            // Inbox only supports age-based retention
+            log.warn(
+                "The inbox does not support the count retention policy. The cleanup is " +
+                    "skipped. Use the age policy for the inbox."
+            )
+            0
+        }
+        RetentionPolicy.DISABLED -> 0
     }
 
     /**

@@ -29,10 +29,7 @@ sealed class DestinationAuthConfig {
      */
     @Serializable
     @SerialName("basic")
-    data class Basic(
-        val username: String,
-        val password: Secret
-    ) : DestinationAuthConfig()
+    data class Basic(val username: String, val password: Secret) : DestinationAuthConfig()
 
     /**
      * Custom header authentication.
@@ -40,8 +37,5 @@ sealed class DestinationAuthConfig {
      */
     @Serializable
     @SerialName("header")
-    data class Header(
-        val headerName: String = "Authorization",
-        val headerValue: Secret
-    ) : DestinationAuthConfig()
+    data class Header(val headerName: String = "Authorization", val headerValue: Secret) : DestinationAuthConfig()
 }

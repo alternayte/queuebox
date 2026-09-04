@@ -28,9 +28,14 @@ data class TransformConfig(
 @Serializable
 enum class TransformErrorStrategy {
     /** Fail message processing, message goes to retry queue */
-    @SerialName("fail") Fail,
+    @SerialName("fail")
+    Fail,
+
     /** Skip transform, use original payload */
-    @SerialName("skip") Skip,
+    @SerialName("skip")
+    Skip,
+
     /** Mark as dead letter immediately */
-    @SerialName("dead") Dead
+    @SerialName("dead")
+    Dead
 }

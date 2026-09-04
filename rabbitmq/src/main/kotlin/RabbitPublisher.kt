@@ -122,10 +122,7 @@ class RabbitPublisher(
      * Return the cached channel. Create it, enable confirms, declare the exchange once, and
      * register the return listener when the cache is empty or the channel is closed.
      */
-    private suspend fun openChannel(
-        holder: DestinationChannel,
-        dest: Destination.RabbitMQ
-    ): Channel {
+    private suspend fun openChannel(holder: DestinationChannel, dest: Destination.RabbitMQ): Channel {
         val cached = holder.channel
         if (cached != null && cached.isOpen) {
             return cached

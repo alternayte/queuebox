@@ -455,7 +455,6 @@ object ConfigValidator {
         }
     }
 
-
     /**
      * Validates the base URL of an HTTP destination. See F-040.
      *
@@ -495,12 +494,7 @@ object ConfigValidator {
      * The URL must be an absolute HTTP or HTTPS URL with a host. It must not carry a userinfo
      * component, because that puts a credential into a field that prints in clear text.
      */
-    private fun validateHttpUrl(
-        url: String,
-        label: String,
-        yamlPath: String,
-        blockPrivateAddresses: Boolean
-    ) {
+    private fun validateHttpUrl(url: String, label: String, yamlPath: String, blockPrivateAddresses: Boolean) {
         val hint = setVia(yamlPath)
 
         require(url.isNotBlank()) {
@@ -557,8 +551,10 @@ object ConfigValidator {
      * Reports whether an address is loopback, link-local, site-local, or unique-local IPv6.
      */
     private fun isPrivateAddress(address: InetAddress): Boolean {
-        if (address.isLoopbackAddress || address.isLinkLocalAddress ||
-            address.isSiteLocalAddress || address.isAnyLocalAddress
+        if (address.isLoopbackAddress ||
+            address.isLinkLocalAddress ||
+            address.isSiteLocalAddress ||
+            address.isAnyLocalAddress
         ) {
             return true
         }
@@ -585,11 +581,7 @@ object ConfigValidator {
     /**
      * Represents a configuration field with its YAML path, env var name, and description.
      */
-    data class ConfigField(
-        val yamlPath: String,
-        val envVar: String,
-        val description: String
-    )
+    data class ConfigField(val yamlPath: String, val envVar: String, val description: String)
 
     /**
      * Validates table-specific retention configuration.

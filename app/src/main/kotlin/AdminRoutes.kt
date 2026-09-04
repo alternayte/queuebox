@@ -162,9 +162,7 @@ private val adminJson = kotlinx.serialization.json.Json { ignoreUnknownKeys = tr
  * Content-Length that is too large before it reads one byte, and it counts the bytes of a
  * chunked body. See F-034.
  */
-private suspend fun io.ktor.server.application.ApplicationCall.receiveCappedBody(
-    maxBytes: Long
-): ByteArray? {
+private suspend fun io.ktor.server.application.ApplicationCall.receiveCappedBody(maxBytes: Long): ByteArray? {
     val declaredLength = request.contentLength()
     if (declaredLength != null && declaredLength > maxBytes) return null
 

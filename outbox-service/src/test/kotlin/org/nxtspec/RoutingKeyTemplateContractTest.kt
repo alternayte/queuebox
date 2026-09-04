@@ -28,11 +28,7 @@ class RoutingKeyTemplateContractTest {
         """.trimIndent()
     )
 
-    data class Case(
-        val description: String,
-        val template: String,
-        val expected: String
-    )
+    data class Case(val description: String, val template: String, val expected: String)
 
     private val cases = listOf(
         Case(

@@ -339,8 +339,8 @@ class HttpPublisherTest {
         )
         val message = createTestMessage(
             headers = mapOf(
-                "X-Api-Key" to "message-key",  // Override destination header
-                "X-Request-Id" to "req-789"     // New header
+                "X-Api-Key" to "message-key", // Override destination header
+                "X-Request-Id" to "req-789" // New header
             )
         )
 

@@ -170,12 +170,14 @@ class OutboxPoller(
                 timestamp = message.createdAt
             )
 
-            when (val result = transformPipeline.transform(
-                payload = message.payload,
-                routeTransform = routingResult.routeTransform,
-                destinationTransform = routingResult.destinationTransform,
-                context = context
-            )) {
+            when (
+                val result = transformPipeline.transform(
+                    payload = message.payload,
+                    routeTransform = routingResult.routeTransform,
+                    destinationTransform = routingResult.destinationTransform,
+                    context = context
+                )
+            ) {
                 is TransformResult.Success -> message.copy(payload = result.payload)
                 is TransformResult.Error -> {
                     handlePublishFailure(message, TransformException(result.message))

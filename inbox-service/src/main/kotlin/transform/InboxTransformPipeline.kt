@@ -18,9 +18,7 @@ import org.nxtspec.TransformErrorStrategy
  *
  * @property engine The JSONata transform engine to use for evaluation
  */
-class InboxTransformPipeline(
-    private val engine: TransformEngine
-) {
+class InboxTransformPipeline(private val engine: TransformEngine) {
     /**
      * Applies the source transform to an incoming message payload.
      *

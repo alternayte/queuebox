@@ -49,7 +49,10 @@ class DatabaseStartupTest {
         DatabaseStartup.awaitConnection(
             dataSource,
             timeoutMs = 60000,
-            sleep = { slept.add(it); clock += it },
+            sleep = {
+                slept.add(it)
+                clock += it
+            },
             now = { clock }
         )
 
@@ -86,7 +89,10 @@ class DatabaseStartupTest {
             DatabaseStartup.awaitConnection(
                 dataSource,
                 timeoutMs = 700,
-                sleep = { slept.add(it); clock += it },
+                sleep = {
+                    slept.add(it)
+                    clock += it
+                },
                 now = { clock }
             )
         }

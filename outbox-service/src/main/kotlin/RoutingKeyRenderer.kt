@@ -15,9 +15,7 @@ import kotlinx.serialization.json.JsonPrimitive
  *
  * @property defaultValue Value to use when a field is missing (default: empty string)
  */
-class RoutingKeyRenderer(
-    private val defaultValue: String = ""
-) {
+class RoutingKeyRenderer(private val defaultValue: String = "") {
     // Pattern to match {{ field }} placeholders with optional spaces
     private val placeholderPattern = Regex("""\{\{\s*([^}]+?)\s*}}""")
 
@@ -29,24 +27,21 @@ class RoutingKeyRenderer(
      * @param payload The message payload for field extraction
      * @return The rendered routing key with all placeholders substituted
      */
-    fun render(template: String, topic: String, payload: JsonElement): String {
-        return placeholderPattern.replace(template) { match ->
+    fun render(template: String, topic: String, payload: JsonElement): String =
+        placeholderPattern.replace(template) { match ->
             val field = match.groupValues[1].trim()
             resolveField(field, topic, payload)
         }
-    }
 
-    private fun resolveField(field: String, topic: String, payload: JsonElement): String {
-        return when {
-            field == "topic" -> topic
-            field.startsWith("payload.") -> {
-                extractPayloadField(payload, field.removePrefix("payload.")) ?: defaultValue
-            }
-            field.startsWith("data.") -> {
-                extractPayloadField(payload, field.removePrefix("data.")) ?: defaultValue
-            }
-            else -> defaultValue
+    private fun resolveField(field: String, topic: String, payload: JsonElement): String = when {
+        field == "topic" -> topic
+        field.startsWith("payload.") -> {
+            extractPayloadField(payload, field.removePrefix("payload.")) ?: defaultValue
         }
+        field.startsWith("data.") -> {
+            extractPayloadField(payload, field.removePrefix("data.")) ?: defaultValue
+        }
+        else -> defaultValue
     }
 
     private fun extractPayloadField(payload: JsonElement, path: String): String? {

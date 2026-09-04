@@ -24,11 +24,9 @@ object EnvConfigLoader {
      * @param envProvider Function to get environment variables (defaults to System.getenv())
      * @return Map of YAML paths to values
      */
-    fun loadFromEnv(envProvider: () -> Map<String, String> = { System.getenv() }): Map<String, String> {
-        return envProvider()
-            .filterKeys { it.startsWith(PREFIX) }
-            .mapKeys { (key, _) -> envKeyToYamlPath(key) }
-    }
+    fun loadFromEnv(envProvider: () -> Map<String, String> = { System.getenv() }): Map<String, String> = envProvider()
+        .filterKeys { it.startsWith(PREFIX) }
+        .mapKeys { (key, _) -> envKeyToYamlPath(key) }
 
     /**
      * Transforms an environment variable key to a YAML-compatible path.
@@ -58,12 +56,10 @@ object EnvConfigLoader {
      * @param yamlPath The YAML path (e.g., "database.url")
      * @return The environment variable key (e.g., "QUEUEBOX_DATABASE_URL")
      */
-    fun yamlPathToEnvKey(yamlPath: String): String {
-        return PREFIX + yamlPath
-            .replace("_", "__") // Escape literal underscores first
-            .replace(".", "_")
-            .uppercase()
-    }
+    fun yamlPathToEnvKey(yamlPath: String): String = PREFIX + yamlPath
+        .replace("_", "__") // Escape literal underscores first
+        .replace(".", "_")
+        .uppercase()
 
     /**
      * Gets all QUEUEBOX_* environment variable keys from the current environment.
@@ -71,12 +67,10 @@ object EnvConfigLoader {
      * @param envProvider Function to get environment variables (defaults to System.getenv())
      * @return Set of environment variable keys with QUEUEBOX_ prefix
      */
-    fun getQueueBoxEnvKeys(envProvider: () -> Map<String, String> = { System.getenv() }): Set<String> {
-        return envProvider()
-            .keys
-            .filter { it.startsWith(PREFIX) }
-            .toSet()
-    }
+    fun getQueueBoxEnvKeys(envProvider: () -> Map<String, String> = { System.getenv() }): Set<String> = envProvider()
+        .keys
+        .filter { it.startsWith(PREFIX) }
+        .toSet()
 
     /**
      * Checks if any QUEUEBOX_* environment variables are set.
@@ -84,7 +78,6 @@ object EnvConfigLoader {
      * @param envProvider Function to get environment variables (defaults to System.getenv())
      * @return true if at least one QUEUEBOX_* variable exists
      */
-    fun hasEnvConfig(envProvider: () -> Map<String, String> = { System.getenv() }): Boolean {
-        return envProvider().keys.any { it.startsWith(PREFIX) }
-    }
+    fun hasEnvConfig(envProvider: () -> Map<String, String> = { System.getenv() }): Boolean =
+        envProvider().keys.any { it.startsWith(PREFIX) }
 }

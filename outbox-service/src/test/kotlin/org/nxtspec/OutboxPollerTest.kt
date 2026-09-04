@@ -266,7 +266,8 @@ class OutboxPollerTest {
         every { router.route(any(), any()) } returns routingResult
         every { publisher.supports(any()) } returns true
         coEvery { publisher.publish(any(), any(), any()) } returns Result.success(Unit)
-        coEvery { transformPipeline.transform(any(), any(), any(), any()) } returns TransformResult.Success(transformedPayload)
+        coEvery { transformPipeline.transform(any(), any(), any(), any()) } returns
+            TransformResult.Success(transformedPayload)
 
         val poller = OutboxPoller(
             config = defaultConfig,
@@ -305,7 +306,8 @@ class OutboxPollerTest {
         every { router.route(any(), any()) } returns routingResult
         every { publisher.supports(any()) } returns true
         coEvery { publisher.publish(any(), any(), any()) } returns Result.success(Unit)
-        coEvery { transformPipeline.transform(any(), any(), any(), any()) } returns TransformResult.Success(transformedPayload)
+        coEvery { transformPipeline.transform(any(), any(), any(), any()) } returns
+            TransformResult.Success(transformedPayload)
 
         val poller = OutboxPoller(
             config = defaultConfig,
@@ -342,7 +344,8 @@ class OutboxPollerTest {
         coEvery { repository.countByState("pending") } returns 0L
         every { router.route(any(), any()) } returns routingResult
         every { publisher.supports(any()) } returns true
-        coEvery { transformPipeline.transform(any(), any(), any(), any()) } returns TransformResult.Error("Transform failed")
+        coEvery { transformPipeline.transform(any(), any(), any(), any()) } returns
+            TransformResult.Error("Transform failed")
 
         val poller = OutboxPoller(
             config = defaultConfig,
@@ -379,7 +382,8 @@ class OutboxPollerTest {
         coEvery { repository.countByState("pending") } returns 0L
         every { router.route(any(), any()) } returns routingResult
         every { publisher.supports(any()) } returns true
-        coEvery { transformPipeline.transform(any(), any(), any(), any()) } returns TransformResult.DeadLetter("Fatal error")
+        coEvery { transformPipeline.transform(any(), any(), any(), any()) } returns
+            TransformResult.DeadLetter("Fatal error")
 
         val poller = OutboxPoller(
             config = defaultConfig,
@@ -508,7 +512,10 @@ class OutboxPollerTest {
         val routingResult = RoutingResult(destination, "test.topic")
 
         // First call throws exception, second call returns message
-        coEvery { repository.claimBatch(any()) } throws RuntimeException("Database error") andThen listOf(message) andThen emptyList()
+        coEvery {
+            repository.claimBatch(any())
+        } throws RuntimeException("Database error") andThen listOf(message) andThen
+            emptyList()
         coEvery { repository.countByState("pending") } returns 0L
         every { router.route(any(), any()) } returns routingResult
         every { publisher.supports(any()) } returns true
@@ -601,7 +608,8 @@ class OutboxPollerTest {
         every { router.route(any(), any()) } returns routingResult
         every { publisher.supports(any()) } returns true
         coEvery { publisher.publish(any(), any(), any()) } returns Result.success(Unit)
-        coEvery { transformPipeline.transform(any(), any(), any(), any()) } returns TransformResult.Success(transformedPayload)
+        coEvery { transformPipeline.transform(any(), any(), any(), any()) } returns
+            TransformResult.Success(transformedPayload)
 
         val poller = OutboxPoller(
             config = defaultConfig,

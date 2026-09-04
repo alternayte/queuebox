@@ -71,7 +71,10 @@ class ConfigLoaderEnvIntegrationTest {
         assertEquals("routes.1.destination", EnvConfigLoader.envKeyToYamlPath("QUEUEBOX_ROUTES_1_DESTINATION"))
 
         // Map keys
-        assertEquals("destinations.http1.base.url", EnvConfigLoader.envKeyToYamlPath("QUEUEBOX_DESTINATIONS_HTTP1_BASE_URL"))
+        assertEquals(
+            "destinations.http1.base.url",
+            EnvConfigLoader.envKeyToYamlPath("QUEUEBOX_DESTINATIONS_HTTP1_BASE_URL")
+        )
     }
 
     @Test

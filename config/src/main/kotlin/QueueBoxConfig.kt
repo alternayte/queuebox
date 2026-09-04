@@ -167,9 +167,7 @@ data class InboxConfig(
  * Optional per-source rate limit for an inbox HTTP endpoint. See F-024.
  */
 @Serializable
-data class RateLimitConfig(
-    val requestsPerMinute: Int
-)
+data class RateLimitConfig(val requestsPerMinute: Int)
 
 /**
  * Configuration for the inbox relay.
@@ -204,10 +202,9 @@ sealed class DestinationConfig {
          * F-038: a static header can carry a credential, and a base URL can carry user
          * information, so the printed form masks both.
          */
-        override fun toString(): String =
-            "Http(baseUrl=${CredentialMasking.maskUrl(baseUrl)}, path=$path, " +
-                "timeoutMs=$timeoutMs, headers=${CredentialMasking.maskHeaders(headers)}, " +
-                "transform=$transform, auth=$auth)"
+        override fun toString(): String = "Http(baseUrl=${CredentialMasking.maskUrl(baseUrl)}, path=$path, " +
+            "timeoutMs=$timeoutMs, headers=${CredentialMasking.maskHeaders(headers)}, " +
+            "transform=$transform, auth=$auth)"
     }
 
     @Serializable
@@ -222,10 +219,9 @@ sealed class DestinationConfig {
         /**
          * F-038: an AMQP URI carries the broker password, so the printed form masks it.
          */
-        override fun toString(): String =
-            "RabbitMQ(url=${CredentialMasking.maskUrl(url)}, exchange=$exchange, " +
-                "exchangeType=$exchangeType, headers=${CredentialMasking.maskHeaders(headers)}, " +
-                "transform=$transform)"
+        override fun toString(): String = "RabbitMQ(url=${CredentialMasking.maskUrl(url)}, exchange=$exchange, " +
+            "exchangeType=$exchangeType, headers=${CredentialMasking.maskHeaders(headers)}, " +
+            "transform=$transform)"
     }
 }
 
@@ -279,11 +275,10 @@ sealed class SourceConfig {
         /**
          * F-038: an AMQP URI carries the broker password, so the printed form masks it.
          */
-        override fun toString(): String =
-            "RabbitMQ(queueName=$queueName, " +
-                "connectionUrl=${CredentialMasking.maskUrl(connectionUrl)}, " +
-                "idempotencyKeyPath=$idempotencyKeyPath, aggregateIdPath=$aggregateIdPath, " +
-                "prefetchCount=$prefetchCount, transform=$transform, topic=$topic, " +
-                "rateLimit=$rateLimit)"
+        override fun toString(): String = "RabbitMQ(queueName=$queueName, " +
+            "connectionUrl=${CredentialMasking.maskUrl(connectionUrl)}, " +
+            "idempotencyKeyPath=$idempotencyKeyPath, aggregateIdPath=$aggregateIdPath, " +
+            "prefetchCount=$prefetchCount, transform=$transform, topic=$topic, " +
+            "rateLimit=$rateLimit)"
     }
 }

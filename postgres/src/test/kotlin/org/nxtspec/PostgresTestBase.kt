@@ -9,8 +9,8 @@ import org.jetbrains.exposed.sql.SchemaUtils
 import org.jetbrains.exposed.sql.deleteAll
 import org.jetbrains.exposed.sql.insert
 import org.jetbrains.exposed.sql.selectAll
-import org.jetbrains.exposed.sql.update
 import org.jetbrains.exposed.sql.transactions.transaction
+import org.jetbrains.exposed.sql.update
 import org.junit.jupiter.api.AfterAll
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeAll
@@ -151,54 +151,42 @@ abstract class PostgresTestBase {
         return id
     }
 
-    protected fun getOutboxMessageState(id: UUID): String {
-        return transaction {
-            OutboxTable.selectAll()
-                .where { OutboxTable.id eq id }
-                .single()[OutboxTable.state]
-        }
+    protected fun getOutboxMessageState(id: UUID): String = transaction {
+        OutboxTable.selectAll()
+            .where { OutboxTable.id eq id }
+            .single()[OutboxTable.state]
     }
 
-    protected fun getOutboxMessageStateAndAttempt(id: UUID): Pair<String, Int> {
-        return transaction {
-            val row = OutboxTable.selectAll()
-                .where { OutboxTable.id eq id }
-                .single()
-            row[OutboxTable.state] to row[OutboxTable.attempt]
-        }
+    protected fun getOutboxMessageStateAndAttempt(id: UUID): Pair<String, Int> = transaction {
+        val row = OutboxTable.selectAll()
+            .where { OutboxTable.id eq id }
+            .single()
+        row[OutboxTable.state] to row[OutboxTable.attempt]
     }
 
-    protected fun getOutboxStateAndScheduledAt(id: UUID): Pair<String, Instant> {
-        return transaction {
-            val row = OutboxTable.selectAll()
-                .where { OutboxTable.id eq id }
-                .single()
-            row[OutboxTable.state] to row[OutboxTable.scheduledAt]
-        }
+    protected fun getOutboxStateAndScheduledAt(id: UUID): Pair<String, Instant> = transaction {
+        val row = OutboxTable.selectAll()
+            .where { OutboxTable.id eq id }
+            .single()
+        row[OutboxTable.state] to row[OutboxTable.scheduledAt]
     }
 
-    protected fun getOutboxLastError(id: UUID): String? {
-        return transaction {
-            OutboxTable.selectAll()
-                .where { OutboxTable.id eq id }
-                .single()[OutboxTable.lastError]
-        }
+    protected fun getOutboxLastError(id: UUID): String? = transaction {
+        OutboxTable.selectAll()
+            .where { OutboxTable.id eq id }
+            .single()[OutboxTable.lastError]
     }
 
-    protected fun getOutboxClaimedAt(id: UUID): Instant? {
-        return transaction {
-            OutboxTable.selectAll()
-                .where { OutboxTable.id eq id }
-                .single()[OutboxTable.claimedAt]
-        }
+    protected fun getOutboxClaimedAt(id: UUID): Instant? = transaction {
+        OutboxTable.selectAll()
+            .where { OutboxTable.id eq id }
+            .single()[OutboxTable.claimedAt]
     }
 
-    protected fun getInboxClaimedAt(id: UUID): Instant? {
-        return transaction {
-            InboxTable.selectAll()
-                .where { InboxTable.id eq id }
-                .single()[InboxTable.claimedAt]
-        }
+    protected fun getInboxClaimedAt(id: UUID): Instant? = transaction {
+        InboxTable.selectAll()
+            .where { InboxTable.id eq id }
+            .single()[InboxTable.claimedAt]
     }
 
     protected fun setOutboxClaimedAt(id: UUID, claimedAt: Instant) {
@@ -213,19 +201,15 @@ abstract class PostgresTestBase {
         }
     }
 
-    protected fun getInboxMessageState(id: UUID): String {
-        return transaction {
-            InboxTable.selectAll()
-                .where { InboxTable.id eq id }
-                .single()[InboxTable.state]
-        }
+    protected fun getInboxMessageState(id: UUID): String = transaction {
+        InboxTable.selectAll()
+            .where { InboxTable.id eq id }
+            .single()[InboxTable.state]
     }
 
-    protected fun getInboxProcessedAt(id: UUID): Instant? {
-        return transaction {
-            InboxTable.selectAll()
-                .where { InboxTable.id eq id }
-                .single()[InboxTable.processedAt]
-        }
+    protected fun getInboxProcessedAt(id: UUID): Instant? = transaction {
+        InboxTable.selectAll()
+            .where { InboxTable.id eq id }
+            .single()[InboxTable.processedAt]
     }
 }

@@ -81,7 +81,9 @@ class RabbitPublisherThroughputTest {
         }
         val elapsedMillis = (System.nanoTime() - start) / 1_000_000
         val perSecond = count * 1000.0 / elapsedMillis.coerceAtLeast(1)
-        println("F-021 throughput: $count messages in $elapsedMillis ms, ${"%.1f".format(perSecond)} messages per second")
+        println(
+            "F-021 throughput: $count messages in $elapsedMillis ms, ${"%.1f".format(perSecond)} messages per second"
+        )
 
         assertTrue(
             counting.channelCount.get() < 10,

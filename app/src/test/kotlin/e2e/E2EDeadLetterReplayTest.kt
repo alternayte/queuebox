@@ -57,12 +57,11 @@ class E2EDeadLetterReplayTest : E2ETestBase() {
         return match.groupValues[1].trim().removeSuffix(";").trim()
     }
 
-    private fun executeSql(sql: String): Int =
-        dataSource.connection.use { connection ->
-            val updated = connection.createStatement().use { it.executeUpdate(sql) }
-            if (!connection.autoCommit) connection.commit()
-            updated
-        }
+    private fun executeSql(sql: String): Int = dataSource.connection.use { connection ->
+        val updated = connection.createStatement().use { it.executeUpdate(sql) }
+        if (!connection.autoCommit) connection.commit()
+        updated
+    }
 
     private fun markDead(id: UUID) {
         executeSql(

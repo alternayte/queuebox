@@ -81,10 +81,9 @@ class RunbookSqlTest : PostgresTestBase() {
         private val SQL_LANGUAGES = setOf("sql", "postgresql", "psql", "plpgsql")
 
         /** Splits a block into statements. A statement ends with a semicolon at the end of a line. */
-        fun statements(body: String): List<String> =
-            body.split(Regex(";\\s*\\n"))
-                .map { it.trim().removeSuffix(";").trim() }
-                .filter { it.isNotEmpty() }
+        fun statements(body: String): List<String> = body.split(Regex(";\\s*\\n"))
+            .map { it.trim().removeSuffix(";").trim() }
+            .filter { it.isNotEmpty() }
 
         /** Replaces every documented placeholder with a test value. */
         fun bind(statement: String): String {
@@ -104,12 +103,11 @@ class RunbookSqlTest : PostgresTestBase() {
     }
 
     /** Runs a block on a plain JDBC connection and commits the work. */
-    private fun <T> withConnection(block: (java.sql.Connection) -> T): T =
-        dataSource.connection.use { connection ->
-            val result = block(connection)
-            if (!connection.autoCommit) connection.commit()
-            result
-        }
+    private fun <T> withConnection(block: (java.sql.Connection) -> T): T = dataSource.connection.use { connection ->
+        val result = block(connection)
+        if (!connection.autoCommit) connection.commit()
+        result
+    }
 
     private fun seedRows() {
         val dead = insertOutboxMessage(state = "dead", attempt = 5)

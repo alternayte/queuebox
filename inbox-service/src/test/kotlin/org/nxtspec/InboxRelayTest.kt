@@ -51,8 +51,7 @@ class InboxRelayTest {
         override suspend fun deleteOlderThan(state: String, cutoff: Instant, limit: Int): Int = 0
     }
 
-    private class FakeOutboxRepository(private val failInsert: Boolean = false) :
-        OutboxRepositoryInterface {
+    private class FakeOutboxRepository(private val failInsert: Boolean = false) : OutboxRepositoryInterface {
         val inserted = mutableListOf<OutboxMessage>()
 
         override suspend fun claimBatch(batchSize: Int): List<OutboxMessage> = emptyList()

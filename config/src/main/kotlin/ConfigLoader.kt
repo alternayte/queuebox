@@ -91,7 +91,5 @@ object ConfigLoader {
      * @return Validated QueueBoxConfig
      * @throws ConfigException if required configuration is missing
      */
-    fun loadAuto(path: String = "queuebox.yml"): QueueBoxConfig {
-        return load(path, optional = true)
-    }
+    fun loadAuto(path: String = "queuebox.yml"): QueueBoxConfig = load(path, optional = true)
 }

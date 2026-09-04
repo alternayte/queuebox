@@ -1,10 +1,10 @@
 package org.nxtspec.auth
 
-import org.nxtspec.Secret
 import io.mockk.coEvery
 import io.mockk.mockk
 import kotlinx.coroutines.test.runTest
 import org.nxtspec.DestinationAuthConfig
+import org.nxtspec.Secret
 import java.util.Base64
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -70,7 +70,9 @@ class DestinationAuthResolverTest {
         val headers = resolver.resolveAuthHeaders(config)
 
         assertEquals(1, headers.size)
-        val expectedEncoded = Base64.getEncoder().encodeToString("user@example.com:p@ss:word!".toByteArray(Charsets.UTF_8))
+        val expectedEncoded = Base64.getEncoder().encodeToString(
+            "user@example.com:p@ss:word!".toByteArray(Charsets.UTF_8)
+        )
         assertEquals("Basic $expectedEncoded", headers["Authorization"])
     }
 

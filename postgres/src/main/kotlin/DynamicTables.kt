@@ -15,10 +15,7 @@ import org.jetbrains.exposed.sql.kotlin.datetime.timestamp
  * @param mapping The column name mapping configuration
  * @param tableName The name of the table (defaults to "outbox")
  */
-class DynamicOutboxTable(
-    mapping: OutboxColumnMapping,
-    tableName: String = "outbox"
-) : UUIDTable(tableName) {
+class DynamicOutboxTable(mapping: OutboxColumnMapping, tableName: String = "outbox") : UUIDTable(tableName) {
     val topic: Column<String> = varchar(mapping.topic, 255)
     val key: Column<String?> = varchar(mapping.key, 255).nullable()
     val payload: Column<JsonElement> = jsonb(mapping.payload, Json.Default)
@@ -44,10 +41,7 @@ class DynamicOutboxTable(
  * @param mapping The column name mapping configuration
  * @param tableName The name of the table (defaults to "inbox")
  */
-class DynamicInboxTable(
-    private val mapping: InboxColumnMapping,
-    tableName: String = "inbox"
-) : UUIDTable(tableName) {
+class DynamicInboxTable(private val mapping: InboxColumnMapping, tableName: String = "inbox") : UUIDTable(tableName) {
     val messageSrc: Column<String> = varchar(mapping.source, 255)
     val idempotencyKey: Column<String> = varchar(mapping.idempotencyKey, 255)
     val aggregateId: Column<String?> = varchar(mapping.aggregateId, 255).nullable()

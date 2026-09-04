@@ -259,7 +259,7 @@ class InboxHandlerTest {
         val sourceConfig = SourceConfig.Http(
             path = "/webhook",
             idempotencyKeyPath = "$.id",
-            transform = null  // No transform
+            transform = null // No transform
         )
         val payload = Json.parseToJsonElement("""{ "id": "123", "data": "value" }""")
 
@@ -289,10 +289,12 @@ class InboxHandlerTest {
 
         assertTrue(result is InboxHandlerResult.Accepted)
         coVerify {
-            mockRepository.store(match { msg ->
-                val obj = msg.payload.jsonObject
-                obj["transformedId"] == JsonPrimitive("123") && obj["normalized"] == JsonPrimitive(true)
-            })
+            mockRepository.store(
+                match { msg ->
+                    val obj = msg.payload.jsonObject
+                    obj["transformedId"] == JsonPrimitive("123") && obj["normalized"] == JsonPrimitive(true)
+                }
+            )
         }
     }
 
@@ -307,7 +309,7 @@ class InboxHandlerTest {
             path = "/webhook",
             idempotencyKeyPath = "$.originalId",
             transform = TransformConfig(
-                expression = """{ "newId": "transformed" }"""  // Transform removes originalId
+                expression = """{ "newId": "transformed" }""" // Transform removes originalId
             )
         )
         val payload = Json.parseToJsonElement("""{ "originalId": "key-from-original" }""")
@@ -331,7 +333,7 @@ class InboxHandlerTest {
             idempotencyKeyPath = "$.id",
             eventTypePath = "$.type",
             transform = TransformConfig(
-                expression = """{ "data": "transformed" }"""  // Transform removes type field
+                expression = """{ "data": "transformed" }""" // Transform removes type field
             )
         )
         val payload = Json.parseToJsonElement("""{ "id": "123", "type": "order.created" }""")
@@ -352,7 +354,7 @@ class InboxHandlerTest {
             path = "/webhook",
             idempotencyKeyPath = "$.id",
             transform = TransformConfig(
-                expression = """${"$"}nonExistentFunction()""",  // Will fail
+                expression = """${"$"}nonExistentFunction()""", // Will fail
                 onError = TransformErrorStrategy.Fail
             )
         )
@@ -361,7 +363,7 @@ class InboxHandlerTest {
         val result = handlerWithPipeline.handle("source", sourceConfig, payload)
 
         assertTrue(result is InboxHandlerResult.TransformFailed)
-        coVerify(exactly = 0) { mockRepository.store(any()) }  // Should NOT store
+        coVerify(exactly = 0) { mockRepository.store(any()) } // Should NOT store
     }
 
     @Test
@@ -375,8 +377,8 @@ class InboxHandlerTest {
             path = "/webhook",
             idempotencyKeyPath = "$.id",
             transform = TransformConfig(
-                expression = """${"$"}nonExistentFunction()""",  // Will fail
-                onError = TransformErrorStrategy.Skip  // Use original on failure
+                expression = """${"$"}nonExistentFunction()""", // Will fail
+                onError = TransformErrorStrategy.Skip // Use original on failure
             )
         )
         val payload = Json.parseToJsonElement("""{ "id": "123", "data": "original" }""")
@@ -384,6 +386,6 @@ class InboxHandlerTest {
         val result = handlerWithPipeline.handle("source", sourceConfig, payload)
 
         assertTrue(result is InboxHandlerResult.Accepted)
-        coVerify { mockRepository.store(match { it.payload == payload }) }  // Should store original
+        coVerify { mockRepository.store(match { it.payload == payload }) } // Should store original
     }
 }

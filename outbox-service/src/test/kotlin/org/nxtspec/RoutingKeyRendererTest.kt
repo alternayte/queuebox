@@ -38,9 +38,12 @@ class RoutingKeyRendererTest {
     @Test
     fun `should extract nested payload field`() {
         val payload = buildJsonObject {
-            put("data", buildJsonObject {
-                put("region", JsonPrimitive("us-east"))
-            })
+            put(
+                "data",
+                buildJsonObject {
+                    put("region", JsonPrimitive("us-east"))
+                }
+            )
         }
 
         val result = renderer.render("events.{{ payload.data.region }}", "topic", payload)
@@ -51,13 +54,22 @@ class RoutingKeyRendererTest {
     @Test
     fun `should extract deeply nested payload field`() {
         val payload = buildJsonObject {
-            put("a", buildJsonObject {
-                put("b", buildJsonObject {
-                    put("c", buildJsonObject {
-                        put("d", JsonPrimitive("value"))
-                    })
-                })
-            })
+            put(
+                "a",
+                buildJsonObject {
+                    put(
+                        "b",
+                        buildJsonObject {
+                            put(
+                                "c",
+                                buildJsonObject {
+                                    put("d", JsonPrimitive("value"))
+                                }
+                            )
+                        }
+                    )
+                }
+            )
         }
 
         val result = renderer.render("{{ payload.a.b.c.d }}", "topic", payload)
@@ -147,9 +159,12 @@ class RoutingKeyRendererTest {
     @Test
     fun `should convert object to string representation`() {
         val payload = buildJsonObject {
-            put("nested", buildJsonObject {
-                put("key", JsonPrimitive("value"))
-            })
+            put(
+                "nested",
+                buildJsonObject {
+                    put("key", JsonPrimitive("value"))
+                }
+            )
         }
 
         val result = renderer.render("obj.{{ payload.nested }}", "topic", payload)
@@ -160,10 +175,13 @@ class RoutingKeyRendererTest {
     @Test
     fun `should convert array to string representation`() {
         val payload = buildJsonObject {
-            put("items", buildJsonArray {
-                add(JsonPrimitive(1))
-                add(JsonPrimitive(2))
-            })
+            put(
+                "items",
+                buildJsonArray {
+                    add(JsonPrimitive(1))
+                    add(JsonPrimitive(2))
+                }
+            )
         }
 
         val result = renderer.render("arr.{{ payload.items }}", "topic", payload)
@@ -250,9 +268,12 @@ class RoutingKeyRendererTest {
     fun `should handle null JsonElement values in nested path`() {
         // When a field exists but the value is JSON null, it gets converted to "null" string
         val payload = buildJsonObject {
-            put("outer", buildJsonObject {
-                put("nullField", kotlinx.serialization.json.JsonNull)
-            })
+            put(
+                "outer",
+                buildJsonObject {
+                    put("nullField", kotlinx.serialization.json.JsonNull)
+                }
+            )
         }
 
         val result = renderer.render("prefix.{{ payload.outer.nullField }}.suffix", "topic", payload)
@@ -277,11 +298,16 @@ class RoutingKeyRendererTest {
     fun `should handle array in path`() {
         // When an intermediate value in the path is an array, traversal should stop
         val payload = buildJsonObject {
-            put("items", buildJsonArray {
-                add(buildJsonObject {
-                    put("field", JsonPrimitive("value"))
-                })
-            })
+            put(
+                "items",
+                buildJsonArray {
+                    add(
+                        buildJsonObject {
+                            put("field", JsonPrimitive("value"))
+                        }
+                    )
+                }
+            )
         }
 
         // Can't traverse into array items with simple path

@@ -26,10 +26,9 @@ object CredentialMasking {
     /**
      * Replaces the value of every header whose name names a credential.
      */
-    fun maskHeaders(headers: Map<String, String>): Map<String, String> =
-        headers.mapValues { (name, value) ->
-            if (isSecretHeader(name)) Secret.MASK else value
-        }
+    fun maskHeaders(headers: Map<String, String>): Map<String, String> = headers.mapValues { (name, value) ->
+        if (isSecretHeader(name)) Secret.MASK else value
+    }
 
     private fun isSecretHeader(name: String): Boolean =
         SECRET_HEADER_NAMES.any { name.equals(it, ignoreCase = true) } ||

@@ -1,6 +1,5 @@
 package org.nxtspec.auth
 
-import org.nxtspec.Secret
 import io.ktor.client.*
 import io.ktor.client.engine.mock.*
 import io.ktor.client.plugins.contentnegotiation.*
@@ -12,10 +11,11 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.runTest
 import org.nxtspec.DestinationAuthConfig
+import org.nxtspec.Secret
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
-import java.util.concurrent.atomic.AtomicInteger
 
 class OAuth2TokenManagerTest {
 
@@ -135,7 +135,9 @@ class OAuth2TokenManagerTest {
         val requestCount = AtomicInteger(0)
         val mockClient = createMockClient {
             respond(
-                content = """{"access_token":"token-${requestCount.incrementAndGet()}","token_type":"Bearer","expires_in":3600}""",
+                content =
+                """{"access_token":"token-${requestCount.incrementAndGet()}",""" +
+                    """"token_type":"Bearer","expires_in":3600}""",
                 status = HttpStatusCode.OK,
                 headers = headersOf(HttpHeaders.ContentType, "application/json")
             )
@@ -367,14 +369,12 @@ class OAuth2TokenManagerTest {
         assertTrue(exceptionThrown, "Expected exception after closing token manager")
     }
 
-    private fun createMockClient(handler: MockRequestHandler): HttpClient {
-        return HttpClient(MockEngine) {
-            engine {
-                addHandler(handler)
-            }
-            install(ContentNegotiation) {
-                json()
-            }
+    private fun createMockClient(handler: MockRequestHandler): HttpClient = HttpClient(MockEngine) {
+        engine {
+            addHandler(handler)
+        }
+        install(ContentNegotiation) {
+            json()
         }
     }
 }

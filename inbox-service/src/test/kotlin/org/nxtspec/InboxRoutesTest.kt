@@ -54,7 +54,12 @@ class InboxRoutesTest {
                                 call.respond(HttpStatusCode.BadRequest, mapOf("error" to result.reason))
 
                             is InboxHandlerResult.TransformFailed ->
-                                call.respond(HttpStatusCode.UnprocessableEntity, mapOf("error" to "Transform failed: ${result.reason}"))
+                                call.respond(
+                                    HttpStatusCode.UnprocessableEntity,
+                                    mapOf(
+                                        "error" to "Transform failed: ${result.reason}"
+                                    )
+                                )
 
                             is InboxHandlerResult.StorageFailed ->
                                 call.respond(HttpStatusCode.InternalServerError, mapOf("error" to "Storage failed"))
@@ -140,7 +145,7 @@ class InboxRoutesTest {
 
         val response = client.post("/inbox/orders") {
             contentType(ContentType.Application.Json)
-            setBody("""{"id": "123", "data": "test"}""")  // Missing orderId
+            setBody("""{"id": "123", "data": "test"}""") // Missing orderId
         }
 
         assertEquals(HttpStatusCode.BadRequest, response.status)
@@ -340,10 +345,12 @@ class InboxRoutesTest {
         }
 
         coVerify {
-            mockRepository.store(match {
-                it.payload.toString().contains("cus_abc") &&
-                it.payload.toString().contains("1000")
-            })
+            mockRepository.store(
+                match {
+                    it.payload.toString().contains("cus_abc") &&
+                        it.payload.toString().contains("1000")
+                }
+            )
         }
     }
 

@@ -18,9 +18,18 @@ class ShutdownSequenceTest {
         val order = mutableListOf<String>()
 
         ShutdownSequence(
-            stopServer = { delay(1); order.add("server") },
-            stopBackgroundServices = { delay(1); order.add("services") },
-            closeResources = { delay(1); order.add("resources") },
+            stopServer = {
+                delay(1)
+                order.add("server")
+            },
+            stopBackgroundServices = {
+                delay(1)
+                order.add("services")
+            },
+            closeResources = {
+                delay(1)
+                order.add("resources")
+            },
             log = { }
         ).run()
 
@@ -33,9 +42,18 @@ class ShutdownSequenceTest {
         val logged = mutableListOf<String>()
 
         ShutdownSequence(
-            stopServer = { delay(1); error("server stop failed") },
-            stopBackgroundServices = { delay(1); order.add("services") },
-            closeResources = { delay(1); order.add("resources") },
+            stopServer = {
+                delay(1)
+                error("server stop failed")
+            },
+            stopBackgroundServices = {
+                delay(1)
+                order.add("services")
+            },
+            closeResources = {
+                delay(1)
+                order.add("resources")
+            },
             log = { logged.add(it) }
         ).run()
 

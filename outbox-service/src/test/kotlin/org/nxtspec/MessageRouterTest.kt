@@ -320,9 +320,12 @@ class MessageRouterTest {
         )
         val router = MessageRouter(routes, destinations)
         val payload = buildJsonObject {
-            put("data", buildJsonObject {
-                put("region", JsonPrimitive("eu-west"))
-            })
+            put(
+                "data",
+                buildJsonObject {
+                    put("region", JsonPrimitive("eu-west"))
+                }
+            )
         }
 
         val result = router.route("order.created", payload)

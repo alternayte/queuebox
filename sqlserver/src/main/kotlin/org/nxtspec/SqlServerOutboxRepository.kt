@@ -7,18 +7,18 @@ import kotlinx.serialization.builtins.MapSerializer
 import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.json.Json
 import org.jetbrains.exposed.sql.ResultRow
+import org.jetbrains.exposed.sql.SortOrder
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
-import org.jetbrains.exposed.sql.SqlExpressionBuilder.isNull
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.inList
+import org.jetbrains.exposed.sql.SqlExpressionBuilder.isNull
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.less
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.lessEq
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.notInList
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.plus
-import org.jetbrains.exposed.sql.SortOrder
 import org.jetbrains.exposed.sql.and
-import org.jetbrains.exposed.sql.or
 import org.jetbrains.exposed.sql.deleteWhere
 import org.jetbrains.exposed.sql.insert
+import org.jetbrains.exposed.sql.or
 import org.jetbrains.exposed.sql.selectAll
 import org.jetbrains.exposed.sql.transactions.TransactionManager
 import org.jetbrains.exposed.sql.transactions.experimental.newSuspendedTransaction
@@ -128,20 +128,19 @@ class SqlServerOutboxRepository(
         updateState(id, "sent")
     }
 
-    override suspend fun scheduleRetry(id: UUID, delayMs: Long, error: String?): Unit =
-        newSuspendedTransaction {
-            val now = Clock.System.now()
-            val scheduledTime = now + delayMs.milliseconds
-            table.update({ table.id eq id }) {
-                it[scheduledAt] = scheduledTime
-                it[state] = "pending"
-                it[attempt] = table.attempt + 1
-                it[updatedAt] = now
-                it[claimedAt] = null
-                if (error != null) it[lastError] = error
-            }
-            Unit
+    override suspend fun scheduleRetry(id: UUID, delayMs: Long, error: String?): Unit = newSuspendedTransaction {
+        val now = Clock.System.now()
+        val scheduledTime = now + delayMs.milliseconds
+        table.update({ table.id eq id }) {
+            it[scheduledAt] = scheduledTime
+            it[state] = "pending"
+            it[attempt] = table.attempt + 1
+            it[updatedAt] = now
+            it[claimedAt] = null
+            if (error != null) it[lastError] = error
         }
+        Unit
+    }
 
     override suspend fun markDead(id: UUID, error: String?): Unit = newSuspendedTransaction {
         val now = Clock.System.now()
@@ -181,20 +180,19 @@ class SqlServerOutboxRepository(
     /**
      * F-008: deletes at most `limit` rows per statement.
      */
-    override suspend fun deleteOlderThan(state: String, cutoff: Instant, limit: Int): Int =
-        newSuspendedTransaction {
-            val ids = table
-                .select(table.id)
-                .where { (table.state eq state) and (table.updatedAt less cutoff) }
-                .limit(limit)
-                .map { it[table.id] }
+    override suspend fun deleteOlderThan(state: String, cutoff: Instant, limit: Int): Int = newSuspendedTransaction {
+        val ids = table
+            .select(table.id)
+            .where { (table.state eq state) and (table.updatedAt less cutoff) }
+            .limit(limit)
+            .map { it[table.id] }
 
-            if (ids.isEmpty()) {
-                0
-            } else {
-                table.deleteWhere { table.id inList ids }
-            }
+        if (ids.isEmpty()) {
+            0
+        } else {
+            table.deleteWhere { table.id inList ids }
         }
+    }
 
     override suspend fun deleteExceptMostRecent(state: String, keepCount: Int, limit: Int): Int =
         newSuspendedTransaction {
@@ -262,12 +260,10 @@ class SqlServerOutboxRepository(
         )
     }
 
-    private fun parseHeadersJson(json: String): Map<String, String> {
-        return try {
-            Json.decodeFromString<Map<String, String>>(json)
-        } catch (e: Exception) {
-            emptyMap()
-        }
+    private fun parseHeadersJson(json: String): Map<String, String> = try {
+        Json.decodeFromString<Map<String, String>>(json)
+    } catch (e: Exception) {
+        emptyMap()
     }
 
     private fun stringToMessageState(state: String): MessageState = when (state) {

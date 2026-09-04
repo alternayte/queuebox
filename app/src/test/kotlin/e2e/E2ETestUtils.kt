@@ -1,6 +1,5 @@
 package org.nxtspec.e2e
 
-import org.nxtspec.Secret
 import com.rabbitmq.client.AMQP
 import com.rabbitmq.client.ConnectionFactory
 import com.rabbitmq.client.DefaultConsumer
@@ -11,6 +10,7 @@ import org.nxtspec.InboxConfig
 import org.nxtspec.OutboxConfig
 import org.nxtspec.QueueBoxConfig
 import org.nxtspec.RouteConfig
+import org.nxtspec.Secret
 import org.nxtspec.ServerConfig
 import org.nxtspec.SourceConfig
 import org.testcontainers.containers.PostgreSQLContainer
@@ -37,9 +37,9 @@ object E2ETestUtils {
         routes: List<RouteConfig> = emptyList(),
         sources: Map<String, SourceConfig> = emptyMap(),
         outboxConfig: OutboxConfig = OutboxConfig(
-            pollIntervalMs = 50,  // Fast polling for tests
+            pollIntervalMs = 50, // Fast polling for tests
             batchSize = 10,
-            retryBaseDelayMs = 100,  // Short delays for tests
+            retryBaseDelayMs = 100, // Short delays for tests
             maxAttempts = 3
         )
     ): QueueBoxConfig {
@@ -64,7 +64,7 @@ object E2ETestUtils {
         }
 
         return QueueBoxConfig(
-            server = ServerConfig(httpPort = 0),  // Dynamic port for tests
+            server = ServerConfig(httpPort = 0), // Dynamic port for tests
             database = DatabaseConfig(
                 url = postgres.jdbcUrl,
                 username = postgres.username,
@@ -82,15 +82,10 @@ object E2ETestUtils {
     /**
      * Create a simple HTTP route configuration for testing.
      */
-    fun httpRoute(
-        topicPattern: String = ".*",
-        destinationName: String = "http-destination"
-    ): RouteConfig {
-        return RouteConfig(
-            topicPattern = topicPattern,
-            destination = destinationName
-        )
-    }
+    fun httpRoute(topicPattern: String = ".*", destinationName: String = "http-destination"): RouteConfig = RouteConfig(
+        topicPattern = topicPattern,
+        destination = destinationName
+    )
 
     /**
      * Create a RabbitMQ route configuration for testing.
@@ -99,13 +94,11 @@ object E2ETestUtils {
         topicPattern: String = ".*",
         destinationName: String = "rabbitmq-destination",
         routingKeyTemplate: String = "{{ topic }}"
-    ): RouteConfig {
-        return RouteConfig(
-            topicPattern = topicPattern,
-            destination = destinationName,
-            routingKeyTemplate = routingKeyTemplate
-        )
-    }
+    ): RouteConfig = RouteConfig(
+        topicPattern = topicPattern,
+        destination = destinationName,
+        routingKeyTemplate = routingKeyTemplate
+    )
 
     /**
      * Create an HTTP source configuration for inbox.
@@ -114,13 +107,11 @@ object E2ETestUtils {
         path: String,
         idempotencyKeyPath: String = "$.id",
         eventTypePath: String? = null
-    ): SourceConfig.Http {
-        return SourceConfig.Http(
-            path = path,
-            idempotencyKeyPath = idempotencyKeyPath,
-            eventTypePath = eventTypePath
-        )
-    }
+    ): SourceConfig.Http = SourceConfig.Http(
+        path = path,
+        idempotencyKeyPath = idempotencyKeyPath,
+        eventTypePath = eventTypePath
+    )
 
     /**
      * Create a RabbitMQ source configuration for inbox.
@@ -130,24 +121,19 @@ object E2ETestUtils {
         connectionUrl: String,
         idempotencyKeyPath: String = "$.id",
         prefetchCount: Int = 10
-    ): SourceConfig.RabbitMQ {
-        return SourceConfig.RabbitMQ(
-            queueName = queueName,
-            connectionUrl = connectionUrl,
-            idempotencyKeyPath = idempotencyKeyPath,
-            prefetchCount = prefetchCount
-        )
-    }
+    ): SourceConfig.RabbitMQ = SourceConfig.RabbitMQ(
+        queueName = queueName,
+        connectionUrl = connectionUrl,
+        idempotencyKeyPath = idempotencyKeyPath,
+        prefetchCount = prefetchCount
+    )
 }
 
 /**
  * Helper class for consuming RabbitMQ messages in E2E tests.
  * Tracks all received messages for verification.
  */
-class RabbitMQTestConsumer(
-    private val amqpUrl: String,
-    private val queueName: String
-) {
+class RabbitMQTestConsumer(private val amqpUrl: String, private val queueName: String) {
     private val factory = ConnectionFactory().apply { setUri(amqpUrl) }
     private var connection: com.rabbitmq.client.Connection? = null
     private var channel: com.rabbitmq.client.Channel? = null
@@ -176,23 +162,27 @@ class RabbitMQTestConsumer(
             }
 
             // Start consuming
-            ch.basicConsume(queueName, true, object : DefaultConsumer(ch) {
-                override fun handleDelivery(
-                    consumerTag: String,
-                    envelope: Envelope,
-                    properties: AMQP.BasicProperties,
-                    body: ByteArray
-                ) {
-                    _receivedMessages.add(
-                        ReceivedMessage(
-                            body = String(body),
-                            routingKey = envelope.routingKey,
-                            headers = properties.headers?.mapValues { it.value?.toString() ?: "" } ?: emptyMap(),
-                            messageId = properties.messageId
+            ch.basicConsume(
+                queueName,
+                true,
+                object : DefaultConsumer(ch) {
+                    override fun handleDelivery(
+                        consumerTag: String,
+                        envelope: Envelope,
+                        properties: AMQP.BasicProperties,
+                        body: ByteArray
+                    ) {
+                        _receivedMessages.add(
+                            ReceivedMessage(
+                                body = String(body),
+                                routingKey = envelope.routingKey,
+                                headers = properties.headers?.mapValues { it.value?.toString() ?: "" } ?: emptyMap(),
+                                messageId = properties.messageId
+                            )
                         )
-                    )
+                    }
                 }
-            })
+            )
         }
     }
 
@@ -217,10 +207,7 @@ class RabbitMQTestConsumer(
      * Wait for a specific number of messages to be received.
      * Returns true if the expected count is reached within timeout.
      */
-    suspend fun waitForMessages(
-        expectedCount: Int,
-        timeoutMs: Long = 5000
-    ): Boolean {
+    suspend fun waitForMessages(expectedCount: Int, timeoutMs: Long = 5000): Boolean {
         val startTime = System.currentTimeMillis()
         while (_receivedMessages.size < expectedCount) {
             if (System.currentTimeMillis() - startTime > timeoutMs) {
@@ -253,7 +240,8 @@ class RabbitMQTestPublisher(private val amqpUrl: String) {
         payload: String,
         headers: Map<String, Any>? = null,
         messageId: String? = null,
-        autoDelete: Boolean = true  // Match consumer settings
+        // Match consumer settings
+        autoDelete: Boolean = true
     ) {
         factory.newConnection().use { connection ->
             connection.createChannel().use { channel ->

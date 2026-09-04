@@ -6,9 +6,7 @@ package org.nxtspec
  * @property routingKey The routing key that the route resolved for this message. A null value
  *   means the route sets no routing key, and the destination applies its own fallback. See F-004.
  */
-data class PublishContext(
-    val routingKey: String? = null
-)
+data class PublishContext(val routingKey: String? = null)
 
 interface Publisher {
     suspend fun publish(

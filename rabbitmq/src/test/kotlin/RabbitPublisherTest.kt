@@ -2,7 +2,6 @@ package org.nxtspec
 
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
 import org.junit.jupiter.api.Test
 import java.util.UUID
 import kotlin.test.assertEquals

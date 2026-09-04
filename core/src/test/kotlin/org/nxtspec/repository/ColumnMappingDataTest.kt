@@ -70,8 +70,7 @@ class ColumnMappingDataTest {
 
     private class FakeDataSource : javax.sql.DataSource {
         override fun getConnection() = throw UnsupportedOperationException()
-        override fun getConnection(username: String?, password: String?) =
-            throw UnsupportedOperationException()
+        override fun getConnection(username: String?, password: String?) = throw UnsupportedOperationException()
 
         override fun getLogWriter() = throw UnsupportedOperationException()
         override fun setLogWriter(out: java.io.PrintWriter?) = Unit

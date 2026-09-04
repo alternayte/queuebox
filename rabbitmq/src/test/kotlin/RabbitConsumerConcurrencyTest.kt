@@ -96,8 +96,7 @@ class RabbitConsumerConcurrencyTest {
         }
     }
 
-    private fun readyMessageCount(): Int =
-        withControlChannel { it.queueDeclarePassive(queueName).messageCount }
+    private fun readyMessageCount(): Int = withControlChannel { it.queueDeclarePassive(queueName).messageCount }
 
     @Test
     fun `500 messages with prefetch 50 are all acknowledged on an open channel`() = runBlocking {

@@ -1,7 +1,7 @@
 package org.nxtspec.e2e
 
-import io.ktor.client.request.post
 import io.ktor.client.request.header
+import io.ktor.client.request.post
 import io.ktor.client.request.setBody
 import io.ktor.http.ContentType
 import io.ktor.http.contentType
@@ -12,7 +12,6 @@ import io.ktor.server.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.server.testing.testApplication
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonObject
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
 import org.jetbrains.exposed.sql.and
 import org.jetbrains.exposed.sql.selectAll
@@ -32,7 +31,6 @@ import org.nxtspec.MessageRouter
 import org.nxtspec.OutboxConfig
 import org.nxtspec.OutboxPoller
 import org.nxtspec.OutboxRepository
-import org.nxtspec.OutboxTable
 import org.nxtspec.RetryStrategy
 import org.nxtspec.RouteConfig
 import org.nxtspec.SourceConfig
@@ -169,12 +167,11 @@ class E2ECorrelationTest : E2ETestBase() {
         assertEquals(generated, readInboxCorrelationId("stripe", "evt_corr_2"))
     }
 
-    private fun readInboxCorrelationId(source: String, idempotencyKey: String): String? =
-        transaction {
-            InboxTable.selectAll()
-                .where {
-                    (InboxTable.messageSrc eq source) and (InboxTable.idempotencyKey eq idempotencyKey)
-                }
-                .single()[InboxTable.correlationId]
-        }
+    private fun readInboxCorrelationId(source: String, idempotencyKey: String): String? = transaction {
+        InboxTable.selectAll()
+            .where {
+                (InboxTable.messageSrc eq source) and (InboxTable.idempotencyKey eq idempotencyKey)
+            }
+            .single()[InboxTable.correlationId]
+    }
 }

@@ -1,10 +1,10 @@
 package org.nxtspec.app
 
-import org.nxtspec.Secret
 import org.nxtspec.ColumnMappingConfig
 import org.nxtspec.DatabaseConfig
 import org.nxtspec.InboxColumnMapping
 import org.nxtspec.OutboxColumnMapping
+import org.nxtspec.Secret
 import kotlin.test.Test
 import kotlin.test.assertContains
 import kotlin.test.assertFailsWith

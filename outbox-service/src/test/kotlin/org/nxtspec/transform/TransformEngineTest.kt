@@ -14,7 +14,6 @@ import kotlinx.serialization.json.jsonPrimitive
 import java.util.UUID
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertTrue
 
@@ -22,17 +21,14 @@ class TransformEngineTest {
 
     private val engine = TransformEngine()
 
-    private fun createContext(
-        topic: String = "test.topic",
-        attempt: Int = 1,
-        source: String? = null
-    ) = TransformContext(
-        messageId = UUID.fromString("550e8400-e29b-41d4-a716-446655440000"),
-        topic = topic,
-        attempt = attempt,
-        timestamp = Clock.System.now(),
-        source = source
-    )
+    private fun createContext(topic: String = "test.topic", attempt: Int = 1, source: String? = null) =
+        TransformContext(
+            messageId = UUID.fromString("550e8400-e29b-41d4-a716-446655440000"),
+            topic = topic,
+            attempt = attempt,
+            timestamp = Clock.System.now(),
+            source = source
+        )
 
     private fun parseJson(json: String): JsonElement = Json.parseToJsonElement(json)
 
@@ -296,7 +292,7 @@ class TransformEngineTest {
             "\$reduce([1..10000], function(\$acc, \$v) { \$acc + \$v }, 0)",
             payload,
             context,
-            timeoutMs = 1  // 1ms timeout - should be exceeded
+            timeoutMs = 1 // 1ms timeout - should be exceeded
         )
 
         // The library throws JException for timeout
@@ -343,7 +339,9 @@ class TransformEngineTest {
 
     @Test
     fun `should transform complex nested structure`() {
-        val payload = parseJson("""
+        val payload =
+            parseJson(
+                """
             {
                 "order": {
                     "id": "ORD-001",
@@ -354,17 +352,22 @@ class TransformEngineTest {
                     ]
                 }
             }
-        """.trimIndent())
+                """.trimIndent()
+            )
         val context = createContext(topic = "order.completed")
 
-        val result = engine.evaluate("""
+        val result = engine.evaluate(
+            """
             {
                 "orderId": order.id,
                 "customerEmail": order.customer.email,
                 "totalAmount": ${"$"}sum(order.items.(qty * price)),
                 "eventType": ${"$"}topic
             }
-        """.trimIndent(), payload, context)
+            """.trimIndent(),
+            payload,
+            context
+        )
 
         assertTrue(result.isSuccess)
         val obj = result.getOrThrow().jsonObject

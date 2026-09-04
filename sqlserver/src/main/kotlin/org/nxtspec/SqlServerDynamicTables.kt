@@ -14,14 +14,12 @@ import org.jetbrains.exposed.sql.kotlin.datetime.timestamp
  * @param mapping The column name mapping configuration
  * @param tableName The name of the table (defaults to "outbox")
  */
-class SqlServerDynamicOutboxTable(
-    val mapping: OutboxColumnMapping,
-    tableName: String = "outbox"
-) : UUIDTable(tableName) {
+class SqlServerDynamicOutboxTable(val mapping: OutboxColumnMapping, tableName: String = "outbox") :
+    UUIDTable(tableName) {
     val topic: Column<String> = varchar(mapping.topic, 255)
     val key: Column<String?> = varchar(mapping.key, 255).nullable()
-    val payload: Column<String> = text(mapping.payload)  // JSON stored as NVARCHAR(MAX)
-    val headers: Column<String> = text(mapping.headers).default("{}")  // JSON headers as NVARCHAR(MAX)
+    val payload: Column<String> = text(mapping.payload) // JSON stored as NVARCHAR(MAX)
+    val headers: Column<String> = text(mapping.headers).default("{}") // JSON headers as NVARCHAR(MAX)
     val state: Column<String> = varchar(mapping.state, 50).default("pending")
     val attempt: Column<Int> = integer(mapping.attempt).default(0)
     val maxAttempts: Column<Int> = integer(mapping.maxAttempts).default(5)
@@ -46,15 +44,12 @@ class SqlServerDynamicOutboxTable(
  * @param mapping The column name mapping configuration
  * @param tableName The name of the table (defaults to "inbox")
  */
-class SqlServerDynamicInboxTable(
-    val mapping: InboxColumnMapping,
-    tableName: String = "inbox"
-) : UUIDTable(tableName) {
+class SqlServerDynamicInboxTable(val mapping: InboxColumnMapping, tableName: String = "inbox") : UUIDTable(tableName) {
     val messageSrc: Column<String> = varchar(mapping.source, 255)
     val idempotencyKey: Column<String> = varchar(mapping.idempotencyKey, 255)
     val aggregateId: Column<String?> = varchar(mapping.aggregateId, 255).nullable()
     val eventType: Column<String?> = varchar(mapping.eventType, 255).nullable()
-    val payload: Column<String> = text(mapping.payload)  // JSON stored as NVARCHAR(MAX)
+    val payload: Column<String> = text(mapping.payload) // JSON stored as NVARCHAR(MAX)
     val state: Column<String> = varchar(mapping.state, 50).default("pending")
     val createdAt = timestamp(mapping.createdAt)
     val processedAt = timestamp(mapping.processedAt).nullable()

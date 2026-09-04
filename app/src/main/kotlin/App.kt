@@ -1,6 +1,5 @@
 package org.nxtspec.app
 
-import com.zaxxer.hikari.HikariDataSource
 import io.ktor.serialization.kotlinx.json.*
 import io.ktor.server.application.*
 import io.ktor.server.engine.*
@@ -13,6 +12,7 @@ import io.micrometer.prometheusmetrics.PrometheusMeterRegistry
 import kotlinx.coroutines.runBlocking
 import org.nxtspec.*
 import org.nxtspec.auth.DestinationAuthResolver
+import org.nxtspec.auth.InboxAuthValidator
 import org.nxtspec.auth.OAuth2TokenManager
 import org.nxtspec.http.HttpPublisher
 import org.nxtspec.logging.logger
@@ -21,7 +21,6 @@ import org.nxtspec.repository.DatabaseProviderFactory
 import org.nxtspec.repository.DatabaseType
 import org.nxtspec.repository.InboxColumnMappingData
 import org.nxtspec.repository.OutboxColumnMappingData
-import org.nxtspec.auth.InboxAuthValidator
 import org.nxtspec.transform.InboxTransformPipeline
 import org.nxtspec.transform.TransformEngine
 import org.nxtspec.transform.TransformPipeline
@@ -91,7 +90,6 @@ fun main() {
 
     // F-034: fail fast when the admin routes are enabled with no authentication.
     requireAdminAuth(config.admin)
-
 
     // Database setup with metrics integration
     val dataSource = DatabaseFactory.create(config.database, prometheusRegistry)

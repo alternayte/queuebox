@@ -154,7 +154,8 @@ class IdempotencyExtractorTest {
 
     @Test
     fun `should extract from complex nested structure`() {
-        val payload = Json.parseToJsonElement("""{
+        val payload = Json.parseToJsonElement(
+            """{
             "order": {
                 "customer": {
                     "addresses": [
@@ -163,7 +164,8 @@ class IdempotencyExtractorTest {
                     ]
                 }
             }
-        }""")
+        }"""
+        )
 
         val result = extractor.extract(payload, "$.order.customer.addresses[1].id")
 

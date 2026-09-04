@@ -81,11 +81,13 @@ class E2EOutboxFlowTest : E2ETestBase() {
         )
 
         // 4. Insert message into outbox
-        val payload = JsonObject(mapOf(
-            "orderId" to JsonPrimitive("order-123"),
-            "amount" to JsonPrimitive(99.99),
-            "currency" to JsonPrimitive("USD")
-        ))
+        val payload = JsonObject(
+            mapOf(
+                "orderId" to JsonPrimitive("order-123"),
+                "amount" to JsonPrimitive(99.99),
+                "currency" to JsonPrimitive("USD")
+            )
+        )
         val messageId = insertOutboxMessage(
             topic = "order.created",
             payload = payload
@@ -130,7 +132,7 @@ class E2EOutboxFlowTest : E2ETestBase() {
         )
         val routes = listOf(
             RouteConfig(
-                topicPattern = "events.**",  // Match events.* and events.*.*
+                topicPattern = "events.**", // Match events.* and events.*.*
                 destination = "test-rabbit"
             )
         )
@@ -172,10 +174,12 @@ class E2EOutboxFlowTest : E2ETestBase() {
         )
 
         // 4. Insert message into outbox
-        val payload = JsonObject(mapOf(
-            "userId" to JsonPrimitive("user-456"),
-            "action" to JsonPrimitive("signup")
-        ))
+        val payload = JsonObject(
+            mapOf(
+                "userId" to JsonPrimitive("user-456"),
+                "action" to JsonPrimitive("signup")
+            )
+        )
         val messageId = insertOutboxMessage(
             topic = "events.user.signup",
             payload = payload
@@ -284,7 +288,7 @@ class E2EOutboxFlowTest : E2ETestBase() {
         val config = OutboxConfig(
             pollIntervalMs = 50,
             batchSize = 10,
-            retryBaseDelayMs = 50,  // Very short for testing
+            retryBaseDelayMs = 50, // Very short for testing
             maxAttempts = 2
         )
         val publisher = HttpPublisher()
@@ -320,7 +324,8 @@ class E2EOutboxFlowTest : E2ETestBase() {
         // 7. Wait for retry and eventual dead state
         // The message should go: pending -> processing -> (fail) -> pending (retry scheduled)
         // -> processing -> (fail) -> dead
-        repeat(50) { // Max 5 seconds
+        repeat(50) {
+            // Max 5 seconds
             delay(100)
             val (state, attempt) = getOutboxMessageStateAndAttempt(messageId)
             if (state == "dead") {

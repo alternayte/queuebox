@@ -35,12 +35,10 @@ class InboxAuthValidator {
      * @param authConfig The authentication configuration to validate against
      * @return AuthResult indicating success or failure with details
      */
-    fun validate(request: ApplicationRequest, authConfig: InboxAuthConfig): AuthResult {
-        return when (authConfig) {
-            is InboxAuthConfig.Bearer -> validateBearer(request, authConfig)
-            is InboxAuthConfig.ApiKey -> validateApiKey(request, authConfig)
-            is InboxAuthConfig.HmacSignature -> validateHmac(request, authConfig)
-        }
+    fun validate(request: ApplicationRequest, authConfig: InboxAuthConfig): AuthResult = when (authConfig) {
+        is InboxAuthConfig.Bearer -> validateBearer(request, authConfig)
+        is InboxAuthConfig.ApiKey -> validateApiKey(request, authConfig)
+        is InboxAuthConfig.HmacSignature -> validateHmac(request, authConfig)
     }
 
     private fun validateBearer(request: ApplicationRequest, config: InboxAuthConfig.Bearer): AuthResult {

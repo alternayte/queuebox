@@ -2,16 +2,15 @@ package org.nxtspec
 
 import kotlinx.datetime.Clock
 import kotlinx.datetime.Instant
-import org.jetbrains.exposed.sql.ResultRow
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
-import org.jetbrains.exposed.sql.SqlExpressionBuilder.isNull
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.inList
+import org.jetbrains.exposed.sql.SqlExpressionBuilder.isNull
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.less
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.lessEq
 import org.jetbrains.exposed.sql.and
-import org.jetbrains.exposed.sql.or
 import org.jetbrains.exposed.sql.deleteWhere
 import org.jetbrains.exposed.sql.insertIgnore
+import org.jetbrains.exposed.sql.or
 import org.jetbrains.exposed.sql.selectAll
 import org.jetbrains.exposed.sql.transactions.experimental.newSuspendedTransaction
 import org.jetbrains.exposed.sql.update
@@ -157,9 +156,7 @@ class InboxRepository(
      * Keeps the oldest claimed message per aggregate identifier and returns the rest for
      * release. A message without an aggregate identifier is independent and is always kept.
      */
-    private fun applyAggregateRule(
-        claimed: List<InboxMessage>
-    ): Pair<List<InboxMessage>, List<InboxMessage>> {
+    private fun applyAggregateRule(claimed: List<InboxMessage>): Pair<List<InboxMessage>, List<InboxMessage>> {
         val kept = mutableListOf<InboxMessage>()
         val released = mutableListOf<InboxMessage>()
         val seenAggregates = mutableSetOf<String>()
@@ -218,20 +215,19 @@ class InboxRepository(
     /**
      * F-008: deletes at most `limit` rows per statement.
      */
-    override suspend fun deleteOlderThan(state: String, cutoff: Instant, limit: Int): Int =
-        newSuspendedTransaction {
-            val ids = table
-                .select(table.id)
-                .where { (table.state eq state) and (table.createdAt less cutoff) }
-                .limit(limit)
-                .map { it[table.id] }
+    override suspend fun deleteOlderThan(state: String, cutoff: Instant, limit: Int): Int = newSuspendedTransaction {
+        val ids = table
+            .select(table.id)
+            .where { (table.state eq state) and (table.createdAt less cutoff) }
+            .limit(limit)
+            .map { it[table.id] }
 
-            if (ids.isEmpty()) {
-                0
-            } else {
-                table.deleteWhere { table.id inList ids }
-            }
+        if (ids.isEmpty()) {
+            0
+        } else {
+            table.deleteWhere { table.id inList ids }
         }
+    }
 
     private fun java.sql.ResultSet.toInboxMessageFromResultSet(): InboxMessage = InboxMessage(
         id = java.util.UUID.fromString(getString(columnMapping.id)),

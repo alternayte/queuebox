@@ -44,10 +44,7 @@ object LogKeys {
  *
  * A null value is skipped, so a caller does not have to build the map twice.
  */
-suspend fun <T> withLogContext(
-    vararg entries: Pair<String, Any?>,
-    block: suspend () -> T
-): T {
+suspend fun <T> withLogContext(vararg entries: Pair<String, Any?>, block: suspend () -> T): T {
     val merged = (MDC.getCopyOfContextMap() ?: emptyMap()).toMutableMap()
     entries.forEach { (key, value) ->
         value?.let { merged[key] = sanitiseValue(it.toString()) }
@@ -62,8 +59,7 @@ suspend fun <T> withLogContext(
  * A caller supplies the correlation identifier, so its value reaches a log line. A newline in it
  * would let a caller write a line of its own.
  */
-private fun sanitiseValue(value: String): String =
-    value.map { if (it.isISOControl()) ' ' else it }.joinToString("")
+private fun sanitiseValue(value: String): String = value.map { if (it.isISOControl()) ' ' else it }.joinToString("")
 
 /**
  * The HTTP and AMQP header that carries the correlation identifier. See F-047.

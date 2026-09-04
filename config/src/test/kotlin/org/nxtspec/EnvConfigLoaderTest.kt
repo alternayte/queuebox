@@ -32,7 +32,10 @@ class EnvConfigLoaderTest {
         // Hoplite handles array indexing with numeric segments
         assertEquals("routes.0.topic.pattern", EnvConfigLoader.envKeyToYamlPath("QUEUEBOX_ROUTES_0_TOPIC_PATTERN"))
         assertEquals("routes.1.destination", EnvConfigLoader.envKeyToYamlPath("QUEUEBOX_ROUTES_1_DESTINATION"))
-        assertEquals("destinations.http1.base.url", EnvConfigLoader.envKeyToYamlPath("QUEUEBOX_DESTINATIONS_HTTP1_BASE_URL"))
+        assertEquals(
+            "destinations.http1.base.url",
+            EnvConfigLoader.envKeyToYamlPath("QUEUEBOX_DESTINATIONS_HTTP1_BASE_URL")
+        )
     }
 
     @Test

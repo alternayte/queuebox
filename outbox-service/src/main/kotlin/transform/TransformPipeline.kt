@@ -72,18 +72,16 @@ class TransformPipeline(
         payload: JsonElement,
         config: TransformConfig,
         context: TransformContext
-    ): TransformResult {
-        return engine.evaluate(
-            expression = config.expression,
-            payload = payload,
-            context = context,
-            timeoutMs = config.timeoutMs,
-            maxDepth = config.maxDepth
-        ).fold(
-            onSuccess = { TransformResult.Success(it) },
-            onFailure = { TransformResult.Error(it.message ?: "Unknown transform error") }
-        )
-    }
+    ): TransformResult = engine.evaluate(
+        expression = config.expression,
+        payload = payload,
+        context = context,
+        timeoutMs = config.timeoutMs,
+        maxDepth = config.maxDepth
+    ).fold(
+        onSuccess = { TransformResult.Success(it) },
+        onFailure = { TransformResult.Error(it.message ?: "Unknown transform error") }
+    )
 
     /**
      * Handles a transform error according to the configured error strategy.

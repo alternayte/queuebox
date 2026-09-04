@@ -6,10 +6,7 @@ import com.jayway.jsonpath.PathNotFoundException
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 
-class ExtractionException(
-    message: String,
-    cause: Throwable? = null
-) : Exception(message, cause)
+class ExtractionException(message: String, cause: Throwable? = null) : Exception(message, cause)
 
 /**
  * Reads values out of a message payload with JSONPath.
@@ -31,12 +28,10 @@ class IdempotencyExtractor(
      * @param jsonPath The JSONPath expression to read
      * @return The value as a string, or a failure with an [ExtractionException]
      */
-    fun extract(payload: JsonElement, jsonPath: String): Result<String> {
-        return try {
-            read(parser(payload), jsonPath)
-        } catch (e: Exception) {
-            Result.failure(ExtractionException("Extraction failed: ${e.message}", e))
-        }
+    fun extract(payload: JsonElement, jsonPath: String): Result<String> = try {
+        read(parser(payload), jsonPath)
+    } catch (e: Exception) {
+        Result.failure(ExtractionException("Extraction failed: ${e.message}", e))
     }
 
     /**
@@ -58,14 +53,12 @@ class IdempotencyExtractor(
         return paths.mapValues { (_, path) -> read(documentContext, path).getOrNull() }
     }
 
-    private fun read(documentContext: DocumentContext, jsonPath: String): Result<String> {
-        return try {
-            val value: Any = documentContext.read(jsonPath)
-            Result.success(value.toString())
-        } catch (e: PathNotFoundException) {
-            Result.failure(ExtractionException("Path not found: $jsonPath"))
-        } catch (e: Exception) {
-            Result.failure(ExtractionException("Extraction failed: ${e.message}", e))
-        }
+    private fun read(documentContext: DocumentContext, jsonPath: String): Result<String> = try {
+        val value: Any = documentContext.read(jsonPath)
+        Result.success(value.toString())
+    } catch (e: PathNotFoundException) {
+        Result.failure(ExtractionException("Path not found: $jsonPath"))
+    } catch (e: Exception) {
+        Result.failure(ExtractionException("Extraction failed: ${e.message}", e))
     }
 }

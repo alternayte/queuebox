@@ -2,8 +2,8 @@ package org.nxtspec
 
 import org.nxtspec.repository.ColumnMappingData
 import org.nxtspec.repository.InboxRepositoryInterface
-import org.nxtspec.repository.OutboxRepositoryInterface
 import org.nxtspec.repository.Migrator
+import org.nxtspec.repository.OutboxRepositoryInterface
 import org.nxtspec.repository.RepositoryFactory
 import org.nxtspec.repository.TransactionRunner
 import javax.sql.DataSource

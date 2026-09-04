@@ -16,7 +16,7 @@ dependencies {
 
     implementation(project(":core"))
     implementation(project(":config"))
-    implementation(project(":inbox-service"))  // For InboxTransformPipeline
+    implementation(project(":inbox-service")) // For InboxTransformPipeline
 
     // RabbitMQ client
     implementation(libs.amqp.client)

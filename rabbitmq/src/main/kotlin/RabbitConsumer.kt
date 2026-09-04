@@ -56,6 +56,7 @@ class RabbitConsumer(
     // F-018: an AMQP channel is not thread safe. One actor coroutine owns the channel and
     // performs every acknowledgement. The message coroutines only send a command.
     private val ackScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+
     @Volatile
     private var ackCommands: kotlinx.coroutines.channels.Channel<AckCommand>? = null
 
@@ -158,11 +159,7 @@ class RabbitConsumer(
         )
     }
 
-    private suspend fun processMessage(
-        envelope: Envelope,
-        properties: AMQP.BasicProperties,
-        body: ByteArray
-    ) {
+    private suspend fun processMessage(envelope: Envelope, properties: AMQP.BasicProperties, body: ByteArray) {
         try {
             val payload = json.parseToJsonElement(body.toString(Charsets.UTF_8))
             val messageId = UUID.randomUUID()
@@ -197,7 +194,7 @@ class RabbitConsumer(
                     is InboxTransformResult.Success -> result.payload
                     is InboxTransformResult.Rejected -> {
                         // NACK without requeue for transform rejection
-                                    log.warn(
+                        log.warn(
                             "The transform rejected delivery {}. The message is not requeued. " +
                                 "Reason: {}",
                             envelope.deliveryTag,

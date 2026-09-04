@@ -1,6 +1,5 @@
 package org.nxtspec.e2e
 
-import org.nxtspec.Secret
 import com.zaxxer.hikari.HikariDataSource
 import io.ktor.http.*
 import io.ktor.server.application.*
@@ -9,7 +8,6 @@ import io.ktor.server.netty.*
 import io.ktor.server.request.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
-import kotlinx.coroutines.runBlocking
 import kotlinx.datetime.Clock
 import kotlinx.datetime.Instant
 import kotlinx.serialization.json.JsonElement
@@ -30,6 +28,7 @@ import org.nxtspec.DatabaseConfig
 import org.nxtspec.DatabaseFactory
 import org.nxtspec.InboxTable
 import org.nxtspec.OutboxTable
+import org.nxtspec.Secret
 import org.testcontainers.containers.GenericContainer
 import org.testcontainers.containers.PostgreSQLContainer
 import org.testcontainers.containers.wait.strategy.Wait
@@ -183,35 +182,29 @@ abstract class E2ETestBase {
     /**
      * Get the current state of an outbox message.
      */
-    protected fun getOutboxMessageState(id: UUID): String {
-        return transaction {
-            OutboxTable.selectAll()
-                .where { OutboxTable.id eq id }
-                .single()[OutboxTable.state]
-        }
+    protected fun getOutboxMessageState(id: UUID): String = transaction {
+        OutboxTable.selectAll()
+            .where { OutboxTable.id eq id }
+            .single()[OutboxTable.state]
     }
 
     /**
      * Get the persisted failure reason for an outbox message.
      */
-    protected fun getOutboxLastError(id: UUID): String? {
-        return transaction {
-            OutboxTable.selectAll()
-                .where { OutboxTable.id eq id }
-                .single()[OutboxTable.lastError]
-        }
+    protected fun getOutboxLastError(id: UUID): String? = transaction {
+        OutboxTable.selectAll()
+            .where { OutboxTable.id eq id }
+            .single()[OutboxTable.lastError]
     }
 
     /**
      * Get state and attempt count for an outbox message.
      */
-    protected fun getOutboxMessageStateAndAttempt(id: UUID): Pair<String, Int> {
-        return transaction {
-            val row = OutboxTable.selectAll()
-                .where { OutboxTable.id eq id }
-                .single()
-            row[OutboxTable.state] to row[OutboxTable.attempt]
-        }
+    protected fun getOutboxMessageStateAndAttempt(id: UUID): Pair<String, Int> = transaction {
+        val row = OutboxTable.selectAll()
+            .where { OutboxTable.id eq id }
+            .single()
+        row[OutboxTable.state] to row[OutboxTable.attempt]
     }
 
     // ==================== Inbox Helpers ====================
@@ -243,34 +236,30 @@ abstract class E2ETestBase {
     /**
      * Get an inbox message by source and idempotency key.
      */
-    protected fun getInboxMessage(source: String, idempotencyKey: String): InboxRecord? {
-        return transaction {
-            InboxTable.selectAll()
-                .where { (InboxTable.messageSrc eq source) and (InboxTable.idempotencyKey eq idempotencyKey) }
-                .singleOrNull()
-                ?.let { row ->
-                    InboxRecord(
-                        id = row[InboxTable.id].value,
-                        source = row[InboxTable.messageSrc],
-                        idempotencyKey = row[InboxTable.idempotencyKey],
-                        payload = row[InboxTable.payload],
-                        state = row[InboxTable.state],
-                        createdAt = row[InboxTable.createdAt]
-                    )
-                }
-        }
+    protected fun getInboxMessage(source: String, idempotencyKey: String): InboxRecord? = transaction {
+        InboxTable.selectAll()
+            .where { (InboxTable.messageSrc eq source) and (InboxTable.idempotencyKey eq idempotencyKey) }
+            .singleOrNull()
+            ?.let { row ->
+                InboxRecord(
+                    id = row[InboxTable.id].value,
+                    source = row[InboxTable.messageSrc],
+                    idempotencyKey = row[InboxTable.idempotencyKey],
+                    payload = row[InboxTable.payload],
+                    state = row[InboxTable.state],
+                    createdAt = row[InboxTable.createdAt]
+                )
+            }
     }
 
     /**
      * Count inbox messages for a given source.
      */
-    protected fun countInboxMessages(source: String): Int {
-        return transaction {
-            InboxTable.selectAll()
-                .where { InboxTable.messageSrc eq source }
-                .count()
-                .toInt()
-        }
+    protected fun countInboxMessages(source: String): Int = transaction {
+        InboxTable.selectAll()
+            .where { InboxTable.messageSrc eq source }
+            .count()
+            .toInt()
     }
 
     // ==================== Mock HTTP Server ====================
@@ -297,11 +286,7 @@ abstract class E2ETestBase {
      *
      * @return true when the condition held before the timeout
      */
-    protected suspend fun awaitUntil(
-        timeoutMs: Long = 15000,
-        pollMs: Long = 50,
-        condition: () -> Boolean
-    ): Boolean {
+    protected suspend fun awaitUntil(timeoutMs: Long = 15000, pollMs: Long = 50, condition: () -> Boolean): Boolean {
         val deadline = System.currentTimeMillis() + timeoutMs
         while (System.currentTimeMillis() < deadline) {
             if (condition()) return true
@@ -399,13 +384,7 @@ class MockHttpServer(
         _receivedRequests.clear()
     }
 
-    private fun findAvailablePort(): Int {
-        return ServerSocket(0).use { it.localPort }
-    }
+    private fun findAvailablePort(): Int = ServerSocket(0).use { it.localPort }
 
-    data class ReceivedRequest(
-        val path: String,
-        val body: String,
-        val headers: Map<String, String>
-    )
+    data class ReceivedRequest(val path: String, val body: String, val headers: Map<String, String>)
 }

@@ -80,17 +80,15 @@ class RetentionSemanticsTest : PostgresTestBase() {
         assertEquals("processed", getInboxMessageState(fresh))
     }
 
-    private fun countOutboxRowsWithId(id: java.util.UUID): Long =
-        transaction {
-            OutboxTable.selectAll()
-                .where { OutboxTable.id eq id }
-                .count()
-        }
+    private fun countOutboxRowsWithId(id: java.util.UUID): Long = transaction {
+        OutboxTable.selectAll()
+            .where { OutboxTable.id eq id }
+            .count()
+    }
 
-    private fun countInboxRowsWithId(id: java.util.UUID): Long =
-        transaction {
-            InboxTable.selectAll()
-                .where { InboxTable.id eq id }
-                .count()
-        }
+    private fun countInboxRowsWithId(id: java.util.UUID): Long = transaction {
+        InboxTable.selectAll()
+            .where { InboxTable.id eq id }
+            .count()
+    }
 }

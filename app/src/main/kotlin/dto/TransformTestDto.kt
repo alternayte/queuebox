@@ -46,9 +46,4 @@ data class TransformTestResponse(
  * @property timestamp ISO-8601 formatted timestamp
  */
 @Serializable
-data class TransformContextDto(
-    val messageId: String,
-    val topic: String,
-    val attempt: Int,
-    val timestamp: String
-)
+data class TransformContextDto(val messageId: String, val topic: String, val attempt: Int, val timestamp: String)

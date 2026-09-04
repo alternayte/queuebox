@@ -158,7 +158,7 @@ class InboxTransformPipelineTest {
             put("id", "123")
         }
         val transform = TransformConfig(
-            expression = """invalidExpression!!!""",  // Invalid JSONata
+            expression = """invalidExpression!!!""", // Invalid JSONata
             onError = TransformErrorStrategy.Skip
         )
 
@@ -174,7 +174,7 @@ class InboxTransformPipelineTest {
             put("id", "123")
         }
         val transform = TransformConfig(
-            expression = """${"$"}nonExistentFunction()""",  // Invalid function
+            expression = """${"$"}nonExistentFunction()""", // Invalid function
             onError = TransformErrorStrategy.Fail
         )
 
@@ -190,7 +190,7 @@ class InboxTransformPipelineTest {
             put("id", "123")
         }
         val transform = TransformConfig(
-            expression = """${"$"}unknownFunction()""",  // Calling undefined function will fail
+            expression = """${"$"}unknownFunction()""", // Calling undefined function will fail
             onError = TransformErrorStrategy.Dead
         )
 
@@ -222,7 +222,8 @@ class InboxTransformPipelineTest {
 
     @Test
     fun `should handle array transformations`() = runTest {
-        val payload = Json.parseToJsonElement("""
+        val payload = Json.parseToJsonElement(
+            """
             {
                 "items": [
                     {"name": "Item 1", "price": 10},
@@ -230,7 +231,8 @@ class InboxTransformPipelineTest {
                     {"name": "Item 3", "price": 30}
                 ]
             }
-        """.trimIndent())
+            """.trimIndent()
+        )
 
         val transform = TransformConfig(
             expression = """{ "itemNames": items.name, "total": ${"$"}sum(items.price) }"""
@@ -245,12 +247,14 @@ class InboxTransformPipelineTest {
 
     @Test
     fun `should handle null values in payload`() = runTest {
-        val payload = Json.parseToJsonElement("""
+        val payload = Json.parseToJsonElement(
+            """
             {
                 "id": "123",
                 "optional": null
             }
-        """.trimIndent())
+            """.trimIndent()
+        )
 
         val transform = TransformConfig(
             expression = """{ "id": id, "hasOptional": optional != null }"""

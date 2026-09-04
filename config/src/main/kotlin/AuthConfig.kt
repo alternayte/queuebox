@@ -33,19 +33,14 @@ sealed class InboxAuthConfig {
      */
     @Serializable
     @SerialName("bearer")
-    data class Bearer(
-        val token: Secret
-    ) : InboxAuthConfig()
+    data class Bearer(val token: Secret) : InboxAuthConfig()
 
     /**
      * API key authentication via custom header.
      */
     @Serializable
     @SerialName("api-key")
-    data class ApiKey(
-        val headerName: String = "X-API-Key",
-        val key: Secret
-    ) : InboxAuthConfig()
+    data class ApiKey(val headerName: String = "X-API-Key", val key: Secret) : InboxAuthConfig()
 
     /**
      * HMAC signature verification for webhook payloads.

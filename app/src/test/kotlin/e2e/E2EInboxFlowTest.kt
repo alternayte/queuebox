@@ -10,8 +10,6 @@ import io.ktor.server.testing.*
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.jupiter.api.Test
@@ -165,7 +163,7 @@ class E2EInboxFlowTest : E2ETestBase() {
             val sources = mapOf(
                 "stripe" to SourceConfig.Http(
                     path = "/stripe",
-                    idempotencyKeyPath = "$.id"  // Expects "id" field
+                    idempotencyKeyPath = "$.id" // Expects "id" field
                 )
             )
 

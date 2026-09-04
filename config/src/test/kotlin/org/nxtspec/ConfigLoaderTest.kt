@@ -2,11 +2,11 @@ package org.nxtspec
 
 import com.sksamuel.hoplite.ConfigException
 import kotlin.test.Test
+import kotlin.test.assertContains
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
-import kotlin.test.assertContains
 
 class ConfigLoaderTest {
 
@@ -139,7 +139,6 @@ class ConfigLoaderTest {
         assertEquals("6h", inbox.cleanupInterval)
         assertEquals(1000, inbox.batchSize)
     }
-
 
     // === Transform Configuration Tests ===
 

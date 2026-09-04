@@ -33,10 +33,7 @@ class RetentionServiceTest {
         inbox = TableRetentionConfig(policy = RetentionPolicy.DISABLED)
     )
 
-    private fun createCountBasedOutboxConfig(
-        maxCount: Int = 1000,
-        cleanupInterval: String = "1s"
-    ) = RetentionConfig(
+    private fun createCountBasedOutboxConfig(maxCount: Int = 1000, cleanupInterval: String = "1s") = RetentionConfig(
         enabled = true,
         outbox = TableRetentionConfig(
             policy = RetentionPolicy.COUNT,
@@ -46,25 +43,19 @@ class RetentionServiceTest {
         inbox = TableRetentionConfig(policy = RetentionPolicy.DISABLED)
     )
 
-    private fun createAgeBasedInboxConfig(
-        maxAge: String = "7d",
-        cleanupInterval: String = "1s",
-        batchSize: Int = 100
-    ) = RetentionConfig(
-        enabled = true,
-        outbox = TableRetentionConfig(policy = RetentionPolicy.DISABLED),
-        inbox = TableRetentionConfig(
-            policy = RetentionPolicy.AGE,
-            maxAge = maxAge,
-            cleanupInterval = cleanupInterval,
-            batchSize = batchSize
+    private fun createAgeBasedInboxConfig(maxAge: String = "7d", cleanupInterval: String = "1s", batchSize: Int = 100) =
+        RetentionConfig(
+            enabled = true,
+            outbox = TableRetentionConfig(policy = RetentionPolicy.DISABLED),
+            inbox = TableRetentionConfig(
+                policy = RetentionPolicy.AGE,
+                maxAge = maxAge,
+                cleanupInterval = cleanupInterval,
+                batchSize = batchSize
+            )
         )
-    )
 
-    private fun createCountBasedInboxConfig(
-        maxCount: Int = 1000,
-        cleanupInterval: String = "1s"
-    ) = RetentionConfig(
+    private fun createCountBasedInboxConfig(maxCount: Int = 1000, cleanupInterval: String = "1s") = RetentionConfig(
         enabled = true,
         outbox = TableRetentionConfig(policy = RetentionPolicy.DISABLED),
         inbox = TableRetentionConfig(
@@ -340,7 +331,9 @@ class RetentionServiceTest {
         val metricsCollector = mockk<MetricsCollectorInterface>(relaxed = true)
 
         // Returns exactly batchSize multiple times, then less to stop
-        coEvery { outboxRepository.deleteOlderThan("sent", any(), any()) } returns 100 andThen 100 andThen 100 andThen 50 andThen 0
+        coEvery { outboxRepository.deleteOlderThan("sent", any(), any()) } returns 100 andThen 100 andThen 100 andThen
+            50 andThen
+            0
         coEvery { outboxRepository.deleteOlderThan("dead", any(), any()) } returns 0
 
         val service = RetentionService(
@@ -414,7 +407,11 @@ class RetentionServiceTest {
         val metricsCollector = mockk<MetricsCollectorInterface>(relaxed = true)
 
         // First call throws exception, subsequent calls succeed
-        coEvery { outboxRepository.deleteOlderThan("sent", any(), any()) } throws RuntimeException("Database error") andThen 50 andThen 0
+        coEvery {
+            outboxRepository.deleteOlderThan("sent", any(), any())
+        } throws RuntimeException("Database error") andThen
+            50 andThen
+            0
         coEvery { outboxRepository.deleteOlderThan("dead", any(), any()) } returns 0
 
         val service = RetentionService(

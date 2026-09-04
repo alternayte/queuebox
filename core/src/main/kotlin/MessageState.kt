@@ -20,14 +20,12 @@ sealed class MessageState {
     data object Dead : MessageState()
 
     companion object {
-        fun canTransitionTo(from: MessageState, to: MessageState): Boolean {
-            return when (from) {
-                is Pending -> to is Processing
-                is Processing -> to is Sent || to is Failed
-                is Failed -> to is Processing || to is Dead
-                is Sent -> false
-                is Dead -> false
-            }
+        fun canTransitionTo(from: MessageState, to: MessageState): Boolean = when (from) {
+            is Pending -> to is Processing
+            is Processing -> to is Sent || to is Failed
+            is Failed -> to is Processing || to is Dead
+            is Sent -> false
+            is Dead -> false
         }
     }
 }

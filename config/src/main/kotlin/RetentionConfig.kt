@@ -10,9 +10,14 @@ import kotlin.time.Duration.Companion.seconds
 
 @Serializable
 enum class RetentionPolicy {
-    @SerialName("age") AGE,
-    @SerialName("count") COUNT,
-    @SerialName("disabled") DISABLED
+    @SerialName("age")
+    AGE,
+
+    @SerialName("count")
+    COUNT,
+
+    @SerialName("disabled")
+    DISABLED
 }
 
 @Serializable

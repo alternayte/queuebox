@@ -1,23 +1,18 @@
 package org.nxtspec.app
 
-import kotlinx.serialization.Serializable
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.serialization.Serializable
 import javax.sql.DataSource
 
 @Serializable
-data class HealthStatus(
-    val status: String,
-    val components: Map<String, ComponentHealth>
-)
+data class HealthStatus(val status: String, val components: Map<String, ComponentHealth>)
 
 @Serializable
-data class ComponentHealth(
-    val status: String
-)
+data class ComponentHealth(val status: String)
 
 /**
  * One named part of the readiness answer.
@@ -36,10 +31,7 @@ interface HealthContributor {
 /**
  * A contributor that reads a supplied function.
  */
-class SimpleHealthContributor(
-    override val name: String,
-    private val probe: () -> Boolean
-) : HealthContributor {
+class SimpleHealthContributor(override val name: String, private val probe: () -> Boolean) : HealthContributor {
     override fun isHealthy(): Boolean = try {
         probe()
     } catch (e: Exception) {
@@ -115,12 +107,10 @@ class HealthManager(
         return withTimeoutOrNull(checkTimeoutMs) { running.await() } ?: false
     }
 
-    private fun checkDatabase(): Boolean {
-        return try {
-            dataSource.connection.use { it.isValid(DATABASE_VALIDATION_TIMEOUT_SECONDS) }
-        } catch (e: Exception) {
-            false
-        }
+    private fun checkDatabase(): Boolean = try {
+        dataSource.connection.use { it.isValid(DATABASE_VALIDATION_TIMEOUT_SECONDS) }
+    } catch (e: Exception) {
+        false
     }
 
     private companion object {
