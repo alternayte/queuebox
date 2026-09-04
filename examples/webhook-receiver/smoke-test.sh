@@ -57,4 +57,9 @@ if [ "${delivered:-no}" != "yes" ]; then
 fi
 docker compose -f docker-compose.yml -p "$PROJECT" logs receiver 2>&1 | grep "evt_smoke_001" | head -1
 
+# The destination path comes from `queuebox.yml`. Assert it, so a wrong path fails here.
+docker compose -f docker-compose.yml -p "$PROJECT" logs receiver 2>&1 \
+  | grep -q "delivered POST /webhook" || {
+    echo "FAIL: the delivery did not use the configured path /webhook"; exit 1; }
+
 echo "PASS: webhook-receiver"

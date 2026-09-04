@@ -73,7 +73,7 @@ CREATE DATABASE queuebox;
 
 QueueBox creates its own tables. At startup it applies the bundled migrations with Flyway.
 Set `database.migrate: false` when the application user has no DDL rights, and apply the SQL
-files by hand. See [docs/development/migrations.md](docs/development/migrations.md).
+files by hand. See [development/migrations.md](development/migrations.md).
 
 2. Write the configuration file. Never edit
    `config/src/main/resources/queuebox.yml`, because that file is packaged into the image and a
@@ -94,11 +94,16 @@ export QUEUEBOX_DATABASE_USERNAME=postgres
 export QUEUEBOX_DATABASE_PASSWORD=secret
 ```
 
-   The name after the `QUEUEBOX_` prefix is the configuration path in upper case, with an
-   underscore for each level. `QUEUEBOX_DATABASE_URL` sets `database.url`.
+   The name after the `QUEUEBOX_` prefix is the configuration path in upper case. One underscore
+   separates one level from the next level. The loader turns every single underscore into a level
+   separator, and it reassembles no camelCase name, so a leaf name of more than one word carries no
+   underscore inside it. `QUEUEBOX_DATABASE_URL` sets `database.url`, and
+   `QUEUEBOX_SERVER_HTTPPORT` sets `server.httpPort`. An extra underscore inside a leaf name makes
+   a path that does not exist, and the variable then sets nothing.
+   [configuration.md](configuration.md) holds the full rule.
 
 4. Start the container, or build from the source and run `./gradlew run`. See
-   [docs/development/building.md](docs/development/building.md). QueueBox applies the bundled
+   [development/building.md](development/building.md). QueueBox applies the bundled
    Flyway migrations at startup, so step 1 is the only schema work you do by hand.
 
 5. Confirm the instance is ready.
@@ -111,7 +116,7 @@ curl http://localhost:8080/health
 
 ### Building the Docker Image
 
-To build the image yourself, see [docs/development/building.md](docs/development/building.md). That
+To build the image yourself, see [development/building.md](development/building.md). That
 document holds the local build, the multi-architecture build and the release procedure.
 
 ## HTTP API
@@ -152,25 +157,67 @@ server:
 
 ### Inbox Endpoints
 
-Messages are received at `/inbox/{source}` where `{source}` matches a configured source name.
+QueueBox builds the path of an HTTP source from `inbox.basePath` and the `path` of that source.
+The path does not hold the source name. `inbox.basePath` defaults to `/inbox`, so a source with
+`path: /stripe` answers at `/inbox/stripe`.
 
-```bash
-# Send a message to the 'stripe' source
-curl -X POST http://localhost:8080/inbox/stripe \
-  -H "Content-Type: application/json" \
-  -d '{"id": "evt_123", "type": "payment.completed", "data": {...}}'
+```yaml
+inbox:
+  basePath: /inbox
+
+sources:
+  stripe:
+    type: http
+    path: /stripe
+    idempotencyKeyPath: $.id
+    eventTypePath: $.type
 ```
 
-Response codes:
-- `200` — Message accepted (new or duplicate)
-- `400` — Invalid payload or missing idempotency key
-- `404` — Unknown source
+```bash
+# Send a message to the endpoint of the 'stripe' source
+curl -X POST http://localhost:8080/inbox/stripe \
+  -H "Content-Type: application/json" \
+  -d '{"id": "evt_123", "type": "payment.completed"}'
+```
+
+The route returns one of these codes. `docs/adr/0002-inbox-accept-returns-202.md` holds the
+decision, and `inbox-service/src/test/kotlin/org/nxtspec/InboxRoutesTest.kt` is the source of
+truth.
+
+| Code | Meaning |
+|------|---------|
+| 202 | The message is new and stored. |
+| 200 | The message is a duplicate of a stored message. |
+| 400 | The body is not JSON, or the idempotency key path found no value. |
+| 401 | The source requires authentication, and the request failed the check. |
+| 413 | The body is larger than the configured cap. |
+| 422 | The transform rejected the payload. |
+| 429 | The request went over the per-source rate limit. |
+| 500 | The storage layer failed. |
+
+An unconfigured path returns 404, because QueueBox registers no route for it.
 
 ### Admin Endpoints
+
+The admin endpoint runs a caller-supplied JSONata expression on the host that processes the
+messages. QueueBox therefore does not register the route until you enable it. `admin.enabled`
+defaults to false. Authentication is also mandatory. The start fails when `admin.enabled` is true
+and `admin.auth` is absent, unless you set `admin.insecure: true` for a local test.
+
+```yaml
+admin:
+  enabled: true
+  auth:
+    type: bearer
+    token: the-admin-token
+```
+
+With that configuration in place, send the request with the credentials:
 
 ```bash
 # Test a JSONata transform expression
 curl -X POST http://localhost:8080/admin/transform/test \
+  -H "Authorization: Bearer the-admin-token" \
   -H "Content-Type: application/json" \
   -d '{
     "expression": "{ \"total\": items.(price * qty) ~> $sum() }",

@@ -6,6 +6,8 @@ server:
   httpPort: 8080
 
 database:
+  # `docker-compose.yml` sets the url, the username and the password with the QUEUEBOX_
+  # environment variables. An environment variable wins over this file.
   poolSize: 5
 
 outbox:

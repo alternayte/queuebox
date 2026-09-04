@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
-# F-081: the smoke test of the webhook receiver example.
+# F-081: the smoke test of the RabbitMQ bridge example.
 #
-# It starts the stack, waits for readiness, posts a webhook twice, and asserts that QueueBox
-# accepts the first copy and rejects the second copy as a duplicate.
+# The queue binds on `payment.*`, not on `#`, so the message arrives only when QueueBox renders
+# the routing key from the topic. A missing routingKeyTemplate therefore fails this test.
+# The test also reads the body back, so an empty or wrong payload fails.
 set -euo pipefail
 
 cd "$(dirname "$0")"
@@ -59,5 +60,14 @@ if [ "${delivered:-no}" != "yes" ]; then
   exit 1
 fi
 echo "the queue events-audit holds $depth message(s)"
+
+echo "==> read the message back and check the routing key and the body"
+payload=$(docker compose -f docker-compose.yml -p "$PROJECT" exec -T rabbitmq \
+  rabbitmqadmin --username=guest --password=guest get queue=events-audit ackmode=ack_requeue_false 2>&1 || true)
+echo "$payload" | head -20
+echo "$payload" | grep -q "evt_smoke_001" || {
+  echo "FAIL: the delivered body does not carry the message"; exit 1; }
+echo "$payload" | grep -q "payment.succeeded" || {
+  echo "FAIL: the routing key is not the topic"; exit 1; }
 
 echo "PASS: rabbitmq-bridge"

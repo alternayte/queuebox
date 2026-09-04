@@ -6,12 +6,13 @@ package org.nxtspec
  * Naming Convention:
  * - Environment variables use QUEUEBOX_ prefix with uppercase and underscores
  * - YAML paths use lowercase with dots
- * - Single underscore in env var maps to dot in YAML path
+ * - Single underscore in env var maps to dot in YAML path. There is no camelCase reassembly, so
+ *   QUEUEBOX_SERVER_HTTP_PORT becomes server.http.port and binds nothing.
  * - Double underscore in env var maps to single underscore in YAML path (for literal underscores)
  *
  * Examples:
  * - QUEUEBOX_DATABASE_URL → database.url
- * - QUEUEBOX_SERVER_HTTP_PORT → server.httpPort (Hoplite handles camelCase)
+ * - QUEUEBOX_SERVER_HTTPPORT → server.httpPort (a leaf name carries no underscore)
  * - QUEUEBOX_DATABASE__POOL_SIZE → database_pool.size (literal underscore)
  * - QUEUEBOX_ROUTES_0_TOPIC_PATTERN → routes[0].topicPattern (array indexing)
  */

@@ -230,13 +230,14 @@ outbox:
   claimTimeoutMs: 300000
 ```
 
-Or set them through the environment:
+Or set them through the environment. One underscore separates one level of the path from the next
+level, and a leaf name of more than one word carries no underscore:
 
 ```bash
-export QUEUEBOX_DATABASE_POOL_SIZE=20
-export QUEUEBOX_OUTBOX_BATCH_SIZE=200
+export QUEUEBOX_DATABASE_POOLSIZE=20
+export QUEUEBOX_OUTBOX_BATCHSIZE=200
 export QUEUEBOX_OUTBOX_CONCURRENCY=16
-export QUEUEBOX_OUTBOX_POLL_INTERVAL_MS=100
+export QUEUEBOX_OUTBOX_POLLINTERVALMS=100
 ```
 
 Check the database side of the pool. Compare the open connections with `poolSize` times the

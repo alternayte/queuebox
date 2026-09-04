@@ -20,8 +20,9 @@ This example gives each destination its own topic prefix, `analytics.**` and `au
 ./smoke-test.sh
 ```
 
-The script posts one event per destination topic, then asserts that both consumers received one
-message each.
+The script posts one event per destination topic. It then asserts that each consumer received its
+own event, and that neither consumer received the other topic. Swap the two destinations in
+`queuebox.yml` and the smoke test fails.
 
 To run it by hand:
 

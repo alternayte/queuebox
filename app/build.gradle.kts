@@ -75,6 +75,10 @@ tasks.test {
             "docs/integration.md",
             "docs/operations/metrics.md",
             "docs/architecture.md",
+            "docs/getting-started.md",
+            "docs/configuration.md",
+            "docs/transforms.md",
+            "docs/message-flow.md",
             "docker-compose.yml",
             "docker-compose.override.yml",
             ".env.example"

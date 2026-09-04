@@ -137,3 +137,19 @@ The decision is to delete the function, and to delete `MessageStateTest.kt` with
 that a rule which nothing enforces is a false claim about the product. The repositories hold the
 state machine, and the diagrams above describe it. `DocumentedStateSetTest` now compares this
 document against the repository sources, so the document and the code cannot drift apart.
+
+## The module tree
+
+Each module has one responsibility. The graph above shows how they depend on each other.
+
+```
+queuebox/
+├── app/                    # Main application, HTTP server
+├── config/                 # Configuration loading and validation
+├── core/                   # Domain models and interfaces
+├── inbox-service/          # Inbox handling logic
+├── outbox-service/         # Outbox polling and delivery
+├── postgres/               # PostgreSQL repository implementation
+├── sqlserver/              # SQL Server repository implementation
+└── rabbitmq/               # RabbitMQ consumer and publisher
+```

@@ -2,21 +2,32 @@
 
 This document holds the full QueueBox configuration reference. `README.md` links here.
 
-QueueBox reads the configuration from four sources. The first source that holds a key wins.
+QueueBox reads the configuration from three sources. The first source that holds a key wins.
 
 1. An environment variable that starts with `QUEUEBOX_`. The name after the prefix is the
-   configuration path in upper case, with an underscore for each level. `QUEUEBOX_DATABASE_URL`
-   sets `database.url`.
-2. The file that `QUEUEBOX_CONFIG_FILE` names.
-3. The file `/etc/queuebox/queuebox.yml`.
-4. The YAML resource packaged in the image.
+   configuration path in upper case. `QUEUEBOX_DATABASE_URL` sets `database.url`.
+2. One YAML file. QueueBox reads the file that `QUEUEBOX_CONFIG_FILE` names. When the environment
+   names no file, QueueBox reads `/etc/queuebox/queuebox.yml`.
+3. The YAML resource packaged in the image.
 
-See finding F-076 in `hardening-doc.md`. `examples/queuebox.yml` is a complete example, and
-`docker-compose.yml` mounts it at the default external path.
+Source 2 and source 3 are alternatives, not layers. An external file **replaces** the packaged
+resource. The packaged resource is the fallback for a deployment that supplies no external file.
+An external file must therefore be a **complete** configuration. A file that declares one
+destination gets that destination and no other. It does not inherit a destination, a source or a
+route from the packaged resource. See finding F-076 in `hardening-doc.md`.
+
+An environment variable still wins over the file that QueueBox reads.
+
+`examples/queuebox.yml` is a complete example, and `docker-compose.yml` mounts it at the default
+external path.
 
 ## Configuration
 
-QueueBox uses YAML configuration with environment variable substitution. The config file is at `config/src/main/resources/queuebox.yml`.
+QueueBox uses YAML configuration with environment variable substitution.
+
+Never edit `config/src/main/resources/queuebox.yml`. That file is packaged into the image, so a
+change to it needs a rebuild. Write the external file instead. Copy `examples/queuebox.yml` as the
+start point, because the external file replaces the packaged resource in full.
 
 ### Minimal Configuration
 
@@ -107,7 +118,7 @@ routes:
           "total": items.(price * quantity) ~> $sum()
         }
       timeoutMs: 150
-      onError: fail                       # 'fail', 'skip', or 'dead'
+      onError: Fail                       # 'Fail', 'Skip', or 'Dead'
 
   - topicPattern: "event.**"
     destination: events-exchange
@@ -144,12 +155,12 @@ sources:
 retention:
   enabled: true
   outbox:
-    policy: age                           # 'age', 'count', or 'disabled'
+    policy: AGE                           # 'AGE', 'COUNT', or 'DISABLED'
     maxAge: 7d                            # Keep messages younger than 7 days
     cleanupInterval: 1h                   # Run cleanup every hour
     batchSize: 1000                       # Delete in batches
   inbox:
-    policy: count
+    policy: COUNT
     maxCount: 100000                      # Keep most recent 100k messages
     cleanupInterval: 6h
     batchSize: 1000
@@ -330,7 +341,7 @@ When `auth` is specified, these fields become required based on auth type:
 | Auth Type | Required Fields |
 |-----------|-----------------|
 | `oauth2` | `clientId`, `clientSecret`, `tokenUrl` |
-| `basic` | `username` |
+| `basic` | `username`, `password` |
 | `header` | `headerName`, `headerValue` |
 
 #### Retention Requirements
@@ -339,9 +350,9 @@ When `retention.enabled: true`:
 
 | Policy | Required Field |
 |--------|----------------|
-| `age` | `maxAge` (e.g., `7d`, `24h`) |
-| `count` | `maxCount` (positive integer) |
-| `disabled` | None |
+| `AGE` | `maxAge`, for example `7d` or `24h` |
+| `COUNT` | `maxCount`, a positive integer |
+| `DISABLED` | None |
 
 #### Which timestamp the age policy uses
 
@@ -378,21 +389,31 @@ database:
 For container deployments, you can configure QueueBox entirely with environment variables using the `QUEUEBOX_` prefix — no YAML file needed.
 
 **Naming convention:**
-- Prefix all variables with `QUEUEBOX_`
-- Use underscores to separate path segments (maps to dots in YAML)
-- Use double underscore `__` for literal underscores in field names
-- Use numeric segments for array indices
+
+- Prefix every variable with `QUEUEBOX_`.
+- Write one underscore between one level of the path and the next level.
+- Write the leaf name as one word, with no underscore inside it. The loader turns **every** single
+  underscore into a level separator, and it reassembles no camelCase name. `outbox.pollIntervalMs`
+  is therefore `QUEUEBOX_OUTBOX_POLLINTERVALMS`. An extra underscore inside the leaf name makes the
+  path `outbox.poll.interval.ms`, which does not exist, so that variable sets nothing and the start
+  reports no error.
+- Write a double underscore `__` for a literal underscore inside a map key.
+- Write a numeric segment for a list index.
+
+`EnvConfigLoader.envKeyToYamlPath` holds the rule, and every validation error message prints the
+name through `EnvConfigLoader.yamlPathToEnvKey`. The test `DocumentedExamplesTest` fails when a
+document names a variable that binds nothing.
 
 | Environment Variable | YAML Equivalent |
 |---------------------|-----------------|
 | `QUEUEBOX_DATABASE_URL` | `database.url` |
 | `QUEUEBOX_DATABASE_USERNAME` | `database.username` |
 | `QUEUEBOX_DATABASE_PASSWORD` | `database.password` |
-| `QUEUEBOX_SERVER_HTTP_PORT` | `server.httpPort` |
-| `QUEUEBOX_OUTBOX_POLL_INTERVAL_MS` | `outbox.pollIntervalMs` |
-| `QUEUEBOX_ROUTES_0_TOPIC_PATTERN` | `routes[0].topicPattern` |
+| `QUEUEBOX_SERVER_HTTPPORT` | `server.httpPort` |
+| `QUEUEBOX_OUTBOX_POLLINTERVALMS` | `outbox.pollIntervalMs` |
+| `QUEUEBOX_ROUTES_0_TOPICPATTERN` | `routes[0].topicPattern` |
 | `QUEUEBOX_ROUTES_0_DESTINATION` | `routes[0].destination` |
-| `QUEUEBOX_DESTINATIONS_MY__API_BASE_URL` | `destinations.my_api.baseUrl` |
+| `QUEUEBOX_DESTINATIONS_MY__API_BASEURL` | `destinations.my_api.baseUrl` |
 
 **Docker example:**
 
@@ -401,12 +422,12 @@ docker run -e QUEUEBOX_DATABASE_URL=jdbc:postgresql://db:5432/queuebox \
            -e QUEUEBOX_DATABASE_USERNAME=postgres \
            -e QUEUEBOX_DATABASE_PASSWORD=secret \
            -e QUEUEBOX_DESTINATIONS_WEBHOOK_TYPE=http \
-           -e QUEUEBOX_DESTINATIONS_WEBHOOK_BASE_URL=https://api.example.com \
-           -e QUEUEBOX_ROUTES_0_TOPIC_PATTERN="order.*" \
+           -e QUEUEBOX_DESTINATIONS_WEBHOOK_BASEURL=https://api.example.com \
+           -e QUEUEBOX_ROUTES_0_TOPICPATTERN="order.*" \
            -e QUEUEBOX_ROUTES_0_DESTINATION=webhook \
            -e QUEUEBOX_SOURCES_STRIPE_TYPE=http \
            -e QUEUEBOX_SOURCES_STRIPE_PATH=/stripe \
-           -e QUEUEBOX_SOURCES_STRIPE_IDEMPOTENCY_KEY_PATH="$.id" \
+           -e QUEUEBOX_SOURCES_STRIPE_IDEMPOTENCYKEYPATH="$.id" \
            queuebox
 ```
 
@@ -421,12 +442,12 @@ services:
       QUEUEBOX_DATABASE_USERNAME: postgres
       QUEUEBOX_DATABASE_PASSWORD: secret
       QUEUEBOX_DESTINATIONS_WEBHOOK_TYPE: http
-      QUEUEBOX_DESTINATIONS_WEBHOOK_BASE_URL: https://api.example.com
-      QUEUEBOX_ROUTES_0_TOPIC_PATTERN: "order.*"
+      QUEUEBOX_DESTINATIONS_WEBHOOK_BASEURL: https://api.example.com
+      QUEUEBOX_ROUTES_0_TOPICPATTERN: "order.*"
       QUEUEBOX_ROUTES_0_DESTINATION: webhook
       QUEUEBOX_SOURCES_STRIPE_TYPE: http
       QUEUEBOX_SOURCES_STRIPE_PATH: /stripe
-      QUEUEBOX_SOURCES_STRIPE_IDEMPOTENCY_KEY_PATH: "$.id"
+      QUEUEBOX_SOURCES_STRIPE_IDEMPOTENCYKEYPATH: "$.id"
 ```
 
 **Minimum required variables:**

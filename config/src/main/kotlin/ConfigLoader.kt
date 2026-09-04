@@ -5,15 +5,17 @@ import com.sksamuel.hoplite.ConfigLoaderBuilder
 import com.sksamuel.hoplite.addFileSource
 import com.sksamuel.hoplite.addResourceSource
 import com.sksamuel.hoplite.sources.MapPropertySource
+import java.io.File
 
 /**
  * Loads QueueBox configuration from YAML files and/or environment variables.
  *
  * Configuration sources (in order of precedence, highest first):
  * 1. Environment variables with QUEUEBOX_ prefix
- * 2. The external file named by QUEUEBOX_CONFIG_FILE
- * 3. The default external file /etc/queuebox/queuebox.yml
- * 4. The packaged classpath YAML resource
+ * 2. The external file named by QUEUEBOX_CONFIG_FILE, or /etc/queuebox/queuebox.yml when the
+ *    environment names no other path
+ * 3. The packaged classpath YAML resource, but ONLY when no external file exists. An external
+ *    file replaces the resource. It does not overlay it, so it must be complete.
  *
  * Usage modes:
  * - YAML only: Use [load] with a path to your configuration file
@@ -22,8 +24,9 @@ import com.sksamuel.hoplite.sources.MapPropertySource
  *
  * Environment variable naming convention:
  * - QUEUEBOX_DATABASE_URL → database.url
- * - QUEUEBOX_SERVER_HTTP_PORT → server.httpPort
- * - QUEUEBOX_ROUTES_0_TOPIC_PATTERN → routes[0].topicPattern
+ * - QUEUEBOX_SERVER_HTTPPORT → server.httpPort. A leaf name carries no underscore, because every
+ *   single underscore becomes a level separator.
+ * - QUEUEBOX_ROUTES_0_TOPICPATTERN → routes[0].topicPattern
  *
  * @see EnvConfigLoader for environment variable transformation utilities
  */
@@ -79,12 +82,23 @@ object ConfigLoader {
         env: () -> Map<String, String> = { System.getenv() }
     ): QueueBoxConfig {
         val externalPath = env()[CONFIG_FILE_ENV] ?: DEFAULT_EXTERNAL_PATH
+        // F-076: the packaged resource is a fallback, not an overlay. Hoplite cascades a map node
+        // key by key, so an external file that declares one destination used to inherit every
+        // destination and every source of the packaged file. A deployment then served an inbox
+        // endpoint that its own configuration never declared. An external file therefore replaces
+        // the resource. An environment variable still wins over both.
+        val externalFile = File(externalPath)
         val config = try {
             ConfigLoaderBuilder.default()
                 .addDecoder(SecretDecoder())
                 .addPropertySource(createEnvSource(env))
-                .addFileSource(externalPath, optional = true)
-                .addResourceSource("/$path", optional = optional)
+                .apply {
+                    if (externalFile.isFile) {
+                        addFileSource(externalFile)
+                    } else {
+                        addResourceSource("/$path", optional = optional)
+                    }
+                }
                 .build()
                 .loadConfigOrThrow<QueueBoxConfig>()
         } catch (e: ConfigException) {

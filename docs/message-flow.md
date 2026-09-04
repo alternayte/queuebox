@@ -9,10 +9,11 @@ diagrams. `docs/integration.md` holds the contract that an adopter writes agains
 
 1. External system sends webhook to `/inbox/{source}`
 2. QueueBox extracts idempotency key using configured JSONPath
-3. Duplicate check — if key exists for this source, return 200 (idempotent)
+3. Duplicate check. If the key exists for this source, return 200 with `{"status":"duplicate"}`
 4. Optional transform applied to payload
 5. Message stored in `inbox` table with state `pending`
-6. Return 200 OK
+6. Return 202 Accepted. The message is stored, not delivered. See F-078 and
+   [adr/0002-inbox-accept-returns-202.md](adr/0002-inbox-accept-returns-202.md)
 7. The relay forwards the row into the `outbox` table and marks it `processed`
 
 ### Outbox (Delivering Messages)
@@ -119,13 +120,14 @@ topic           VARCHAR(255)
 key             VARCHAR(255)        -- Optional partition/ordering key
 payload         JSONB
 headers         JSONB
-state           VARCHAR(20)         -- 'pending', 'processing', 'sent', 'dead'
+state           VARCHAR(50)         -- 'pending', 'processing', 'sent', 'failed', 'dead'
 attempt         INTEGER
 max_attempts    INTEGER
 scheduled_at    TIMESTAMP
 created_at      TIMESTAMP
 updated_at      TIMESTAMP
-claimed_at      TIMESTAMP           -- When the poller claimed the row
+claimed_at      TIMESTAMP           -- When the poller claimed the row (V3)
+last_error      TEXT                -- Why the last attempt failed. Redacted and truncated (V4)
 ```
 
 **inbox:**
@@ -136,9 +138,10 @@ idempotency_key VARCHAR(255)        -- Unique per source
 aggregate_id    VARCHAR(255)
 event_type      VARCHAR(255)
 payload         JSONB
-state           VARCHAR(20)         -- 'pending', 'processing', 'processed', 'dead'
+state           VARCHAR(50)         -- 'pending', 'processing', 'processed', 'dead'
 created_at      TIMESTAMP
 processed_at    TIMESTAMP
-claimed_at      TIMESTAMP           -- When the relay claimed the row
+claimed_at      TIMESTAMP           -- When the relay claimed the row (V3)
+correlation_id  VARCHAR(128)        -- Identifier that follows the message (V5)
 ```
 

@@ -5,7 +5,7 @@ security notes. `README.md` links here.
 
 ## Security
 
-Read [docs/operations/security.md](docs/operations/security.md) before you put QueueBox on a
+Read [docs/operations/security.md](operations/security.md) before you put QueueBox on a
 network that you do not control. It covers the transport, the secrets, the admin endpoint, and
 the request limits.
 

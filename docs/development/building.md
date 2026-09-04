@@ -102,12 +102,18 @@ docker buildx build \
 
 ## Run the application without a container
 
+The application reads the `QUEUEBOX_` variables. It reads no `DB_URL`, `DB_USER` or `DB_PASSWORD`
+variable. [../configuration.md](../configuration.md) holds the naming rule.
+
 ```bash
-export DB_URL=jdbc:postgresql://localhost:5432/queuebox
-export DB_USER=postgres
-export DB_PASSWORD=secret
+export QUEUEBOX_DATABASE_URL=jdbc:postgresql://localhost:5432/queuebox
+export QUEUEBOX_DATABASE_USERNAME=postgres
+export QUEUEBOX_DATABASE_PASSWORD=secret
 ./gradlew run
 ```
+
+`./gradlew run --continuous` rebuilds and restarts the application on every source change. Use it
+while you write code.
 
 ## Release
 

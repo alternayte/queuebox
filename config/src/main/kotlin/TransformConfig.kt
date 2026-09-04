@@ -22,7 +22,9 @@ data class TransformConfig(
 /**
  * Strategy for handling transformation errors.
  *
- * Note: Enum names are lowercase to match YAML convention (Hoplite parses enums case-insensitively).
+ * Write the value in YAML exactly as the constant is spelled: `Fail`, `Skip` or `Dead`. Hoplite
+ * matches an enum constant by its exact name, so `onError: fail` does not decode. The
+ * `@SerialName` annotations below serve kotlinx.serialization, not the configuration loader.
  * The @SerialName annotations are for kotlinx.serialization compatibility.
  */
 @Serializable

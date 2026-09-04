@@ -1,8 +1,8 @@
 # F-081: the HTTP fan-out example.
 #
-# One message matches two routes, so QueueBox delivers it to two HTTP destinations. Each
-# destination gets its own outbox row, its own retries and its own dead-letter state. A failure at
-# one destination never blocks the other.
+# A route matches ONE destination, so fan-out means one outbox row per destination. The producer
+# writes one message per destination topic. Each row carries its own retries and its own
+# dead-letter state, so a failure at one destination never blocks the other.
 services:
   queuebox:
     build:

@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
-# F-081: the smoke test of the webhook receiver example.
+# F-081: the smoke test of the HTTP fan-out example.
 #
-# It starts the stack, waits for readiness, posts a webhook twice, and asserts that QueueBox
-# accepts the first copy and rejects the second copy as a duplicate.
+# It starts the stack, posts one event per destination topic, and asserts that each destination
+# received ITS OWN event. A shared identifier would let two swapped routes pass, so each
+# assertion greps the full identifier in one log only.
 set -euo pipefail
 
 cd "$(dirname "$0")"
@@ -46,8 +47,8 @@ echo "first=$first second=$second"
 
 echo "==> wait for BOTH destinations to receive the same message"
 for _ in $(seq 1 45); do
-  a=$(docker compose -f docker-compose.yml -p "$PROJECT" logs analytics 2>&1 | grep -c "evt_smoke_001" || true)
-  b=$(docker compose -f docker-compose.yml -p "$PROJECT" logs audit 2>&1 | grep -c "evt_smoke_001" || true)
+  a=$(docker compose -f docker-compose.yml -p "$PROJECT" logs analytics 2>&1 | grep -c "evt_smoke_001-analytics" || true)
+  b=$(docker compose -f docker-compose.yml -p "$PROJECT" logs audit 2>&1 | grep -c "evt_smoke_001-audit" || true)
   if [ "$a" -ge 1 ] && [ "$b" -ge 1 ]; then
     delivered=yes
     break
@@ -60,5 +61,13 @@ if [ "${delivered:-no}" != "yes" ]; then
   exit 1
 fi
 echo "analytics received $a, audit received $b"
+
+# A route must not deliver the other destination's event. Swapped routes fail here.
+crossed_a=$(docker compose -f docker-compose.yml -p "$PROJECT" logs analytics 2>&1 | grep -c "evt_smoke_001-audit" || true)
+crossed_b=$(docker compose -f docker-compose.yml -p "$PROJECT" logs audit 2>&1 | grep -c "evt_smoke_001-analytics" || true)
+if [ "$crossed_a" != "0" ] || [ "$crossed_b" != "0" ]; then
+  echo "FAIL: a destination received the other topic (analytics=$crossed_a audit=$crossed_b)"
+  exit 1
+fi
 
 echo "PASS: http-fanout"

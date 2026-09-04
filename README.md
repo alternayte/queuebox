@@ -4,10 +4,24 @@
 [![security](https://github.com/alternayte/queuebox/actions/workflows/security.yml/badge.svg)](https://github.com/alternayte/queuebox/actions/workflows/security.yml)
 [![release](https://img.shields.io/github/v/tag/alternayte/queuebox?label=release&sort=semver)](https://github.com/alternayte/queuebox/releases)
 [![license](https://img.shields.io/github/license/alternayte/queuebox)](LICENSE)
+[![coverage](https://img.shields.io/badge/coverage-80%25%20line%2C%2070%25%20branch-informational)](TESTING.md)
 
 QueueBox implements the transactional outbox and the idempotent inbox for you. Your application
 writes a row and reads a row. QueueBox handles the delivery, the retries, the deduplication, and
 the cleanup. It never interprets your payload.
+
+## Why QueueBox?
+
+A distributed system loses webhooks, receives the same event twice, and fails a delivery with no
+record of it. Every team writes the same outbox table, the same retry loop and the same
+deduplication check again. QueueBox is that code, written once.
+
+- **It deduplicates an incoming message** on an idempotency key. The same webhook twice stores one
+  row.
+- **It delivers with retries** and moves an exhausted message to a dead-letter state.
+- **It transforms a payload** with a JSONata expression, at ingestion or at delivery.
+- **It routes a message** to a destination on a topic pattern.
+- **It deletes old rows** on a retention policy you configure.
 
 ## Quick start
 
@@ -114,8 +128,13 @@ second kind.
 ## Support
 
 QueueBox is maintained today. Report a defect as a GitHub issue. Report a security defect through
-[SECURITY.md](SECURITY.md), never as a public issue. There is no commercial support contract and no
-response time commitment for an issue.
+[SECURITY.md](SECURITY.md), never as a public issue. There is no commercial support contract and
+no response time commitment for an issue.
+
+The coverage badge states the gate that CI enforces, not a measured figure. `check` fails below 80
+percent line coverage and 70 percent branch coverage across the build, and below 60 percent line
+coverage in any module. [TESTING.md](TESTING.md) holds the detail. The badge becomes a measured
+figure when the project adopts a coverage service.
 
 ## License
 

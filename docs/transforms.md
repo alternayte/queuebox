@@ -51,18 +51,27 @@ Configure what happens when a transform fails:
 ```yaml
 transform:
   expression: "..."
-  onError: fail    # fail | skip | dead
+  onError: Fail    # Fail | Skip | Dead
 ```
 
-- `fail` — Mark message as failed, retry later (default)
-- `skip` — Skip this message, mark as sent
-- `dead` — Move directly to dead-letter
+The loader matches the value against the enum name, so the value must carry the exact case above.
+
+- `Fail` — Mark the message as failed and retry it later. This is the default.
+- `Skip` — Keep the original payload. The transform result is discarded, and the untransformed
+  payload continues to the destination. The message is not marked as sent, and it is not skipped.
+- `Dead` — Move the message to the dead-letter state at once.
 
 ## Routing Key Templates
 
 For RabbitMQ destinations, you can dynamically construct routing keys from message data:
 
 ```yaml
+destinations:
+  events-exchange:
+    type: rabbitmq
+    url: amqp://rabbitmq:5672
+    exchange: events
+
 routes:
   - topicPattern: "order.*"
     destination: events-exchange
@@ -93,10 +102,11 @@ A RabbitMQ destination is the exception. It holds one confirmed channel, and one
 time uses it, so `outbox.concurrency` raises throughput only across different destinations. An
 HTTP destination has no such limit.
 
-**Precedence.** The route `routingKeyTemplate` wins. QueueBox renders it, and the RabbitMQ
-publisher uses the result. A RabbitMQ destination also has its own `routingKeyTemplate`, which
-supports `{{ topic }}` only. That destination template applies only when the matched route sets
-no `routingKeyTemplate`.
+**Precedence.** `routingKeyTemplate` belongs to a route. QueueBox renders it, and the RabbitMQ
+publisher uses the result. A RabbitMQ destination has no `routingKeyTemplate` field, so you cannot
+configure a template on a destination. When the matched route sets no `routingKeyTemplate`, the
+publisher falls back to the built-in destination template `{{ topic }}`, and the routing key is
+therefore the message topic.
 
 **RabbitMQ throughput.** The publisher awaits one broker confirm per message. A measured run gave
 1038 messages per second for 1000 messages on one destination. The test
