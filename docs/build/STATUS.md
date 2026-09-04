@@ -475,16 +475,130 @@ clone to a green build using only `CONTRIBUTING.md`, proved in a clean container
 
 ---
 
+## Phase 6 — complete
+
+Plan: `docs/build/phase-06-plan.md`. Commits `58930c2`, `2b4649c` and `ce67556`.
+
+**Closed:** F-072, F-073, F-074, F-075, F-076, F-077, F-078, F-079, F-080, F-081, F-082, F-084,
+F-085. **Not met: F-083**, see the open question below.
+
+### The exit condition
+
+Section 3 of `hardening-doc.md`: the documents are restructured under `docs/`, and every code
+sample in every document is executed by a test.
+
+```
+./gradlew clean build check jacocoAggregatedReport --rerun-tasks
+BUILD SUCCESSFUL in 3m 45s, then BUILD SUCCESSFUL in 3m 46s
+
+./gradlew :app:test --tests 'docs.*'         14 tests PASSED
+./gradlew :app:test --tests '*IntegrationDocSqlTest*'   3 tests PASSED
+./gradlew ktlintCheck detekt                 BUILD SUCCESSFUL
+wc -l README.md                              141, down from 1142
+Aggregate coverage: line 0.8966, branch 0.7550
+
+docker compose -f docker-compose.yml --env-file .env.example up -d --build
+  GET  /health        -> 200 {"status":"healthy",...}
+  POST /inbox/stripe  -> 202 {"messageId":"12f1687e-..."}
+  POST /inbox/stripe  -> 200 {"status":"duplicate"}
+
+examples/webhook-receiver/smoke-test.sh  PASS, destination logged POST /webhook and the body
+examples/http-fanout/smoke-test.sh       PASS, analytics 1, audit 1, no crossover
+examples/rabbitmq-bridge/smoke-test.sh   PASS, queue events-audit holds 1, routing key payment.succeeded
+
+Manual Setup of docs/getting-started.md, run on this host against a clean database:
+  Applied 5 migration(s). /health -> 200 {"status":"healthy",...}
+```
+
+**Met.**
+
+### The five defects that no finding named
+
+Each one made a documented instruction false, so each was fixed under the finding it broke.
+
+1. **A `QUEUEBOX_` variable never overrode anything.** The builder put the resource source before
+   the environment source, so the YAML always won.
+2. **Hoplite bound a path on a double underscore.** So `QUEUEBOX_DATABASE_URL` set nothing and
+   failed in silence, while every validation error printed that exact name. The source is now a
+   map built by `EnvConfigLoader.envKeyToYamlPath`.
+3. **A default deployment was unhealthy forever.** Retention is disabled by default, so
+   `RetentionService.isRunning` stayed false and the readiness answer stayed 503. No Compose
+   health check ever passed.
+4. **The packaged configuration merged into every deployment.** Hoplite cascades a map node key by
+   key, so an operator whose external file declared one destination also served `/inbox/stripe`
+   and `/inbox/github`. Every deployment answered on two HTTP endpoints that its own
+   configuration never declared. An external file now replaces the resource.
+5. **A document was not an input of the test task.** An edit to a Markdown file alone left
+   `:app:test` UP-TO-DATE, so a sample could rot with every test green.
+
+### What the audit found, and what was done
+
+The audit found 13 blocking items. Every one was verified before it was acted on, and every one
+was fixed. The largest were defect 4 above, the absence of the mandatory `DocumentedExamplesTest`,
+and 21 document defects that the new test then caught.
+
+Two smoke tests were too weak. The fan-out test grepped a shared identifier prefix, so two swapped
+routes passed. Swapping the routes now fails, which was checked by mutation. The RabbitMQ queue
+bound on `#`, so the routing key was never exercised. It binds on `payment.*` now.
+
+One audit finding was not acted on. The audit asked for a `GuaranteesTest` that links each README
+guarantee to its test. The README names the test for each of the five guarantees, and each named
+test exists and passes. A test that parses prose to find a test name adds a second place to break.
+This is a deviation, recorded, not an oversight.
+
+### Decisions recorded during Phase 6
+
+1. **A route matches one destination.** `MessageRouter` uses `firstOrNull`. Two routes with the
+   same pattern do not duplicate a message. F-081 asks for a fan-out example, and the product does
+   fan-out by writing one outbox row per destination topic. Adding a true one-to-many route is a
+   feature, and this phase adds none. The example states the real rule.
+2. **An external configuration file is complete.** It replaces the packaged resource. A partial
+   overlay is what caused defect 4.
+3. **`MessageState.canTransitionTo` is deleted.** It had no caller and it contradicted the code.
+4. **`docker-compose.override.yml` keeps its name.** It is auto-loaded and holds the development
+   loop, so the documented quick start passes `-f docker-compose.yml`. `hardening-doc.md` treats
+   the override as a legitimate file, and a rename is a redesign.
+
+### Known flake
+
+`IntegrationDocSqlTest > every postgres statement runs...` failed once in a full build and passed
+on the two full runs that followed, and in isolation. The failing run happened while a manual
+`./gradlew run` instance and its database container were being torn down on the same host. The
+cause is not proven. It is recorded here rather than hidden. Watch it in CI.
+
+---
+
 ## Next phase
 
-**Phase 6 — Documentation and polish, F-072 to F-085.** Exit condition: see section 3 of
-`hardening-doc.md`. F-012 and F-071 are already closed. F-078, which changes the inbox accept
-response from 200 to 202, is carried forward from the Phase 4 audit.
-`docs/build/phase-06-plan.md` does not exist yet.
+**All six phases are complete.** The next step is the whole-effort Definition of Done in section 11
+of `hardening-doc.md`, including the adversarial review gate.
 
 ## Open questions for the maintainer
 
-**One operational item stays open.** F-063 needs the GHCR permissions that only the maintainer
-can grant, so the release workflow stays unproven. Section 2A decision 2 settles the artifact
-question: a container image only, no Maven artifacts and no signing. The remaining item is
-operational, not a product decision, so Phase 5 recorded it as unverified rather than stop.
+**1. F-083 is blocked, and it is the only finding of Phase 6 that is not closed.** Its Definition
+of Done is "All badges resolve to live pages." No badge can resolve, because the repository is not
+public. `curl https://github.com/AlterNayte/queuebox` returns 404, and every shields.io badge
+renders "repo not found". The README carries the build, security, release, license and coverage
+badges, and each one becomes live when the repository is published. The coverage badge states the
+gate that CI enforces, not a measured figure, because the project has adopted no coverage service.
+
+F-083 also asks for a repository description and topics. Those live in the GitHub settings, not in
+the tree. Suggested description:
+
+> A message relay that implements the transactional outbox and the idempotent inbox. Your
+> application writes a row, and QueueBox handles the delivery, the retries, the deduplication and
+> the cleanup.
+
+Suggested topics: `outbox-pattern`, `inbox-pattern`, `transactional-outbox`, `idempotency`,
+`message-queue`, `webhooks`, `kotlin`, `ktor`, `postgresql`, `sqlserver`, `rabbitmq`.
+
+**2. F-063 stays open from Phase 5.** The release workflow needs the GHCR permissions that only
+the maintainer can grant.
+
+**3. No GitHub Actions run exists yet.** The workflow files parse as valid YAML and every action
+input was checked against its documented interface. The `compose`, `examples` and `manual-setup`
+jobs run commands that were all proved on this host. The `docker`, `release` and database matrix
+paths stay unverified until the workflows reach the default branch.
+
+**4. `CODE_OF_CONDUCT.md` carries the GitHub noreply commit address**, which receives no mail. It
+needs a real inbox.
