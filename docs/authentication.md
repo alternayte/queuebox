@@ -13,10 +13,15 @@ Three rules matter most.
 
 1. **Terminate TLS in front of QueueBox.** QueueBox listens on plain HTTP and does not terminate
    TLS. The document holds a working ingress example.
-2. **Point a credential at a file.** Every credential field accepts a `file:` reference, so an
-   operator can mount a Kubernetes secret. QueueBox reads the file once, at startup.
-3. **A credential never prints.** Every credential field carries the `Secret` type, whose
-   `toString` returns a mask.
+2. **Point a credential at a file.** Every field of type `Secret` accepts a `file:` reference, so
+   an operator can mount a Kubernetes secret. QueueBox reads the file once, at startup. A
+   credential that is only PART of a larger value is not a `Secret` and takes no `file:`
+   reference. `database.url`, the RabbitMQ destination `url` and the RabbitMQ source
+   `connectionUrl` are of that kind, because the whole value is a URL, not a password. Supply
+   those through an environment variable instead.
+3. **A credential never prints.** Every field of type `Secret` returns a mask from `toString`. A
+   URL that carries user information is masked by `CredentialMasking.maskUrl` in the `toString` of
+   the configuration class that holds it.
 
 ## Authentication
 

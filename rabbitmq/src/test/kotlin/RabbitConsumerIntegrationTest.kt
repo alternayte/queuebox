@@ -2,6 +2,8 @@ package org.nxtspec
 
 import com.rabbitmq.client.AMQP
 import com.rabbitmq.client.ConnectionFactory
+import io.mockk.coEvery
+import io.mockk.mockk
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.AfterEach
@@ -9,6 +11,8 @@ import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Tag
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertDoesNotThrow
+import org.nxtspec.transform.InboxTransformPipeline
+import org.nxtspec.transform.InboxTransformResult
 import org.testcontainers.containers.GenericContainer
 import org.testcontainers.containers.wait.strategy.Wait
 import org.testcontainers.junit.jupiter.Container
@@ -19,6 +23,7 @@ import java.util.UUID
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.test.assertEquals
+import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 @Tag("integration")
@@ -48,6 +53,9 @@ class RabbitConsumerIntegrationTest {
     private val storedMessages = CopyOnWriteArrayList<InboxMessage>()
     private val storedIdempotencyKeys = mutableSetOf<String>()
 
+    // Identifiers that the consumer marked dead.
+    private val deadIds = CopyOnWriteArrayList<UUID>()
+
     // Mock store function that simulates deduplication
     private val mockStore: suspend (InboxMessage) -> InboxResult = { message ->
         synchronized(storedIdempotencyKeys) {
@@ -66,6 +74,7 @@ class RabbitConsumerIntegrationTest {
     fun setup() {
         storedMessages.clear()
         storedIdempotencyKeys.clear()
+        deadIds.clear()
         extractor = IdempotencyExtractor()
         connection = RabbitConnection(amqpUrl)
         declareTestQueue()
@@ -306,6 +315,99 @@ class RabbitConsumerIntegrationTest {
         // Verify it's a valid UUID format - this tests the final fallback in idempotency key extraction
         assertDoesNotThrow {
             UUID.fromString(storedMessages[0].idempotencyKey)
+        }
+    }
+
+    /** A pipeline that rejects every message. */
+    private fun rejectingPipeline(): InboxTransformPipeline = mockk<InboxTransformPipeline>().also { pipeline ->
+        coEvery { pipeline.transform(any(), any(), any()) } returns
+            InboxTransformResult.Rejected("Transform failed")
+    }
+
+    private val rejectingTransform = TransformConfig(
+        expression = "$",
+        onError = TransformErrorStrategy.Fail
+    )
+
+    private fun queueDepth(): Long {
+        val factory = ConnectionFactory().apply { setUri(amqpUrl) }
+        return factory.newConnection().use { conn ->
+            conn.createChannel().use { channel ->
+                channel.messageCount(TEST_QUEUE)
+            }
+        }
+    }
+
+    @Test
+    fun `transform rejection stores the original payload and marks it dead`() = runBlocking {
+        val config = RabbitConsumerConfig(
+            queueName = TEST_QUEUE,
+            sourceName = "test-source",
+            idempotencyKeyPath = "$.id"
+        )
+        consumer = RabbitConsumer(
+            connection = connection,
+            storeMessage = mockStore,
+            extractor = extractor,
+            config = config,
+            transformPipeline = rejectingPipeline(),
+            sourceTransform = rejectingTransform,
+            markDead = { id -> deadIds.add(id) }
+        )
+        consumer.start()
+
+        val id = "reject-${UUID.randomUUID()}"
+        publishMessage("""{"id": "$id", "data": "test"}""")
+
+        delay(1000)
+        consumer.stop()
+
+        assertEquals(1, storedMessages.size, "The rejected message must reach the inbox.")
+        val stored = storedMessages[0]
+        assertEquals(id, stored.idempotencyKey)
+        assertEquals(
+            """{"id":"$id","data":"test"}""",
+            stored.payload.toString(),
+            "The stored payload must be the original payload."
+        )
+        assertTrue(deadIds.contains(stored.id), "The stored row must be marked dead.")
+        assertEquals(0L, queueDepth(), "The queue must be empty after the acknowledgement.")
+    }
+
+    @Test
+    fun `transform rejection keeps the message when the store fails`() = runBlocking {
+        val throwingStore: suspend (InboxMessage) -> InboxResult = {
+            throw IllegalStateException("Simulated storage failure")
+        }
+        val config = RabbitConsumerConfig(
+            queueName = TEST_QUEUE,
+            sourceName = "test-source",
+            idempotencyKeyPath = "$.id"
+        )
+        consumer = RabbitConsumer(
+            connection = connection,
+            storeMessage = throwingStore,
+            extractor = extractor,
+            config = config,
+            transformPipeline = rejectingPipeline(),
+            sourceTransform = rejectingTransform,
+            markDead = { id -> deadIds.add(id) }
+        )
+        consumer.start()
+
+        publishMessage("""{"id": "keep-${UUID.randomUUID()}", "data": "test"}""")
+
+        delay(500)
+        consumer.stop()
+
+        assertTrue(deadIds.isEmpty(), "No row is dead, because the store failed.")
+        val factory = ConnectionFactory().apply { setUri(amqpUrl) }
+        factory.newConnection().use { conn ->
+            conn.createChannel().use { channel ->
+                val response = channel.basicGet(TEST_QUEUE, false)
+                assertNotNull(response, "The broker must still hold the message.")
+                channel.basicNack(response.envelope.deliveryTag, false, false)
+            }
         }
     }
 }

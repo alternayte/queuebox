@@ -217,7 +217,11 @@ fun main() {
                 ),
                 metricsCollector = metricsCollector,
                 transformPipeline = inboxTransformPipeline,
-                sourceTransform = rabbitConfig.transform
+                sourceTransform = rabbitConfig.transform,
+                // A transform rejection on an AMQP source must not destroy the message. The
+                // consumer stores the original payload, and this callback marks the row dead so
+                // the relay never forwards a rejected payload.
+                markDead = inboxRepository::markDead
             ) to connection
         }
 

@@ -113,7 +113,16 @@ class OutboxPoller(
             throw e
         } catch (e: Exception) {
             metricsCollector?.recordProcessError()
-            log.error("Processing message {} failed. The retry strategy applies.", message.id, e)
+            // F-016: the throwable is not passed to the logger. SLF4J prints the raw message
+            // and the raw stack trace, and a cause message can hold the broker URI with its
+            // password. The sanitised chain names every type and every message, so the log
+            // keeps enough information to debug. The frames are dropped, because they add no
+            // safe information that the type chain does not already give.
+            log.error(
+                "Processing message {} failed. The retry strategy applies. Reason: {}",
+                message.id,
+                ErrorSanitizer.sanitize(e)
+            )
             runCatching { handlePublishFailure(message, e) }
         } finally {
             inFlight.decrementAndGet()

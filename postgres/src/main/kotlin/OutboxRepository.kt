@@ -19,7 +19,6 @@ import org.jetbrains.exposed.sql.insert
 import org.jetbrains.exposed.sql.or
 import org.jetbrains.exposed.sql.selectAll
 import org.jetbrains.exposed.sql.transactions.TransactionManager
-import org.jetbrains.exposed.sql.transactions.experimental.newSuspendedTransaction
 import org.jetbrains.exposed.sql.update
 import org.nxtspec.repository.OutboxRepositoryInterface
 import java.util.UUID
@@ -48,7 +47,7 @@ class OutboxRepository(
      * the claim and the mark are atomic. claimed_at lets the reclaim step recover a crashed
      * claim.
      */
-    override suspend fun claimBatch(batchSize: Int): List<OutboxMessage> = newSuspendedTransaction {
+    override suspend fun claimBatch(batchSize: Int): List<OutboxMessage> = joinOrNewTransaction {
         val t = q(tableName)
         val sql = """
             UPDATE $t AS target
@@ -96,7 +95,7 @@ class OutboxRepository(
         }
     }
 
-    override suspend fun insert(message: OutboxMessage): Unit = newSuspendedTransaction {
+    override suspend fun insert(message: OutboxMessage): Unit = joinOrNewTransaction {
         table.insert {
             it[table.id] = message.id
             it[table.topic] = message.topic
@@ -113,11 +112,11 @@ class OutboxRepository(
         Unit
     }
 
-    override suspend fun markSent(id: UUID) = newSuspendedTransaction {
+    override suspend fun markSent(id: UUID) = joinOrNewTransaction {
         updateState(id, "sent")
     }
 
-    override suspend fun scheduleRetry(id: UUID, delayMs: Long, error: String?): Unit = newSuspendedTransaction {
+    override suspend fun scheduleRetry(id: UUID, delayMs: Long, error: String?): Unit = joinOrNewTransaction {
         val now = Clock.System.now()
         val scheduledTime = now + delayMs.milliseconds
         table.update({ table.id eq id }) {
@@ -131,7 +130,7 @@ class OutboxRepository(
         Unit
     }
 
-    override suspend fun markDead(id: UUID, error: String?): Unit = newSuspendedTransaction {
+    override suspend fun markDead(id: UUID, error: String?): Unit = joinOrNewTransaction {
         val now = Clock.System.now()
         table.update({ table.id eq id }) {
             it[table.state] = "dead"
@@ -142,7 +141,7 @@ class OutboxRepository(
         Unit
     }
 
-    override suspend fun countByState(state: String): Long = newSuspendedTransaction {
+    override suspend fun countByState(state: String): Long = joinOrNewTransaction {
         table
             .selectAll()
             .where { table.state eq state }
@@ -154,7 +153,7 @@ class OutboxRepository(
      * back to state 'pending'. The attempt count does not change, because the message was
      * never delivered.
      */
-    override suspend fun reclaimStale(olderThan: Duration): Int = newSuspendedTransaction {
+    override suspend fun reclaimStale(olderThan: Duration): Int = joinOrNewTransaction {
         val cutoff = Clock.System.now() - olderThan
         val now = Clock.System.now()
         table.update({
@@ -171,7 +170,7 @@ class OutboxRepository(
      * F-008: deletes at most `limit` rows per statement, so a cleanup never holds locks on the
      * whole table.
      */
-    override suspend fun deleteOlderThan(state: String, cutoff: Instant, limit: Int): Int = newSuspendedTransaction {
+    override suspend fun deleteOlderThan(state: String, cutoff: Instant, limit: Int): Int = joinOrNewTransaction {
         val ids = table
             .select(table.id)
             .where { (table.state eq state) and (table.updatedAt less cutoff) }
@@ -185,27 +184,26 @@ class OutboxRepository(
         }
     }
 
-    override suspend fun deleteExceptMostRecent(state: String, keepCount: Int, limit: Int): Int =
-        newSuspendedTransaction {
-            val idsToKeep = table
-                .select(table.id)
-                .where { table.state eq state }
-                .orderBy(table.updatedAt, org.jetbrains.exposed.sql.SortOrder.DESC)
-                .limit(keepCount)
-                .map { it[table.id] }
+    override suspend fun deleteExceptMostRecent(state: String, keepCount: Int, limit: Int): Int = joinOrNewTransaction {
+        val idsToKeep = table
+            .select(table.id)
+            .where { table.state eq state }
+            .orderBy(table.updatedAt, org.jetbrains.exposed.sql.SortOrder.DESC)
+            .limit(keepCount)
+            .map { it[table.id] }
 
-            val ids = table
-                .select(table.id)
-                .where { (table.state eq state) and (table.id notInList idsToKeep) }
-                .limit(limit)
-                .map { it[table.id] }
+        val ids = table
+            .select(table.id)
+            .where { (table.state eq state) and (table.id notInList idsToKeep) }
+            .limit(limit)
+            .map { it[table.id] }
 
-            if (ids.isEmpty()) {
-                0
-            } else {
-                table.deleteWhere { table.id inList ids }
-            }
+        if (ids.isEmpty()) {
+            0
+        } else {
+            table.deleteWhere { table.id inList ids }
         }
+    }
 
     private fun updateState(id: UUID, newState: String) {
         val now = Clock.System.now()

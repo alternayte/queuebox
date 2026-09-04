@@ -74,6 +74,24 @@ sources:
     topic: "{{ source }}.{{ eventType }}"
 ```
 
+### A rejected message on an AMQP source
+
+The transform can reject a message. The two source types answer differently.
+
+- **HTTP source.** QueueBox answers 422. The caller still holds the message, and the caller can
+  correct it and send it again. QueueBox stores no row.
+- **AMQP source.** No caller holds the message. QueueBox therefore stores the inbox row with the
+  original payload, marks the row `dead`, and only then acknowledges the delivery. QueueBox
+  declares no dead-letter exchange, so the row is the only copy.
+
+The order is mandatory. If the store fails, QueueBox does not acknowledge the delivery. It nacks
+with requeue, and the broker keeps the message. A repeat of the same idempotency key hits the
+unique index. QueueBox then acknowledges the delivery, because the earlier row already holds the
+payload.
+
+The relay never forwards a `dead` row. An operator can read the row, correct the transform, and
+replay the payload.
+
 **Guarantee.** Forwarding is at least once. If the transaction fails, the inbox row stays in
 state `processing`, and the reclaim step returns it to `pending` after `claimTimeoutMs`.
 
@@ -120,7 +138,7 @@ topic           VARCHAR(255)
 key             VARCHAR(255)        -- Optional partition/ordering key
 payload         JSONB
 headers         JSONB
-state           VARCHAR(50)         -- 'pending', 'processing', 'sent', 'failed', 'dead'
+state           VARCHAR(50)         -- see architecture.md for the state set
 attempt         INTEGER
 max_attempts    INTEGER
 scheduled_at    TIMESTAMP
@@ -138,7 +156,7 @@ idempotency_key VARCHAR(255)        -- Unique per source
 aggregate_id    VARCHAR(255)
 event_type      VARCHAR(255)
 payload         JSONB
-state           VARCHAR(50)         -- 'pending', 'processing', 'processed', 'dead'
+state           VARCHAR(50)         -- see architecture.md for the state set
 created_at      TIMESTAMP
 processed_at    TIMESTAMP
 claimed_at      TIMESTAMP           -- When the relay claimed the row (V3)

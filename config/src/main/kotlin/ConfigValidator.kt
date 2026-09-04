@@ -504,17 +504,21 @@ object ConfigValidator {
         val uri = try {
             URI(url.trim())
         } catch (e: Exception) {
-            throw IllegalArgumentException("$label '$url' is not a valid URL. $hint")
+            throw IllegalArgumentException("$label '${CredentialMasking.maskUrl(url)}' is not a valid URL. $hint")
         }
+
+        // F-038: a rejected URL can still carry a password. Every message that prints the value
+        // masks it first. The user information check below prints no value at all.
+        val shown = CredentialMasking.maskUrl(url)
 
         val scheme = uri.scheme?.lowercase()
         require(scheme == "http" || scheme == "https") {
-            "$label '$url' must be an absolute http or https URL. $hint"
+            "$label '$shown' must be an absolute http or https URL. $hint"
         }
 
         val host = uri.host
         require(!host.isNullOrBlank()) {
-            "$label '$url' must carry a host. $hint"
+            "$label '$shown' must carry a host. $hint"
         }
 
         require(uri.userInfo == null) {

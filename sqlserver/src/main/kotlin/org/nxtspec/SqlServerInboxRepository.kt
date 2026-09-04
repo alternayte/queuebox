@@ -14,7 +14,6 @@ import org.jetbrains.exposed.sql.deleteWhere
 import org.jetbrains.exposed.sql.or
 import org.jetbrains.exposed.sql.selectAll
 import org.jetbrains.exposed.sql.transactions.TransactionManager
-import org.jetbrains.exposed.sql.transactions.experimental.newSuspendedTransaction
 import org.jetbrains.exposed.sql.update
 import org.nxtspec.repository.InboxRepositoryInterface
 import java.sql.Timestamp
@@ -32,7 +31,7 @@ class SqlServerInboxRepository(
 ) : InboxRepositoryInterface {
     private val table = SqlServerDynamicInboxTable(columnMapping, tableName)
 
-    override suspend fun store(message: InboxMessage): InboxResult = newSuspendedTransaction {
+    override suspend fun store(message: InboxMessage): InboxResult = joinOrNewTransaction {
         try {
             val now = Clock.System.now()
             val nowTimestamp = Timestamp.from(
@@ -112,7 +111,7 @@ class SqlServerInboxRepository(
      * 'processing' at any time, across every replica. The claim itself does not run in
      * parallel, which is the cost of the guarantee. The claim is one short statement.
      */
-    override suspend fun claimPending(batchSize: Int): List<InboxMessage> = newSuspendedTransaction {
+    override suspend fun claimPending(batchSize: Int): List<InboxMessage> = joinOrNewTransaction {
         val t = quoteSqlServerIdentifier(tableName)
         val idCol = quoteSqlServerIdentifier(columnMapping.id)
         val aggregateIdCol = quoteSqlServerIdentifier(columnMapping.aggregateId)
@@ -281,7 +280,7 @@ class SqlServerInboxRepository(
         return kept to released
     }
 
-    override suspend fun markProcessed(id: UUID): Unit = newSuspendedTransaction {
+    override suspend fun markProcessed(id: UUID): Unit = joinOrNewTransaction {
         val now = Clock.System.now()
         table.update({ table.id eq id }) {
             it[state] = "processed"
@@ -290,7 +289,7 @@ class SqlServerInboxRepository(
         Unit
     }
 
-    override suspend fun markDead(id: UUID): Unit = newSuspendedTransaction {
+    override suspend fun markDead(id: UUID): Unit = joinOrNewTransaction {
         table.update({ table.id eq id }) {
             it[state] = "dead"
             it[claimedAt] = null
@@ -302,7 +301,7 @@ class SqlServerInboxRepository(
      * F-006: returns rows that stay in state 'processing' longer than the visibility timeout
      * back to state 'pending'.
      */
-    override suspend fun reclaimStale(olderThan: Duration): Int = newSuspendedTransaction {
+    override suspend fun reclaimStale(olderThan: Duration): Int = joinOrNewTransaction {
         val cutoff = Clock.System.now() - olderThan
         table.update({
             (table.state eq "processing") and
@@ -313,7 +312,7 @@ class SqlServerInboxRepository(
         }
     }
 
-    override suspend fun countByState(state: String): Long = newSuspendedTransaction {
+    override suspend fun countByState(state: String): Long = joinOrNewTransaction {
         table
             .selectAll()
             .where { table.state eq state }
@@ -323,7 +322,7 @@ class SqlServerInboxRepository(
     /**
      * F-008: deletes at most `limit` rows per statement.
      */
-    override suspend fun deleteOlderThan(state: String, cutoff: Instant, limit: Int): Int = newSuspendedTransaction {
+    override suspend fun deleteOlderThan(state: String, cutoff: Instant, limit: Int): Int = joinOrNewTransaction {
         val ids = table
             .select(table.id)
             .where { (table.state eq state) and (table.createdAt less cutoff) }

@@ -183,7 +183,9 @@ class IntegrationDocSqlTest {
                         "Requests: ${server.receivedRequests.size}. " +
                         "Sent rows: ${countOutboxRows(connection, "sent")}. " +
                         "Pending rows: ${countOutboxRows(connection, "pending")}. " +
-                        "Dead rows: ${countOutboxRows(connection, "dead")}."
+                        "Processing rows: ${countOutboxRows(connection, "processing")}. " +
+                        "Dead rows: ${countOutboxRows(connection, "dead")}. " +
+                        "Insert blocks: $insertBlocks."
                 )
                 assertEquals(
                     0,

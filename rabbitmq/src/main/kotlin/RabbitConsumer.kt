@@ -19,6 +19,7 @@ import org.nxtspec.logging.LogKeys
 import org.nxtspec.logging.MAX_CORRELATION_ID_LENGTH
 import org.nxtspec.logging.logger
 import org.nxtspec.logging.withLogContext
+import org.nxtspec.metrics.InboxRejectionReason
 import org.nxtspec.metrics.MetricsCollectorInterface
 import org.nxtspec.transform.InboxTransformContext
 import org.nxtspec.transform.InboxTransformPipeline
@@ -48,7 +49,15 @@ class RabbitConsumer(
     private val config: RabbitConsumerConfig,
     private val metricsCollector: MetricsCollectorInterface? = null,
     private val transformPipeline: InboxTransformPipeline? = null,
-    private val sourceTransform: TransformConfig? = null
+    private val sourceTransform: TransformConfig? = null,
+    /**
+     * Marks one stored inbox row dead. The consumer calls it after a transform rejection.
+     *
+     * An AMQP publisher has no caller that can hold the message, and QueueBox declares no
+     * dead-letter exchange. The consumer therefore stores the original payload and marks the
+     * row dead. An operator can read the row and replay it.
+     */
+    private val markDead: (suspend (UUID) -> Unit)? = null
 ) {
     private val log = logger<RabbitConsumer>()
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
@@ -193,14 +202,18 @@ class RabbitConsumer(
                 when (val result = transformPipeline.transform(payload, sourceTransform, context)) {
                     is InboxTransformResult.Success -> result.payload
                     is InboxTransformResult.Rejected -> {
-                        // NACK without requeue for transform rejection
-                        log.warn(
-                            "The transform rejected delivery {}. The message is not requeued. " +
-                                "Reason: {}",
-                            envelope.deliveryTag,
-                            result.reason
+                        // The message is preserved, not destroyed. The original payload reaches
+                        // the inbox, and the row becomes dead.
+                        val rejected = InboxMessage(
+                            id = messageId,
+                            source = config.sourceName,
+                            idempotencyKey = idempotencyKey,
+                            aggregateId = aggregateId,
+                            eventType = eventType,
+                            payload = payload,
+                            correlationId = correlationId
                         )
-                        sendNack(envelope.deliveryTag, false)
+                        storeRejected(envelope, rejected, result.reason)
                         return
                     }
                 }
@@ -240,6 +253,79 @@ class RabbitConsumer(
         } catch (e: Exception) {
             log.error("Processing delivery {} failed. The message is requeued.", envelope.deliveryTag, e)
             sendNack(envelope.deliveryTag, true)
+        }
+    }
+
+    /**
+     * Preserves a message that the transform rejected.
+     *
+     * The order is mandatory. The row must be durable before the acknowledgement. A failed store
+     * therefore ends in a nack with requeue, and the broker keeps the message.
+     */
+    private suspend fun storeRejected(envelope: Envelope, message: InboxMessage, reason: String) {
+        log.warn(
+            "The transform rejected delivery {}. QueueBox stores the original payload and marks " +
+                "the row dead. Reason: {}",
+            envelope.deliveryTag,
+            reason
+        )
+
+        val result = try {
+            storeMessage(message)
+        } catch (e: Exception) {
+            InboxResult.Error(e.message ?: e::class.simpleName ?: "unknown")
+        }
+
+        when (result) {
+            is InboxResult.Stored -> {
+                val marked = markDeadRow(envelope, message.id)
+                if (!marked) return
+                metricsCollector?.recordInboxRejection(InboxRejectionReason.TRANSFORM_FAILED)
+                sendAck(envelope.deliveryTag)
+            }
+            is InboxResult.Duplicate -> {
+                // The unique index already holds a row for this key. The earlier row carries the
+                // payload, so the delivery adds nothing. The success path acknowledges a
+                // duplicate, and this path does the same.
+                metricsCollector?.recordInboxDuplicate()
+                sendAck(envelope.deliveryTag)
+            }
+            is InboxResult.Error -> {
+                log.error(
+                    "Storing the rejected delivery {} failed. The message is requeued. Reason: {}",
+                    envelope.deliveryTag,
+                    result.message
+                )
+                sendNack(envelope.deliveryTag, true)
+            }
+        }
+    }
+
+    /**
+     * Marks the stored row dead. Returns false when the delivery is already nacked.
+     */
+    private suspend fun markDeadRow(envelope: Envelope, id: UUID): Boolean {
+        val mark = markDead
+        if (mark == null) {
+            log.error(
+                "No dead-letter callback is configured for source '{}'. The row {} stays " +
+                    "pending, and the relay forwards it.",
+                config.sourceName,
+                id
+            )
+            return true
+        }
+        return try {
+            mark(id)
+            true
+        } catch (e: Exception) {
+            log.error(
+                "Marking the row {} dead failed. The message is requeued.",
+                id,
+                e
+            )
+            sendNack(envelope.deliveryTag, true)
+            false
         }
     }
 

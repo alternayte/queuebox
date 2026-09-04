@@ -30,13 +30,32 @@ object ErrorSanitizer {
 
     private const val REDACTED = "[REDACTED]"
 
+    // The schemes that carry the credential directly after the scheme name, with no "key=value"
+    // shape. See F-016.
+    private val AUTH_SCHEMES = listOf("Basic", "Bearer", "Digest", "Negotiate", "Token")
+
+    // A key writes its word separator as '-', '_' or '.', so every form of one key matches one
+    // pattern. The pattern also accepts a key with no separator at all.
+    private fun keyAlternative(key: String): String =
+        key.split('-', '_', '.').joinToString("[-_.]?") { Regex.escape(it) }
+
     // Matches "<key><separator><value>". The key can carry a closing quote, as it does in JSON.
     // The separator is ':' or '='. The value can be quoted. The value ends at a comma, a
     // semicolon, a closing brace, a quote or a line end.
     private val secretPattern: Regex = Regex(
-        "(?i)\\b(" + SECRET_KEYS.joinToString("|") { Regex.escape(it) } +
+        "(?i)\\b(" + SECRET_KEYS.joinToString("|") { keyAlternative(it) } +
             ")\\b\"?\\s*[:=]+\\s*\"?[^,;}\\n\"]*\"?"
     )
+
+    // Matches a bare authentication scheme and the token that follows it.
+    private val schemePattern: Regex = Regex(
+        "(?i)\\b(" + AUTH_SCHEMES.joinToString("|") + ")\\s+[A-Za-z0-9._~+/\\-]+=*"
+    )
+
+    // Matches the user information of a URL. `CredentialMasking.maskUrl` rejects a password that
+    // holds a space, and a broker reports such a URL in its error text. This pattern accepts the
+    // space, and it still stops at a path separator, so it cannot span two URLs.
+    private val userInfoPattern: Regex = Regex("([a-zA-Z][a-zA-Z0-9+.\\-]*://)[^/@\\n]+?@")
 
     /**
      * Redacts the secret values in the text and truncates the result.
@@ -44,8 +63,17 @@ object ErrorSanitizer {
     fun sanitize(text: String?): String? {
         if (text == null) return null
 
-        val redacted = secretPattern.replace(text) { match ->
+        var redacted = secretPattern.replace(text) { match ->
             "${match.groupValues[1]}=$REDACTED"
+        }
+
+        // F-038: the password of an AMQP URI or a JDBC URL is not a "key=value" pair. The host
+        // and the port stay, because an operator needs them.
+        redacted = CredentialMasking.maskUrl(redacted)
+        redacted = userInfoPattern.replace(redacted) { match -> match.groupValues[1] + "***@" }
+
+        redacted = schemePattern.replace(redacted) { match ->
+            "${match.groupValues[1]} $REDACTED"
         }
 
         return if (redacted.length <= MAX_LENGTH) {
@@ -62,11 +90,32 @@ object ErrorSanitizer {
      * carry a secret, so it passes through the same redaction.
      */
     fun sanitize(error: Throwable): String? {
-        val head = "${error::class.simpleName}: ${error.message ?: "no message"}"
+        val head = describeChain(error)
         val body = (error as? org.nxtspec.http.HttpPublishException)?.body
         val text = if (body.isNullOrBlank()) head else "$head | body: $body"
         return sanitize(text)
     }
+
+    /**
+     * Names the throwable and every cause below it.
+     *
+     * A driver puts the connection URL in the message of the cause, not of the wrapper. The
+     * chain therefore reaches the redaction, and no cause message escapes it.
+     */
+    private fun describeChain(error: Throwable): String {
+        val parts = mutableListOf<String>()
+        var current: Throwable? = error
+        var depth = 0
+        while (current != null && depth < MAX_CAUSE_DEPTH) {
+            parts += "${current::class.simpleName}: ${current.message ?: "no message"}"
+            val next = current.cause
+            current = if (next === current) null else next
+            depth++
+        }
+        return parts.joinToString(" | caused by ")
+    }
+
+    private const val MAX_CAUSE_DEPTH = 5
 
     private const val TRUNCATION_MARKER = "...[truncated]"
 }

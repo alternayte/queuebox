@@ -38,11 +38,15 @@ class RabbitPublisher(
             ?: return Result.failure(IllegalArgumentException("Not a RabbitMQ destination"))
 
         val startTime = System.currentTimeMillis()
-        val holder = destinationChannels.getOrPut(dest.name) {
-            DestinationChannel(connections.getOrPut(dest.name) { RabbitConnection(dest.url) })
-        }
 
         return try {
+            // The connection constructor parses the URL, so it can throw. It runs inside the
+            // try, so the failure becomes a sanitised Result.failure and does not escape
+            // publish() with the raw AMQP URI. The cache behaviour does not change, because
+            // getOrPut still creates one holder and one connection per destination name.
+            val holder = destinationChannels.getOrPut(dest.name) {
+                DestinationChannel(connections.getOrPut(dest.name) { RabbitConnection(dest.url) })
+            }
             holder.mutex.withLock {
                 withContext(Dispatchers.IO) {
                     val channel = openChannel(holder, dest)

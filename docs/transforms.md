@@ -61,6 +61,12 @@ The loader matches the value against the enum name, so the value must carry the 
   payload continues to the destination. The message is not marked as sent, and it is not skipped.
 - `Dead` — Move the message to the dead-letter state at once.
 
+**A source transform on an AMQP source.** `Fail` and `Dead` both reject the message. QueueBox
+stores the inbox row with the original payload, marks the row `dead`, and then acknowledges the
+delivery. The message is never destroyed. The same rejection on an HTTP source answers 422 and
+stores no row, because the caller still holds the message. See
+[message-flow.md](message-flow.md).
+
 ## Routing Key Templates
 
 For RabbitMQ destinations, you can dynamically construct routing keys from message data:
