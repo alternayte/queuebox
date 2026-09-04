@@ -102,7 +102,9 @@ class SqlServerInboxRepository(
                 InboxResult.Stored
             }
         } catch (e: Exception) {
-            InboxResult.Error(e.message ?: "Unknown error")
+            // Sixth review gate: a driver message carries the JDBC URL, and the reason reaches
+            // a log line. Redact it where it is built, so every consumer is safe.
+            InboxResult.Error(ErrorSanitizer.sanitize(e) ?: "Unknown error")
         }
     }
 

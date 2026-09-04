@@ -1880,6 +1880,32 @@ class ConfigValidatorTest {
         assertContains(exception.message!!, "private")
     }
 
+    /**
+     * Sixth review gate, defect B1.
+     *
+     * Every sibling message in `requirePublicHost` masked the URL. This one printed it raw, and
+     * the failure becomes an uncaught exception at startup, which the JVM prints to stderr. The
+     * user information check does not protect it, because a password QUERY PARAMETER is legal
+     * there.
+     */
+    @Test
+    fun `the private address failure never prints a password query parameter`() {
+        val exception = assertFailsWith<IllegalArgumentException> {
+            ConfigValidator.validate(
+                configWithBaseUrl(
+                    "http://127.0.0.1:9000/hook?password=Hunter2Secret",
+                    blockPrivateAddresses = true
+                )
+            )
+        }
+
+        assertFalse(
+            exception.message!!.contains("Hunter2Secret"),
+            "the startup failure printed the password: ${exception.message}"
+        )
+        assertContains(exception.message!!, "private")
+    }
+
     @Test
     fun `should fail when blockPrivateAddresses refuses loopback`() {
         assertFailsWith<IllegalArgumentException> {

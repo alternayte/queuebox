@@ -84,15 +84,22 @@ release.
 
 Start the published image against a test configuration, then read the information metric.
 
+The image needs a database, so the check runs the released image against the Compose stack rather
+than alone. QueueBox exits when no database answers within `database.startupTimeoutMs`.
+
 ```bash
-docker run --rm -p 8080:8080 ghcr.io/alternayte/queuebox:0.1.0
-curl -s http://localhost:8080/metrics | grep queuebox_info
+RELEASE_IMAGE=ghcr.io/alternayte/queuebox:0.1.0 \
+  docker compose -f docker-compose.yml -f docker-compose.release.yml up -d
+curl -s http://localhost:8080/health/ready
+# The Prometheus exporter strips the `_info` suffix, so the scrape carries `queuebox`.
+curl -s http://localhost:8080/metrics | grep '^queuebox{'
 ```
 
 Confirm three points.
 
-1. The image starts and `/health/ready` reports every dependency.
-2. The `queuebox_info` metric carries the version of the tag.
+1. The image starts and `/health/ready` answers 200 with every dependency up.
+2. The `queuebox` metric, which `queuebox_info` becomes in a scrape, carries the version of the
+   tag. See [../operations/metrics.md](../operations/metrics.md).
 3. Both architectures exist. `docker manifest inspect ghcr.io/alternayte/queuebox:0.1.0` lists
    `linux/amd64` and `linux/arm64`.
 

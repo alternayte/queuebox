@@ -101,7 +101,10 @@ class E2EShutdownTest : E2ETestBase() {
         }
 
         assertTrue(
-            handlerStarted.await(10, TimeUnit.SECONDS),
+            // The latch is the right signal, so the budget only has to cover a slow machine. A
+            // full build starts several containers at once, and 10 seconds proved too tight
+            // there. The assertion is unchanged: a handler that never starts still fails.
+            handlerStarted.await(60, TimeUnit.SECONDS),
             "The inbox handler must start before the shutdown"
         )
 

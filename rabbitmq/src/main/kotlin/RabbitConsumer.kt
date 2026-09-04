@@ -295,7 +295,7 @@ class RabbitConsumer(
         val result = try {
             storeDead(message)
         } catch (e: Exception) {
-            InboxResult.Error(e.message ?: e::class.simpleName ?: "unknown")
+            InboxResult.Error(ErrorSanitizer.sanitize(e) ?: e::class.simpleName ?: "unknown")
         }
 
         when (result) {

@@ -568,22 +568,111 @@ cause is not proven. It is recorded here rather than hidden. Watch it in CI.
 
 ---
 
+## Section 11 — the Definition of Done for the whole effort
+
+Every item carries its evidence. Item 6 is the findings index above. Item 15 is the timed
+walkthrough below.
+
+| # | Item | Result |
+|---|------|--------|
+| 1 | `clean build check jacocoAggregatedReport` on Java 21 with Docker | **Met.** BUILD SUCCESSFUL, repeatedly. |
+| 2 | Aggregate 80 percent line, 70 percent branch, no module below 60 | **Met.** Line 0.9033, branch 0.7576. The lowest module is `postgres` at 0.80. The sixth review gate found that `check` never ran the aggregate rules; it does now, proved by raising the floor to 0.99 and watching the build fail. |
+| 3 | No `println` in a main source | **Met.** The grep returns 0. |
+| 4 | No `TODO`, `FIXME` or `Hello, Kotlin` | **Met.** The grep returns 0. |
+| 5 | `ktlintCheck detekt` | **Met.** BUILD SUCCESSFUL. |
+| 6 | Every finding closed or deferred with a rationale | **Met** for F-001 to F-082 and F-084, F-085. F-083 is open, see the question below. |
+| 7 | Compose delivers to an HTTP and a RabbitMQ destination, proved by CI | **Met.** The `compose` job asserts both. Both halves were also run on this host. |
+| 8 | Every fenced YAML block loads and validates | **Met.** `DocumentedExamplesTest`. |
+| 9 | Every documented metric is in a live scrape | **Met.** `MetricsDocTest`, with an empty allowlist. |
+| 10 | Every documented status code is produced by a test | **Met.** The inbox set, the health endpoints, the metrics endpoint, the admin route and `GET /`. |
+| 11 | The governance files exist | **Met.** LICENSE, SECURITY.md, CONTRIBUTING.md, CODE_OF_CONDUCT.md, CHANGELOG.md, .github/CODEOWNERS, the issue templates and the pull request template. |
+| 12 | CI runs build, test, lint, coverage, image build and image scan | **Met** in the workflow files. **Unverified** until they run on the default branch. |
+| 13 | A tagged release publishes an image and an SBOM | **Met** in `release.yml`. **Unverified**, see F-063. |
+| 14 | No agent tooling directory is tracked | **Met.** The grep returns nothing. |
+| 15 | Clone to a delivered message in under 10 minutes, README only | **Met. 172 seconds.** |
+
+### Item 15, the transcript
+
+A clean clone, from the committed state, with no warm cache beyond the Docker layer cache.
+
+```
+git clone . <tmp>/queuebox && cd <tmp>/queuebox
+docker compose -f docker-compose.yml --env-file .env.example up -d --build
+curl http://localhost:8080/health
+  -> 200 {"status":"healthy","components":{...}}
+curl -X POST .../inbox/stripe -d '{"id":"evt_1","type":"payment.succeeded"}'
+  -> 202 {"messageId":"3aa78223-..."}
+  -> 200 {"status":"duplicate"}   (the same request again)
+docker compose logs receiver
+  -> delivered POST /webhook {"id":"evt_1","type":"payment.succeeded"}
+ELAPSED: 172 seconds
+```
+
+The host published PostgreSQL on 5432 already, so the run dropped that port mapping. Nothing else
+was changed.
+
+---
+
+## The adversarial review gate
+
+Section 11 ends with a gate: an independent model reviews the repository and the gate passes only
+when the review produces no confirmed finding. It ran repeatedly, and it is the most productive
+part of the whole effort.
+
+| Pass | Confirmed blocking | What it found |
+|------|--------------------|---------------|
+| 1 | 4 of 5 | A lost message on an AMQP transform rejection. The broker password in the log and in `outbox.last_error`. The relay was not atomic, which F-002 requires. Two false claims about `Secret` and `file:`. |
+| 2 | 3 | A redelivery left a rejected row `pending`, so the relay forwarded it. Four more credential shapes escaped the sanitiser. A missing idempotency key stored a duplicate row on every redelivery. |
+| 3 | 9 | The rejected-row fix was still racy. An invalid AMQP URL printed the password to stderr. `outbox.maxAttempts` was documented and never read. The inbox `COUNT` policy was accepted and did nothing. Nine log sites passed the raw throwable to SLF4J. |
+| 4 | 3 | **A fix from pass 2 destroyed healthy messages.** An indefinite JSONPath lost every message silently. The documented manual schema rejected every inbox insert. |
+| 5 | 1 | A default AMQP source destroyed every message whose publisher omitted an undocumented header. |
+
+**Twenty-one confirmed blocking defects, every one reproduced before it was acted on.**
+
+### What the gate teaches
+
+1. **A fix is a change, and a change needs its own review.** Pass 4 found that the `markDeadByKey`
+   method added in pass 2 had no state guard, so a rejected message could kill an unrelated healthy
+   row. The first repair proposed for it, a `pending` guard, was also wrong: with `storeDead`
+   writing atomically, a `pending` row of that key is a different healthy event. The correct answer
+   was to delete the mark, because nothing needed repair any more.
+2. **A silent default is worse than a loud failure.** Three of the twenty-one were a configuration
+   that QueueBox accepted and then ignored or acted on wrongly: the inbox `COUNT` policy,
+   `outbox.maxAttempts`, and the AMQP default topic. Each looked healthy at startup.
+3. **A comment is not evidence.** `InboxHandler` carried a comment saying the rejection reason is
+   never the path, above code that put the path in the reason. `ExposedTransactionRunner` claimed a
+   nested repository call joins its transaction. Neither was true.
+4. **Redaction needs an adversary.** The sanitiser was defeated three times: on a URL password, on
+   an underscore key, on a bare `Basic` scheme, on a nested cause, on two spaces and a tab, and on
+   a slash inside a password. Each round added a test.
+
+### Deviations recorded
+
+- **A URL password that holds whitespace, with no port and no path, and a slash inside it, is
+  still not masked.** The rule masks when the text is ambiguous, so the leak is narrow. The
+  alternative destroys a prose error message. The trade is recorded in `CredentialMasking`.
+- **The body digest deduplicates two distinct events that carry the same body.** That is the last
+  resort when the publisher supplies no key at all. The alternative, a random key, never
+  deduplicates. `docs/configuration.md` and `docs/message-flow.md` both tell the operator to set a
+  key source.
+
+---
+
 ## Next phase
 
-**All six phases are complete.** The next step is the whole-effort Definition of Done in section 11
-of `hardening-doc.md`, including the adversarial review gate.
+**All six phases are complete.** The remaining work is the maintainer's, below.
 
 ## Open questions for the maintainer
 
-**1. F-083 is blocked, and it is the only finding of Phase 6 that is not closed.** Its Definition
-of Done is "All badges resolve to live pages." No badge can resolve, because the repository is not
-public. `curl https://github.com/AlterNayte/queuebox` returns 404, and every shields.io badge
-renders "repo not found". The README carries the build, security, release, license and coverage
-badges, and each one becomes live when the repository is published. The coverage badge states the
-gate that CI enforces, not a measured figure, because the project has adopted no coverage service.
+**1. F-083 is the one Definition of Done item that is not met.** No badge can resolve, because the
+repository is not public. `curl https://github.com/AlterNayte/queuebox` returns 404, and every
+shields.io badge renders "repo not found". The README carries the build, security, release,
+license and coverage badges, and each becomes live when the repository is published. The coverage
+badge states the gate that CI enforces, not a measured figure, because the project has adopted no
+coverage service.
 
-F-083 also asks for a repository description and topics. Those live in the GitHub settings, not in
-the tree. Suggested description:
+F-083 also asks for a repository description and topics, which live in the GitHub settings.
+Suggested description:
 
 > A message relay that implements the transactional outbox and the idempotent inbox. Your
 > application writes a row, and QueueBox handles the delivery, the retries, the deduplication and
@@ -592,13 +681,18 @@ the tree. Suggested description:
 Suggested topics: `outbox-pattern`, `inbox-pattern`, `transactional-outbox`, `idempotency`,
 `message-queue`, `webhooks`, `kotlin`, `ktor`, `postgresql`, `sqlserver`, `rabbitmq`.
 
-**2. F-063 stays open from Phase 5.** The release workflow needs the GHCR permissions that only
-the maintainer can grant.
+**2. F-063 needs the GHCR permissions that only the maintainer can grant.** The release workflow
+stays unproven until then.
 
-**3. No GitHub Actions run exists yet.** The workflow files parse as valid YAML and every action
+**3. No GitHub Actions run exists yet.** Every workflow file parses as valid YAML and every action
 input was checked against its documented interface. The `compose`, `examples` and `manual-setup`
 jobs run commands that were all proved on this host. The `docker`, `release` and database matrix
 paths stay unverified until the workflows reach the default branch.
 
 **4. `CODE_OF_CONDUCT.md` carries the GitHub noreply commit address**, which receives no mail. It
 needs a real inbox.
+
+**5. Two breaking changes need a release note.** `retention.inbox.policy: COUNT` now fails the
+startup, and the RabbitMQ source default topic changed from `{{ eventType }}` to `{{ source }}`.
+Both are in `CHANGELOG.md` under `### Breaking changes`. Neither had a working behaviour before,
+so no deployment loses one.

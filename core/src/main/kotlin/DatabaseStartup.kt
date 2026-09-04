@@ -62,7 +62,10 @@ object DatabaseStartup {
                         "Reason: {}",
                     attempt,
                     wait,
-                    e.message
+                    // Sixth review gate B2: the driver puts the JDBC URL, and therefore the
+                    // database password, in this message. It fires on every start where the
+                    // database is not yet up, which is the normal Compose path.
+                    ErrorSanitizer.sanitize(e)
                 )
                 sleep(wait)
                 delayMs = minOf(delayMs * 2, MAX_DELAY_MS)

@@ -99,6 +99,18 @@ val jacocoAggregatedVerification by tasks.registering(JacocoCoverageVerification
 }
 
 // Convenience task to run coverage verification
+/**
+ * The aggregated coverage gate runs as part of `check`.
+ *
+ * Sixth review gate, defect B3. `README.md` and `TESTING.md` both state that `check` fails below
+ * the aggregate thresholds. Nothing wired the task in, so the aggregate gate ran only when
+ * somebody named `checkCoverage` by hand, and no workflow did. The per-module gate was wired, so
+ * the weaker half of the claim was true and the stronger half was not.
+ */
+tasks.named("check") {
+    dependsOn(jacocoAggregatedVerification)
+}
+
 val checkCoverage by tasks.registering {
     group = "verification"
     description = "Runs all tests and verifies coverage thresholds"

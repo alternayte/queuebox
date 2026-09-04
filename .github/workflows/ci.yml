@@ -99,6 +99,8 @@ jobs:
           MATRIX_IMAGE: ${{ matrix.image }}
         run: |
           export "${MATRIX_IMAGE_ENV}=${MATRIX_IMAGE}"
+          # `check` now carries the aggregated coverage gate as well as the per-module gate. See
+          # the sixth review gate, defect B3: the aggregate rules existed and nothing ran them.
           ./gradlew check jacocoAggregatedReport
 
       - name: Upload the coverage report

@@ -61,7 +61,7 @@ auth:
   type: hmac
   secret: ${WEBHOOK_SECRET}
   headerName: X-Signature         # Header containing the signature
-  algorithm: HmacSHA256           # HmacSHA256, HmacSHA1, etc.
+  algorithm: HmacSHA256           # HmacSHA256 or HmacSHA512. No other value is accepted.
   signaturePrefix: "sha256="      # Prefix before the signature
   timestampHeader: X-Timestamp    # Optional: for replay protection
   timestampTolerance: 300000      # Max age in ms (default: 5 min)

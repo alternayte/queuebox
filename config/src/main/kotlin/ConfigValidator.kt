@@ -632,7 +632,10 @@ object ConfigValidator {
 
         addresses.forEach { address ->
             require(!isPrivateAddress(address)) {
-                "$label '$url' resolves to the private address " +
+                // F-038, sixth review gate B1: every sibling message masks the URL. This one did
+                // not, and a password query parameter is legal here, because the user information
+                // check above rejects only the `user:password@` form.
+                "$label '${CredentialMasking.maskUrl(url)}' resolves to the private address " +
                     "${address.hostAddress}, and 'http.blockPrivateAddresses' is true. $hint"
             }
         }
