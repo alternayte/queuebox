@@ -1,0 +1,18 @@
+<?xml version="1.0" ?>
+<SmellBaseline>
+  <ManuallySuppressedIssues/>
+  <CurrentIssues>
+    <ID>LongMethod:SqlServerInboxRepository.kt$SqlServerInboxRepository$override suspend fun claimPending(batchSize: Int): List&lt;InboxMessage&gt;</ID>
+    <ID>MagicNumber:SqlServerInboxRepository.kt$SqlServerInboxRepository$10</ID>
+    <ID>MagicNumber:SqlServerInboxRepository.kt$SqlServerInboxRepository$3</ID>
+    <ID>MagicNumber:SqlServerInboxRepository.kt$SqlServerInboxRepository$4</ID>
+    <ID>MagicNumber:SqlServerInboxRepository.kt$SqlServerInboxRepository$5</ID>
+    <ID>MagicNumber:SqlServerInboxRepository.kt$SqlServerInboxRepository$6</ID>
+    <ID>MagicNumber:SqlServerInboxRepository.kt$SqlServerInboxRepository$7</ID>
+    <ID>MagicNumber:SqlServerInboxRepository.kt$SqlServerInboxRepository$8</ID>
+    <ID>MagicNumber:SqlServerInboxRepository.kt$SqlServerInboxRepository$9</ID>
+    <ID>MagicNumber:SqlServerOutboxRepository.kt$SqlServerOutboxRepository$3</ID>
+    <ID>MagicNumber:SqlServerOutboxRepository.kt$SqlServerOutboxRepository$4</ID>
+    <ID>NestedBlockDepth:SqlServerInboxRepository.kt$SqlServerInboxRepository$private fun readLockedAggregates( conn: java.sql.Connection, table: String, aggregateIdCol: String, stateCol: String ): List&lt;String&gt;</ID>
+  </CurrentIssues>
+</SmellBaseline>

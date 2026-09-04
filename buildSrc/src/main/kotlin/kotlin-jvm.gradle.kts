@@ -2,7 +2,14 @@
 // `buildSrc` is a Gradle-recognized directory and every plugin there will be easily available in the rest of the build.
 package buildsrc.convention
 
+import org.gradle.api.artifacts.VersionCatalogsExtension
 import org.gradle.api.tasks.testing.logging.TestLogEvent
+
+// A precompiled script plugin has no generated `libs` accessor, so it reads the catalog through
+// the extension. F-067: every version lives in `gradle/libs.versions.toml`.
+val versionCatalog = extensions.getByType<VersionCatalogsExtension>().named("libs")
+
+fun catalogVersion(alias: String): String = versionCatalog.findVersion(alias).get().requiredVersion
 
 plugins {
     // Apply the Kotlin JVM plugin to add support for Kotlin in JVM projects.
@@ -15,8 +22,7 @@ plugins {
 
 // F-066: ktlint reads `.editorconfig` at the root of the repository.
 ktlint {
-    // The version of the ktlint engine, which is separate from the version of the plugin.
-    version.set("1.5.0")
+    version.set(catalogVersion("ktlintEngine"))
     // A generated source file is not written by a contributor, so it is not gated.
     filter {
         exclude { it.file.path.contains("/build/generated/") }
@@ -30,7 +36,8 @@ ktlint {
 detekt {
     buildUponDefaultConfig = true
     config.setFrom(rootProject.files("config/detekt/detekt.yml"))
-    baseline = rootProject.file("config/detekt/baseline.xml").takeIf { it.exists() }
+    // One baseline per module. A shared file would make two module tasks write the same path.
+    baseline = rootProject.file("config/detekt/baseline-${project.name}.xml").takeIf { it.exists() }
 }
 
 tasks.withType<io.gitlab.arturbosch.detekt.Detekt>().configureEach {
@@ -46,12 +53,12 @@ tasks.withType<io.gitlab.arturbosch.detekt.Detekt>().configureEach {
 
 tasks.withType<io.gitlab.arturbosch.detekt.DetektCreateBaselineTask>().configureEach {
     jvmTarget = "21"
+    baseline.set(rootProject.file("config/detekt/baseline-${project.name}.xml"))
 }
 
 jacoco {
-    // 0.8.13 filters the synthetic classes that the Kotlin coroutine compiler generates.
     // An older version reports a suspend function continuation as uncovered.
-    toolVersion = "0.8.13"
+    toolVersion = catalogVersion("jacoco")
 }
 
 tasks.jacocoTestReport {

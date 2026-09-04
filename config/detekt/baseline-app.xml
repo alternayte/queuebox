@@ -1,0 +1,12 @@
+<?xml version="1.0" ?>
+<SmellBaseline>
+  <ManuallySuppressedIssues/>
+  <CurrentIssues>
+    <ID>LongMethod:AdminRoutes.kt$fun Application.configureAdminRoutes( admin: AdminConfig, authValidator: InboxAuthValidator, transformEngine: TransformEngine )</ID>
+    <ID>LongMethod:App.kt$fun main()</ID>
+    <ID>MagicNumber:AdminRoutes.kt$8192</ID>
+    <ID>MatchingDeclarationName:AdminGuard.kt$InsecureAdminException : RuntimeException</ID>
+    <ID>MatchingDeclarationName:MigrationGuard.kt$MigrationNotApplicableException : RuntimeException</ID>
+    <ID>MatchingDeclarationName:PublisherRegistry.kt$UnsupportedDestinationException : RuntimeException</ID>
+  </CurrentIssues>
+</SmellBaseline>

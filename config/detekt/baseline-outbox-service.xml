@@ -1,0 +1,13 @@
+<?xml version="1.0" ?>
+<SmellBaseline>
+  <ManuallySuppressedIssues/>
+  <CurrentIssues>
+    <ID>LargeClass:OutboxPollerTest.kt$OutboxPollerTest</ID>
+    <ID>LongMethod:OutboxPoller.kt$OutboxPoller$private suspend fun processMessage(message: OutboxMessage)</ID>
+    <ID>MagicNumber:OAuth2TokenManager.kt$OAuth2TokenManager$1000</ID>
+    <ID>MagicNumber:RetentionService.kt$RetentionService$10</ID>
+    <ID>MagicNumber:RetryStrategy.kt$RetryStrategy$20</ID>
+    <ID>MagicNumber:RetryStrategy.kt$RetryStrategy$4</ID>
+    <ID>ReturnCount:TransformPipeline.kt$TransformPipeline$suspend fun transform( payload: JsonElement, routeTransform: TransformConfig?, destinationTransform: TransformConfig?, context: TransformContext ): TransformResult</ID>
+  </CurrentIssues>
+</SmellBaseline>

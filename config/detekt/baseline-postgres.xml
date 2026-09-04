@@ -1,0 +1,10 @@
+<?xml version="1.0" ?>
+<SmellBaseline>
+  <ManuallySuppressedIssues/>
+  <CurrentIssues>
+    <ID>LongMethod:InboxRepository.kt$InboxRepository$override suspend fun claimPending(batchSize: Int): List&lt;InboxMessage&gt;</ID>
+    <ID>LongParameterList:PostgresTestBase.kt$PostgresTestBase$( state: String, topic: String = "test-topic", payload: JsonElement = JsonObject(emptyMap()), headers: JsonElement = JsonObject(emptyMap()), attempt: Int = 0, scheduledAt: Instant = Clock.System.now(), createdAt: Instant = Clock.System.now(), updatedAt: Instant = Clock.System.now() )</ID>
+    <ID>MagicNumber:OutboxRepository.kt$OutboxRepository$3</ID>
+    <ID>MagicNumber:OutboxRepository.kt$OutboxRepository$4</ID>
+  </CurrentIssues>
+</SmellBaseline>

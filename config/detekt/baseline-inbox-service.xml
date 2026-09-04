@@ -1,0 +1,8 @@
+<?xml version="1.0" ?>
+<SmellBaseline>
+  <ManuallySuppressedIssues/>
+  <CurrentIssues>
+    <ID>MagicNumber:InboxRoutes.kt$8192</ID>
+    <ID>ReturnCount:InboxAuthValidator.kt$InboxAuthValidator$private fun validateHmac(request: ApplicationRequest, config: InboxAuthConfig.HmacSignature): AuthResult</ID>
+  </CurrentIssues>
+</SmellBaseline>

@@ -85,8 +85,9 @@ Fix most findings automatically.
 
 `ktlintFormat` does not fix a detekt finding. Correct such a finding by hand.
 
-`config/detekt/detekt.yml` holds the rule set. `config/detekt/baseline.xml` holds the findings
-that the codebase carried before the gate arrived. Never add a new entry to the baseline. Correct
+`config/detekt/detekt.yml` holds the rule set. One `config/detekt/baseline-<module>.xml` file per
+module holds the findings that the codebase carried before the gate arrived. Every entry is
+structural, for example a long method or a magic number. Never add a new entry to the baseline. Correct
 the finding instead. To remove an entry, fix the code and delete the line.
 
 Further rules.
@@ -97,6 +98,29 @@ Further rules.
 3. Add no new `println`. Use the SLF4J logger. See finding F-046 in `hardening-doc.md`.
 4. Log no credential and no full request body. Redact the value first.
 5. Add a test for every behaviour change. Write the test before the code where that is possible.
+
+## Dependencies
+
+Every version lives in `gradle/libs.versions.toml`. Never write a
+`group:artifact:version` string in a `build.gradle.kts` file. Add the coordinate to the catalog
+and reference it, for example `implementation(libs.hikaricp)`.
+
+The build verifies every downloaded artifact against a checksum.
+`gradle/verification-metadata.xml` holds one SHA-256 entry per artifact. A build that downloads an
+artifact with a different checksum fails, and the message names the artifact.
+
+A version change adds a new artifact, so the metadata needs a new entry. Regenerate it.
+
+```bash
+./gradlew --write-verification-metadata sha256 --refresh-dependencies clean build
+./gradlew --write-verification-metadata sha256 --no-configuration-cache cyclonedxBom
+```
+
+Both commands are needed. `cyclonedxBom` resolves a configuration that `build` never resolves,
+and that resolution reads a `.pom` file that `build` never reads.
+
+Review the added entries before you commit them. Each new line is a claim that the artifact is
+the one the publisher released.
 
 ## Commit messages
 

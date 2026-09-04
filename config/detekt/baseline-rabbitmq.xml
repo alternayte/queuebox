@@ -1,0 +1,9 @@
+<?xml version="1.0" ?>
+<SmellBaseline>
+  <ManuallySuppressedIssues/>
+  <CurrentIssues>
+    <ID>LongMethod:RabbitConsumer.kt$RabbitConsumer$private suspend fun processMessage(envelope: Envelope, properties: AMQP.BasicProperties, body: ByteArray)</ID>
+    <ID>LongMethod:RabbitPublisher.kt$RabbitPublisher$override suspend fun publish( message: OutboxMessage, destination: Destination, context: PublishContext ): Result&lt;Unit&gt;</ID>
+    <ID>MagicNumber:RabbitPublisher.kt$RabbitPublisher$5000</ID>
+  </CurrentIssues>
+</SmellBaseline>

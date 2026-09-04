@@ -1,0 +1,13 @@
+<?xml version="1.0" ?>
+<SmellBaseline>
+  <ManuallySuppressedIssues/>
+  <CurrentIssues>
+    <ID>ComplexCondition:ConfigValidator.kt$ConfigValidator$address.isLoopbackAddress || address.isLinkLocalAddress || address.isSiteLocalAddress || address.isAnyLocalAddress</ID>
+    <ID>LargeClass:ConfigValidatorTest.kt$ConfigValidatorTest</ID>
+    <ID>LongMethod:ConfigValidator.kt$ConfigValidator$fun validate(config: QueueBoxConfig): QueueBoxConfig</ID>
+    <ID>MagicNumber:ConfigValidator.kt$ConfigValidator$0xFC</ID>
+    <ID>MagicNumber:ConfigValidator.kt$ConfigValidator$0xFE</ID>
+    <ID>MagicNumber:ConfigValidator.kt$ConfigValidator$16</ID>
+    <ID>MagicNumber:ConfigValidator.kt$ConfigValidator$65535</ID>
+  </CurrentIssues>
+</SmellBaseline>

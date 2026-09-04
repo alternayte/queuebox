@@ -24,8 +24,12 @@ complexity:
     excludes: ['**/test/**']
 
 exceptions:
+  # Both rules are off for the whole codebase, and the reason is measured, not assumed.
+  # With the rules on, 26 sites in 15 main source files report, across every module. QueueBox
+  # is a message relay. Every boundary handler must survive any failure of one message and turn
+  # it into a retry, a dead letter or a degraded health state. A narrow catch at such a
+  # boundary would let an unnamed exception kill the poller. The broad catch is the design.
   TooGenericExceptionCaught:
-    # A poller and a consumer must survive any failure of one message.
     active: false
   SwallowedException:
     active: false

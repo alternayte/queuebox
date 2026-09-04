@@ -1,0 +1,15 @@
+<?xml version="1.0" ?>
+<SmellBaseline>
+  <ManuallySuppressedIssues/>
+  <CurrentIssues>
+    <ID>MagicNumber:QueueBoxMetrics.kt$QueueBoxMetrics$0.5</ID>
+    <ID>MagicNumber:QueueBoxMetrics.kt$QueueBoxMetrics$0.95</ID>
+    <ID>MagicNumber:QueueBoxMetrics.kt$QueueBoxMetrics$0.99</ID>
+    <ID>MagicNumber:QueueBoxMetrics.kt$QueueBoxMetrics$1000</ID>
+    <ID>MagicNumber:QueueBoxMetrics.kt$QueueBoxMetrics.Companion$100</ID>
+    <ID>MagicNumber:QueueBoxMetrics.kt$QueueBoxMetrics.Companion$3</ID>
+    <ID>MagicNumber:QueueBoxMetrics.kt$QueueBoxMetrics.Companion$4</ID>
+    <ID>MagicNumber:QueueBoxMetrics.kt$QueueBoxMetrics.Companion$5</ID>
+    <ID>TooManyFunctions:MetricsCollectorInterface.kt$MetricsCollectorInterface</ID>
+  </CurrentIssues>
+</SmellBaseline>
