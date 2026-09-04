@@ -196,8 +196,11 @@ jobs:
 
       - name: Start the stack
         # `-f docker-compose.yml` selects the shipped stack. The override file holds the
-        # development loop, which mounts the source tree and rebuilds on a change.
-        run: docker compose -f docker-compose.yml --env-file .env.example up -d --build
+        # development loop, which mounts the source tree and rebuilds on a change. The rabbitmq
+        # profile starts the broker, so this one job proves both destination kinds.
+        run: |
+          docker compose -f docker-compose.yml --profile rabbitmq --env-file .env.example \
+            up -d --build
 
       - name: Wait for the instance to become healthy
         run: |
@@ -226,13 +229,56 @@ jobs:
           test "$first" = "202"
           test "$second" = "200"
 
+      - name: The message reaches the HTTP destination
+        # Item 7 of section 11: the stack must DELIVER, not only accept. The `payment.*` route
+        # sends the message to the `receiver` service.
+        run: |
+          for _ in $(seq 1 45); do
+            if docker compose -f docker-compose.yml logs receiver 2>&1 | grep -q "ci-compose-001"; then
+              docker compose -f docker-compose.yml logs receiver 2>&1 | grep "ci-compose-001" | head -1
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "the HTTP destination never received the message"
+          docker compose -f docker-compose.yml logs receiver
+          exit 1
+
+      - name: The message reaches the RabbitMQ destination
+        # The `event.**` route publishes to the topic exchange. QueueBox declares the exchange
+        # lazily on the first publish, so this step declares it, a queue and a binding first.
+        # The exchange arguments match the publisher, or the declare fails.
+        run: |
+          docker compose -f docker-compose.yml exec -T rabbitmq \
+            rabbitmqadmin declare exchange name=queuebox-events type=topic durable=true
+          docker compose -f docker-compose.yml exec -T rabbitmq \
+            rabbitmqadmin declare queue name=ci-events durable=true
+          docker compose -f docker-compose.yml exec -T rabbitmq \
+            rabbitmqadmin declare binding source=queuebox-events destination=ci-events routing_key="event.#"
+          curl -sf -X POST http://localhost:8080/inbox/stripe \
+            -H 'Content-Type: application/json' \
+            -d '{"id":"ci-compose-amqp","type":"event.payment.succeeded"}'
+          for _ in $(seq 1 45); do
+            depth=$(docker compose -f docker-compose.yml exec -T rabbitmq \
+              rabbitmqctl list_queues name messages --no-table-headers 2>/dev/null \
+              | awk '$1 == "ci-events" { print $2 }')
+            if [ -n "${depth:-}" ] && [ "$depth" -ge 1 ]; then
+              echo "the queue ci-events holds $depth message(s)"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "the RabbitMQ destination never received the message"
+          docker compose -f docker-compose.yml logs queuebox rabbitmq
+          exit 1
+
       - name: Show the logs on a failure
         if: failure()
         run: docker compose -f docker-compose.yml logs
 
       - name: Stop the stack
         if: always()
-        run: docker compose -f docker-compose.yml down -v
+        run: docker compose -f docker-compose.yml --profile rabbitmq down -v
 
   examples:
     name: Examples

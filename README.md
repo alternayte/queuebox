@@ -68,19 +68,31 @@ Proved by `OutboxRepositoryConcurrencyTest.claimBatch returns the oldest schedul
 order`.
 
 **A crash can produce a duplicate delivery.** A claimed message that no worker completes returns to
-`pending` after the claim timeout. If the process died after the destination accepted the message,
-the retry delivers it a second time.
-Proved by `ReclaimStaleTest`.
+`pending` after the claim timeout. A replacement worker then delivers that message. If the process
+died after the destination accepted the message, the second delivery is a duplicate.
+Proved by `ReclaimStaleTest.reclaimStale returns a stale outbox claim to pending and keeps the
+attempt count` for the reclaim, and by `E2ECrashRecoveryTest.should deliver a message that a
+crashed replica left in processing` for the delivery that follows it. The duplicate is the
+consequence of that second delivery.
 
-**The inbox deduplicates on `(source, idempotency_key)`, and the window is the retention period.**
-A retention period shorter than the retry window of the source reopens duplicates, because the
-first row is gone when the retry arrives. Set retention longer than that window.
-Proved by `E2EInboxFlowTest.should detect duplicate when same webhook sent twice`.
+**The inbox deduplicates on `(source, idempotency_key)`.** The deduplication window is the
+retention period, because retention deletes the first row. A retention period shorter than the
+retry window of the source therefore reopens duplicates. Set retention longer than that window. No
+test proves that reopening, so treat the last two sentences as a design note, not as a tested
+promise.
+Proved by `E2EInboxFlowTest.should detect duplicate when same webhook sent twice` for the
+deduplication, and by `RetentionSemanticsTest.inbox age uses created_at, which is the receipt time`
+for the age that retention measures.
 
 **A transform error follows the strategy you configure.** `fail` sends the message to the retry
 path. `skip` keeps the original payload and continues. `dead` moves the message to the dead-letter
 state at once.
-Proved by `InboxTransformPipelineTest`.
+Proved by `TransformPipelineTest.SKIP strategy should use original payload on route transform
+error`, `TransformPipelineTest.FAIL strategy should return Error on transform failure` and
+`TransformPipelineTest.DEAD strategy should return DeadLetter on transform failure` for the three
+outcomes. `OutboxPollerTest.should schedule retry on TransformResult Error` and
+`OutboxPollerTest.should mark dead on TransformResult DeadLetter` prove that the poller acts on
+each outcome.
 
 ## Documentation
 

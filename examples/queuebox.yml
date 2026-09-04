@@ -22,19 +22,27 @@ inbox:
   basePath: /inbox
 
 destinations:
+  # The quick start delivers here. `docker-compose.yml` runs the `receiver` service, so a first
+  # run ends with a delivered message, not only with an accepted one.
   webhook-api:
     type: http
-    baseUrl: https://api.example.com
+    baseUrl: http://receiver:8080
     path: /webhook
     timeoutMs: 30000
 
+  # The RabbitMQ half of the quick start. `docker compose --profile rabbitmq up -d` starts the
+  # broker. Without the profile the broker is absent, and a message on this route retries.
   events-exchange:
     type: rabbitmq
-    url: amqp://rabbitmq:5672
+    url: amqp://guest:guest@rabbitmq:5672
     exchange: queuebox-events
     exchangeType: topic
 
 routes:
+  # The `stripe` source writes the event type as the topic, so `payment.succeeded` matches here.
+  - topicPattern: "payment.*"
+    destination: webhook-api
+
   - topicPattern: "order.*"
     destination: webhook-api
 
