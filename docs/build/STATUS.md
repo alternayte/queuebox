@@ -348,60 +348,143 @@ F-078, which belongs to Phase 6. The audit flagged it so it is not lost.
 
 ---
 
-## Phase 5 — in progress
+## Phase 5 — complete
 
-Plan: `docs/build/phase-05-plan.md`. Commit `6445230` closes Task 1, Task 2 and Task 3.
+Plan: `docs/build/phase-05-plan.md`. Commit `6445230` closed Task 1, Task 2 and Task 3. Commits
+`0f00401`, `53c106c` and `cf976ce` close Task 4.
 
-**Closed:** F-058 (Phase 1), F-059, F-060, F-061, F-062, F-063, F-064, F-065, F-069 (Phase 2),
-F-070, F-071 (Phase 2).
+**Closed:** F-058 (Phase 1), F-059, F-060, F-061, F-062, F-063, F-064, F-065, F-066, F-067,
+F-068, F-069 (Phase 2), F-070, F-071 (Phase 2).
 
-**Remaining: Task 4 of the plan, which must run alone, because it rewrites many files.**
+### Task 4 — what landed
 
-- **F-066** ktlint, detekt, `.editorconfig`, and one dedicated format commit.
-- **F-067** every inline `group:artifact:version` moves into `gradle/libs.versions.toml`.
-- **F-068** dependency verification or locking, with the files committed, and proof that a
-  tampered dependency fails.
+- **F-066.** The convention plugin in `buildSrc` applies ktlint and detekt, so both run for every
+  module and both join `check`. `.editorconfig` holds the format contract and selects
+  `ktlint_code_style = intellij_idea`. The default `ktlint_official` style rewrites almost every
+  file, because it adds rules the codebase never followed. `intellij_idea` matches the official
+  Kotlin coding conventions, which `CONTRIBUTING.md` already names as the standard.
+  `config/detekt/detekt.yml` holds the rule set. Commit `53c106c` is the dedicated format pass.
+- **F-067.** Every inline `group:artifact:version` string moved into `gradle/libs.versions.toml`.
+  The ktlint engine version and the JaCoCo tool version moved there too. The convention plugin
+  reads both through `VersionCatalogsExtension`, because a precompiled script plugin has no
+  generated `libs` accessor.
+- **F-068.** `gradle/verification-metadata.xml` holds a SHA-256 for every artifact, 528
+  components. Verification is active for the main build and for the Docker build, because
+  `.dockerignore` does not exclude `gradle/`.
 
-`CONTRIBUTING.md` already documents `./gradlew ktlintCheck detekt`, and `.github/workflows/ci.yml`
-already runs it in the `lint` job. Both are false until F-066 lands. That is the next thing to do.
-
-### Phase 5 evidence so far
+### Phase 5 evidence
 
 ```
-./gradlew clean build check --rerun-tasks
-BUILD SUCCESSFUL in 4m 9s
+./gradlew clean build check jacocoAggregatedReport --rerun-tasks
+BUILD SUCCESSFUL in 5m 10s, 141 tasks executed
 
-git ls-files | grep -E '^\.(taskmaster|cursor|claude)/|^\.mcp\.json$'   -> nothing
-grep -rn "maven-publish" --include='*.gradle.kts' .                      -> nothing
+./gradlew ktlintCheck detekt                        BUILD SUCCESSFUL
+./gradlew sbom --no-configuration-cache --refresh-dependencies
+                                                    BUILD SUCCESSFUL
+./gradlew jacocoAggregatedVerification              BUILD SUCCESSFUL
+Aggregate coverage: line 0.8898, branch 0.7442
+
+grep for an inline group:artifact:version in *.gradle.kts   -> nothing
+git ls-files | grep -E '^\.(taskmaster|cursor|claude)/|^\.mcp\.json$'  -> nothing
+grep -rn "maven-publish" --include='*.gradle.kts' .          -> nothing
+
+docker build -t queuebox:phase5-check .             image written, exit 0
 ```
 
-### Phase 5 deviations recorded so far
+**Clean-container walkthrough of `CONTRIBUTING.md`.** A `eclipse-temurin:21-jdk` container with no
+Gradle and no cache cloned the repository and ran the documented fast-test command.
 
-- **F-059, F-063.** No GitHub Actions run exists. The workflow files parse as valid YAML and
-  every action input was checked against its documented interface, but the GHCR push, the arm64
-  build, the provenance attestation, the release upload and the database matrix are unverified.
-  The badges cannot resolve until the workflows reach the default branch.
-- **F-061.** The Definition of Done asks for a clean-container walkthrough of `CONTRIBUTING.md`.
-  Every documented command was run on the development host instead. The container walkthrough is
-  still owed.
+```
+docker run --rm -v "$PWD":/src:ro -w /work eclipse-temurin:21-jdk
+  git clone /src /work/queuebox
+  ./gradlew --version                 -> Gradle 8.13
+  java -version                       -> openjdk 21.0.12 LTS
+  ./gradlew :core:test :config:test :outbox-service:test :inbox-service:test
+  BUILD SUCCESSFUL in 4m 34s, 32 tasks executed
+```
+
+The wrapper installed Gradle, the Foojay resolver was not needed, and dependency verification
+passed against a cold cache. This closes the container walkthrough that F-061 owed.
+
+### F-068 tamper proof
+
+Replace the HikariCP SHA-256 in `gradle/verification-metadata.xml` with 64 zeros, then run
+`./gradlew :postgres:compileKotlin --refresh-dependencies`.
+
+```
+> Dependency verification failed for configuration ':postgres:compileClasspath'
+  One artifact failed verification: HikariCP-6.0.0.jar (com.zaxxer:HikariCP:6.0.0)
+  This can indicate that a dependency has been compromised.
+```
+
+Restore the checksum and the build passes.
+
+### Decisions recorded during Task 4
+
+1. **ktlint uses the `intellij_idea` style, not `ktlint_official`.** The official style reported
+   2286 indent violations and 344 multiline-expression-wrapping violations. It would rewrite
+   almost every file for a convention the project never adopted.
+2. **`WildcardImport` and the matching ktlint rule are off.** The Ktor routing DSL and the
+   Exposed SQL DSL are designed around a wildcard import.
+3. **`InvalidPackageDeclaration` is off.** The module source roots do not mirror the package. A
+   move of every file is a layout change, not a lint change.
+4. **`TooGenericExceptionCaught` and `SwallowedException` are off.** With the rules on, 26 sites
+   in 15 main source files report, across every module. QueueBox is a message relay, and every
+   boundary handler must survive any failure of one message. The audit proposed a narrow
+   `excludes` list. The measurement did not support it, so the rules stay off with the real
+   reason written down.
+5. **A detekt baseline holds the pre-existing structural findings.** 50 entries across eight
+   per-module files: 31 MagicNumber, 8 LongMethod, 3 MatchingDeclarationName, 2 ReturnCount, 2
+   LargeClass, 1 TooManyFunctions, 1 NestedBlockDepth, 1 LongParameterList, 1 ComplexCondition.
+   No correctness rule is baselined. A refactor of shipped logic is not a lint change. One
+   baseline per module is required, because a shared file would make two module tasks write the
+   same path.
+
+### The audit finding that was acted on
+
+**The verification metadata was incomplete, and it broke the release.** A metadata file generated
+from `./gradlew build` alone holds no `.pom` entry for about 49 artifacts. `cyclonedxBom` resolves
+a configuration that `build` never resolves, and that resolution reads the `.pom` file. So
+`./gradlew sbom`, the release workflow SBOM step and the security workflow SBOM step all failed
+verification. The fix is a second generation command, and `CONTRIBUTING.md` now names both.
+
+### Findings from the audit that were not acted on
+
+- **Commit `53c106c` also deletes 21 unused imports.** The commit message calls it a format pass.
+  Every deleted symbol is absent from the file body, so no defect follows. The wording is loose,
+  not wrong.
+
+### Deviations recorded
+
+- **F-059, F-063.** No GitHub Actions run exists. The workflow files parse as valid YAML and every
+  action input was checked against its documented interface, but the GHCR push, the arm64 build,
+  the provenance attestation, the release upload and the database matrix are unverified. The
+  badges cannot resolve until the workflows reach the default branch.
+- **F-061.** The clean-container walkthrough covered the documented fast-test path. It did not
+  cover `./gradlew check`, because that needs a Docker daemon inside the container. `./gradlew
+  clean build check` passed on the development host instead.
 - **F-061.** `CODE_OF_CONDUCT.md` carries the GitHub noreply commit address, which receives no
   mail. The maintainer must replace it with a real inbox. `SECURITY.md` uses the GitHub private
   advisory form, which does work.
 
+### Phase 5 exit condition
+
+`LICENSE`, CI, the templates and the release process are in place. A new contributor goes from
+clone to a green build using only `CONTRIBUTING.md`, proved in a clean container above.
+**Met, with the two F-059 and F-063 deviations recorded above.**
+
 ---
 
-## Next phase after Phase 5
+## Next phase
 
-**Phase 6 — Documentation and polish, F-072 to F-085.** Exit condition: LICENSE, CI, templates and
-release process in place. A new contributor can go from clone to green build using only
-`CONTRIBUTING.md`.
-
-F-012 and F-071 are already closed. `docs/build/phase-05-plan.md` does not exist yet.
+**Phase 6 — Documentation and polish, F-072 to F-085.** Exit condition: see section 3 of
+`hardening-doc.md`. F-012 and F-071 are already closed. F-078, which changes the inbox accept
+response from 200 to 202, is carried forward from the Phase 4 audit.
+`docs/build/phase-06-plan.md` does not exist yet.
 
 ## Open questions for the maintainer
 
-**One question blocks part of Phase 5.** F-063 needs the GHCR permissions that only the
-maintainer can grant, and the release workflow cannot be proven without them. Section 2A
-decision 2 settles the artifact question: a container image only, no Maven artifacts and no
-signing. The remaining question is operational, not a product decision, so Phase 5 will write
-the workflow and record it as unverified rather than stop.
+**One operational item stays open.** F-063 needs the GHCR permissions that only the maintainer
+can grant, so the release workflow stays unproven. Section 2A decision 2 settles the artifact
+question: a container image only, no Maven artifacts and no signing. The remaining item is
+operational, not a product decision, so Phase 5 recorded it as unverified rather than stop.

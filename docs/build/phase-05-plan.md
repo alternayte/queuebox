@@ -116,17 +116,17 @@ This task rewrites many files, so it runs alone, after every other task.
 **Files:** Modify every `*.gradle.kts`, `gradle/libs.versions.toml`. Create `.editorconfig`,
 `config/detekt/detekt.yml`. Possibly every `*.kt` file, in one dedicated commit.
 
-- [ ] **Step 1:** Move every inline `group:artifact:version` string into the version catalog.
+- [x] **Step 1:** Move every inline `group:artifact:version` string into the version catalog.
       Confirm with a grep that none remains.
-- [ ] **Step 2:** Add ktlint and detekt with a checked-in configuration, and an `.editorconfig`.
+- [x] **Step 2:** Add ktlint and detekt with a checked-in configuration, and an `.editorconfig`.
       Wire both into `check`.
-- [ ] **Step 3:** Run the formatter over the whole codebase in one dedicated commit, so the diff
+- [x] **Step 3:** Run the formatter over the whole codebase in one dedicated commit, so the diff
       stays reviewable.
-- [ ] **Step 4:** Enable Gradle dependency verification or dependency locking, and commit the
+- [x] **Step 4:** Enable Gradle dependency verification or dependency locking, and commit the
       files.
-- [ ] **Step 5:** Prove the verification works: tamper with one dependency and record that the
+- [x] **Step 5:** Prove the verification works: tamper with one dependency and record that the
       build fails.
-- [ ] **Step 6:** Run `./gradlew ktlintCheck detekt check`.
+- [x] **Step 6:** Run `./gradlew ktlintCheck detekt check`.
 
 ---
 
