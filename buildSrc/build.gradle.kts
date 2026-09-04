@@ -6,7 +6,8 @@ plugins {
 }
 
 kotlin {
-    jvmToolchain(23)
+    // F-042: Java 21 is the long term support release.
+    jvmToolchain(21)
 }
 
 dependencies {

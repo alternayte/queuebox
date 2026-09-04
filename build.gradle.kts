@@ -1,7 +1,31 @@
 plugins {
     base
     jacoco
+    // F-043: the software bill of materials that a release publishes.
+    alias(libs.plugins.cyclonedx)
 }
+
+// The CycloneDX plugin needs a coordinate for the root component of the bill of materials.
+group = "org.nxtspec"
+version = (findProperty("queueboxVersion") as String?) ?: "0.1.0-SNAPSHOT"
+
+/**
+ * F-043: publishes the software bill of materials under the released name.
+ *
+ * The CycloneDX plugin writes `build/reports/bom.json`. This task copies it to the name that a
+ * release publishes. The plugin does not support the configuration cache, so the command is
+ * `./gradlew sbom --no-configuration-cache`.
+ */
+val sbom by tasks.registering(Copy::class) {
+    group = "documentation"
+    description = "Builds the software bill of materials under the released name"
+    dependsOn("cyclonedxBom")
+
+    from(layout.buildDirectory.file("reports/bom.json"))
+    into(layout.buildDirectory.dir("reports"))
+    rename { "queuebox-${project.version}-sbom.json" }
+}
+
 
 // Aggregated JaCoCo report - collect coverage from all subprojects
 val jacocoAggregatedReport by tasks.registering(JacocoReport::class) {

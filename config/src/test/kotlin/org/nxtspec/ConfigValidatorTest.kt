@@ -1789,4 +1789,109 @@ class ConfigValidatorTest {
 
         assertFailsWith<IllegalArgumentException> { ConfigValidator.validate(config) }
     }
+
+    // === F-040: destination URL validation ===
+
+    private fun configWithBaseUrl(
+        baseUrl: String,
+        blockPrivateAddresses: Boolean = false
+    ): QueueBoxConfig = createValidConfig().let { base ->
+        base.copy(
+            http = HttpConfig(blockPrivateAddresses = blockPrivateAddresses),
+            destinations = mapOf(
+                "webhook-api" to DestinationConfig.Http(
+                    baseUrl = baseUrl,
+                    path = "/webhooks",
+                    timeoutMs = 30000
+                )
+            ),
+            routes = listOf(RouteConfig(topicPattern = "order.*", destination = "webhook-api"))
+        )
+    }
+
+    @Test
+    fun `should fail when destination baseUrl has no scheme`() {
+        val exception = assertFailsWith<IllegalArgumentException> {
+            ConfigValidator.validate(configWithBaseUrl("api.example.com"))
+        }
+        assertContains(exception.message!!, "baseUrl")
+    }
+
+    @Test
+    fun `should fail when destination baseUrl uses the file scheme`() {
+        val exception = assertFailsWith<IllegalArgumentException> {
+            ConfigValidator.validate(configWithBaseUrl("file:///etc/passwd"))
+        }
+        assertContains(exception.message!!, "http")
+    }
+
+    @Test
+    fun `should fail when destination baseUrl is blank`() {
+        assertFailsWith<IllegalArgumentException> {
+            ConfigValidator.validate(configWithBaseUrl("   "))
+        }
+    }
+
+    @Test
+    fun `should pass when destination baseUrl carries a trailing slash`() {
+        assertNotNull(ConfigValidator.validate(configWithBaseUrl("https://api.example.com/")))
+    }
+
+    @Test
+    fun `should fail when blockPrivateAddresses refuses the metadata address`() {
+        val exception = assertFailsWith<IllegalArgumentException> {
+            ConfigValidator.validate(
+                configWithBaseUrl("http://169.254.169.254/", blockPrivateAddresses = true)
+            )
+        }
+        assertContains(exception.message!!, "private")
+    }
+
+    @Test
+    fun `should fail when blockPrivateAddresses refuses loopback`() {
+        assertFailsWith<IllegalArgumentException> {
+            ConfigValidator.validate(
+                configWithBaseUrl("http://127.0.0.1:9000", blockPrivateAddresses = true)
+            )
+        }
+    }
+
+    @Test
+    fun `should fail when blockPrivateAddresses refuses a site-local address`() {
+        assertFailsWith<IllegalArgumentException> {
+            ConfigValidator.validate(
+                configWithBaseUrl("http://10.1.2.3", blockPrivateAddresses = true)
+            )
+        }
+    }
+
+    @Test
+    fun `should fail when blockPrivateAddresses refuses a unique-local IPv6 address`() {
+        assertFailsWith<IllegalArgumentException> {
+            ConfigValidator.validate(
+                configWithBaseUrl("http://[fd00::1]", blockPrivateAddresses = true)
+            )
+        }
+    }
+
+    @Test
+    fun `should pass when blockPrivateAddresses is off and the address is private`() {
+        assertNotNull(
+            ConfigValidator.validate(
+                configWithBaseUrl("http://169.254.169.254/", blockPrivateAddresses = false)
+            )
+        )
+    }
+
+    @Test
+    fun `should pass when the host does not resolve`() {
+        assertNotNull(
+            ConfigValidator.validate(
+                configWithBaseUrl(
+                    "https://host-that-does-not-resolve.invalid",
+                    blockPrivateAddresses = true
+                )
+            )
+        )
+    }
 }

@@ -1,5 +1,9 @@
 package org.nxtspec
 
+import java.net.InetAddress
+import java.net.URI
+import java.net.UnknownHostException
+
 /**
  * Validates QueueBox configuration after loading.
  *
@@ -136,10 +140,11 @@ object ConfigValidator {
             }
         }
 
-        // Validate destination auth
+        // Validate destination auth and destination URL
         config.destinations.forEach { (name, dest) ->
             if (dest is DestinationConfig.Http) {
                 validateDestinationAuth(dest.auth, "Destination '$name'", "destinations.$name.auth")
+                validateDestinationUrl(name, dest.baseUrl, config.http.blockPrivateAddresses)
             }
         }
 
@@ -394,6 +399,84 @@ object ConfigValidator {
                 }
             }
         }
+    }
+
+
+    /**
+     * Validates the base URL of an HTTP destination. See F-040.
+     *
+     * The base URL must parse as an absolute URL with the scheme `http` or `https` and with a
+     * host. When `http.blockPrivateAddresses` is true, the validator resolves the host and
+     * refuses a loopback address, a link-local address, a site-local address, and an address in
+     * the unique-local IPv6 range `fc00::/7`.
+     *
+     * A host name that does not resolve does not stop the start. The validator cannot decide the
+     * address of such a host, so it accepts the destination and the publish attempt reports the
+     * failure later.
+     */
+    private fun validateDestinationUrl(name: String, baseUrl: String, blockPrivateAddresses: Boolean) {
+        val yamlPath = "destinations.$name.baseUrl"
+        val hint = "Set via '$yamlPath' in YAML or ${EnvConfigLoader.yamlPathToEnvKey(yamlPath)} env var."
+
+        require(baseUrl.isNotBlank()) {
+            "Destination '$name' baseUrl cannot be blank. $hint"
+        }
+
+        val uri = try {
+            URI(baseUrl.trim())
+        } catch (e: Exception) {
+            throw IllegalArgumentException(
+                "Destination '$name' baseUrl '$baseUrl' is not a valid URL. $hint"
+            )
+        }
+
+        val scheme = uri.scheme?.lowercase()
+        require(scheme == "http" || scheme == "https") {
+            "Destination '$name' baseUrl '$baseUrl' must be an absolute http or https URL. $hint"
+        }
+
+        val host = uri.host
+        require(!host.isNullOrBlank()) {
+            "Destination '$name' baseUrl '$baseUrl' must carry a host. $hint"
+        }
+
+        if (blockPrivateAddresses) {
+            requirePublicHost(name, baseUrl, host, hint)
+        }
+    }
+
+    /**
+     * Refuses a host that resolves to a private address.
+     */
+    private fun requirePublicHost(name: String, baseUrl: String, host: String, hint: String) {
+        val addresses = try {
+            InetAddress.getAllByName(host.trim('[', ']')).toList()
+        } catch (e: UnknownHostException) {
+            // The host does not resolve here. Accept it, so a temporary DNS fault does not stop
+            // the start.
+            return
+        }
+
+        addresses.forEach { address ->
+            require(!isPrivateAddress(address)) {
+                "Destination '$name' baseUrl '$baseUrl' resolves to the private address " +
+                    "${address.hostAddress}, and 'http.blockPrivateAddresses' is true. $hint"
+            }
+        }
+    }
+
+    /**
+     * Reports whether an address is loopback, link-local, site-local, or unique-local IPv6.
+     */
+    private fun isPrivateAddress(address: InetAddress): Boolean {
+        if (address.isLoopbackAddress || address.isLinkLocalAddress ||
+            address.isSiteLocalAddress || address.isAnyLocalAddress
+        ) {
+            return true
+        }
+        val bytes = address.address
+        // Unique-local IPv6 is fc00::/7.
+        return bytes.size == 16 && (bytes[0].toInt() and 0xFE) == 0xFC
     }
 
     /**

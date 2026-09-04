@@ -64,8 +64,9 @@ tasks.check {
 }
 
 kotlin {
-    // Use a specific Java version to make it easier to work in different environments.
-    jvmToolchain(23)
+    // F-042: Java 21 is the long term support release. A non-LTS release forces every adopter
+    // onto a short-lived JDK.
+    jvmToolchain(21)
 }
 
 tasks.withType<Test>().configureEach {

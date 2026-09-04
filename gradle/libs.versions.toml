@@ -12,6 +12,7 @@ hoplite = "2.9.0"
 micrometer = "1.14.3"
 jsonata = "0.9.8"
 flyway = "11.1.0"
+cyclonedx = "1.10.0"
 
 # Testing
 testcontainers = "1.20.4"
@@ -81,4 +82,5 @@ testContainersRabbitmq = ["testcontainers-rabbitmq", "testcontainers-junit"]
 testContainersMssqlserver = ["testcontainers-mssqlserver", "testcontainers-junit"]
 
 [plugins]
+cyclonedx = { id = "org.cyclonedx.bom", version.ref = "cyclonedx" }
 kotlinPluginSerialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }

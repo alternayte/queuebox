@@ -1,0 +1,10 @@
+# F-043: the documented suppression file.
+#
+# Rules:
+# 1. One line per advisory identifier.
+# 2. Every line carries a comment that names the reason and the review date.
+# 3. Review every entry when the security workflow runs its weekly schedule.
+# 4. Never suppress an advisory that a dependency upgrade can fix. Upgrade instead.
+#
+# Example, kept as a template. Remove it when the first real entry arrives.
+# CVE-0000-00000  # Reason. Reviewed 2026-09-04. Recheck 2026-12-04.

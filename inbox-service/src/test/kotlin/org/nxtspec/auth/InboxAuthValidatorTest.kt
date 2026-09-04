@@ -9,9 +9,12 @@ import io.ktor.util.*
 import io.mockk.every
 import io.mockk.mockk
 import org.nxtspec.InboxAuthConfig
+import org.nxtspec.SignaturePayloadFormat
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 
 class InboxAuthValidatorTest {
 
@@ -210,8 +213,13 @@ class InboxAuthValidatorTest {
     fun `hmac - timestamp validation accepts valid timestamp`() = testApplication {
         val secret = "webhook-secret"
         val body = """{"data":"test"}""".toByteArray()
-        val expectedSignature = validator.computeHmac(body, secret, "HmacSHA256", "sha256=")
         val currentTimestamp = System.currentTimeMillis().toString()
+        val expectedSignature = validator.computeHmac(
+            "$currentTimestamp.".toByteArray(Charsets.UTF_8) + body,
+            secret,
+            "HmacSHA256",
+            "sha256="
+        )
 
         val config = InboxAuthConfig.HmacSignature(
             secret = Secret(secret),
@@ -274,6 +282,115 @@ class InboxAuthValidatorTest {
     fun `secure compare - different length strings return false`() {
         val result = validator.secureCompare("short", "longer")
         assertEquals(false, result)
+    }
+
+    // F-036: the Authorization header must carry the "Bearer" scheme, compared case insensitively.
+    @Test
+    fun `bearer - scheme parsing table`() = testApplication {
+        val config = InboxAuthConfig.Bearer(token = Secret("secret-token"))
+        val cases = listOf(
+            "Bearer secret-token" to true,
+            "bearer secret-token" to true,
+            "BEARER secret-token" to true,
+            "secret-token" to false,
+            "Basic secret-token" to false,
+            "" to false
+        )
+
+        for ((header, expectSuccess) in cases) {
+            val result = validator.validate(mockRequest(mapOf("Authorization" to header)), config)
+            if (expectSuccess) {
+                assertIs<AuthResult.Success>(result, "expected success for header '$header'")
+            } else {
+                assertIs<AuthResult.Failure>(result, "expected failure for header '$header'")
+                assertEquals(HttpStatusCode.Unauthorized, result.statusCode)
+            }
+        }
+    }
+
+    // F-035: a captured request with a fresh timestamp must fail on the signature.
+    @Test
+    fun `hmac - replay with an updated timestamp is rejected`() = testApplication {
+        val secret = "webhook-secret"
+        val body = """{"data":"test"}""".toByteArray()
+        val capturedTimestamp = System.currentTimeMillis() - 1000
+        val config = InboxAuthConfig.HmacSignature(
+            secret = Secret(secret),
+            headerName = "X-Signature",
+            algorithm = "HmacSHA256",
+            signaturePrefix = "sha256=",
+            timestampHeader = "X-Timestamp",
+            timestampTolerance = 300000
+        )
+
+        val capturedSignature = validator.computeHmac(
+            "$capturedTimestamp.".toByteArray(Charsets.UTF_8) + body,
+            secret,
+            "HmacSHA256",
+            "sha256="
+        )
+
+        // The original request passes.
+        val original = mockRequestWithBody(
+            headers = mapOf(
+                "X-Signature" to capturedSignature,
+                "X-Timestamp" to capturedTimestamp.toString()
+            ),
+            body = body
+        )
+        assertIs<AuthResult.Success>(validator.validate(original, config))
+
+        // The replay uses a fresh timestamp inside the tolerance window.
+        val replayTimestamp = System.currentTimeMillis()
+        val replay = mockRequestWithBody(
+            headers = mapOf(
+                "X-Signature" to capturedSignature,
+                "X-Timestamp" to replayTimestamp.toString()
+            ),
+            body = body
+        )
+
+        val result = validator.validate(replay, config)
+
+        assertIs<AuthResult.Failure>(result)
+        assertEquals("Invalid signature", result.message)
+        assertEquals(HttpStatusCode.Unauthorized, result.statusCode)
+    }
+
+    @Test
+    fun `hmac - body only format signs the body alone`() = testApplication {
+        val secret = "webhook-secret"
+        val body = """{"data":"test"}""".toByteArray()
+        val config = InboxAuthConfig.HmacSignature(
+            secret = Secret(secret),
+            headerName = "X-Signature",
+            algorithm = "HmacSHA256",
+            signaturePrefix = "sha256=",
+            timestampHeader = "X-Timestamp",
+            timestampTolerance = 300000,
+            signaturePayloadFormat = SignaturePayloadFormat.BODY
+        )
+
+        val request = mockRequestWithBody(
+            headers = mapOf(
+                "X-Signature" to validator.computeHmac(body, secret, "HmacSHA256", "sha256="),
+                "X-Timestamp" to System.currentTimeMillis().toString()
+            ),
+            body = body
+        )
+
+        assertIs<AuthResult.Success>(validator.validate(request, config))
+    }
+
+    // F-037: the comparison uses MessageDigest.isEqual over SHA-256 digests.
+    @Test
+    fun `secure compare - behaviour is unchanged for equal and unequal inputs`() {
+        assertTrue(validator.secureCompare("hello", "hello"))
+        assertTrue(validator.secureCompare("", ""))
+        assertFalse(validator.secureCompare("hello", "world"))
+        assertFalse(validator.secureCompare("short", "longer"))
+        assertFalse(validator.secureCompare("hello", "hellO"))
+        assertFalse(validator.secureCompare("", "x"))
     }
 
     private fun mockRequest(headers: Map<String, String> = emptyMap()): ApplicationRequest {

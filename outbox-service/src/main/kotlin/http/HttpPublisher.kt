@@ -9,6 +9,8 @@ import io.ktor.client.statement.*
 import io.ktor.http.*
 import io.ktor.serialization.kotlinx.json.*
 import org.nxtspec.Destination
+import org.nxtspec.ErrorSanitizer
+import org.nxtspec.HttpConfig
 import org.nxtspec.OutboxMessage
 import org.nxtspec.PublishContext
 import org.nxtspec.Publisher
@@ -19,7 +21,8 @@ import java.util.concurrent.ConcurrentHashMap
 class HttpPublisher(
     private val clientFactory: ((Destination.Http) -> HttpClient)? = null,
     private val metricsCollector: MetricsCollectorInterface? = null,
-    private val authResolver: DestinationAuthResolver? = null
+    private val authResolver: DestinationAuthResolver? = null,
+    private val httpConfig: HttpConfig = HttpConfig()
 ) : Publisher {
     private val clients = ConcurrentHashMap<String, HttpClient>()
 
@@ -61,7 +64,7 @@ class HttpPublisher(
             // Merge headers: destination static -> auth -> per-message (later wins)
             val mergedCustomHeaders = httpDest.headers + authHeaders + message.headers
 
-            val response = client.post(httpDest.baseUrl + httpDest.path) {
+            val response = client.post(joinUrl(httpDest.baseUrl, httpDest.path)) {
                 contentType(ContentType.Application.Json)
                 // Standard headers
                 header("X-Message-Id", message.id.toString())
@@ -78,11 +81,14 @@ class HttpPublisher(
             if (response.status.isSuccess()) {
                 Result.success(Unit)
             } else {
+                val safeBody = boundAndRedact(response.bodyAsText())
+                val head = "HTTP ${response.status.value}: ${response.status.description}"
+                val text = if (safeBody.isNullOrBlank()) head else "$head - $safeBody"
                 Result.failure(
                     HttpPublishException(
-                        message = "HTTP ${response.status.value}: ${response.status.description}",
+                        message = text.take(httpConfig.maxErrorBodyBytes),
                         statusCode = response.status.value,
-                        body = response.bodyAsText()
+                        body = safeBody
                     )
                 )
             }
@@ -93,6 +99,33 @@ class HttpPublisher(
             recordPublishDuration(startTime)
             Result.failure(HttpPublishException("Publish failed: ${e.message}", cause = e))
         }
+    }
+
+    /**
+     * Joins the base URL and the path with a URL builder. See F-040.
+     *
+     * A missing slash or a duplicated slash therefore cannot change the target.
+     */
+    private fun joinUrl(baseUrl: String, path: String): String {
+        val builder = URLBuilder(baseUrl)
+        val segments = path.split('/').filter { it.isNotEmpty() }
+        if (segments.isNotEmpty()) {
+            builder.appendPathSegments(segments)
+        }
+        return builder.buildString()
+    }
+
+    /**
+     * Bounds and redacts the error body before it leaves the publisher. See F-039.
+     *
+     * A hostile or broken destination can return megabytes, and an error body often echoes the
+     * request, which includes an authorization header. The publisher therefore truncates the body
+     * to `http.maxErrorBodyBytes` and then redacts every secret value.
+     */
+    private fun boundAndRedact(body: String?): String? {
+        if (body == null) return null
+        val bounded = body.take(httpConfig.maxErrorBodyBytes)
+        return ErrorSanitizer.sanitize(bounded)?.take(httpConfig.maxErrorBodyBytes)
     }
 
     private fun recordPublishDuration(startTime: Long) {
@@ -109,9 +142,11 @@ class HttpPublisher(
 object HttpPublisherFactory {
     fun create(
         metricsCollector: MetricsCollectorInterface? = null,
-        authResolver: DestinationAuthResolver? = null
+        authResolver: DestinationAuthResolver? = null,
+        httpConfig: HttpConfig = HttpConfig()
     ): HttpPublisher = HttpPublisher(
         metricsCollector = metricsCollector,
-        authResolver = authResolver
+        authResolver = authResolver,
+        httpConfig = httpConfig
     )
 }

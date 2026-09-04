@@ -14,6 +14,7 @@ import org.nxtspec.http.HttpPublisher
 import java.util.UUID
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class HttpPublisherTest {
@@ -373,5 +374,105 @@ class HttpPublisherTest {
 
         assertEquals("dest-value", capturedHeaders!!["X-Dest-Header"])
         assertEquals("msg-value", capturedHeaders!!["X-Msg-Header"])
+    }
+
+    // === F-039: bounded and redacted error body ===
+
+    @Test
+    fun `should bound the exception message when the error body is one megabyte`() = runTest {
+        val hugeBody = "A".repeat(1024 * 1024)
+        val mockEngine = MockEngine { _ ->
+            respond(hugeBody, HttpStatusCode.InternalServerError)
+        }
+
+        val limit = 2048
+        val publisher = HttpPublisher(
+            clientFactory = createClientWithEngine(mockEngine),
+            httpConfig = HttpConfig(maxErrorBodyBytes = limit)
+        )
+
+        val result = publisher.publish(createTestMessage(), createTestDestination())
+
+        assertTrue(result.isFailure)
+        val error = result.exceptionOrNull() as HttpPublishException
+        assertTrue(
+            error.message!!.length <= limit,
+            "Exception message length ${error.message!!.length} exceeds the limit $limit"
+        )
+        assertTrue(error.body!!.length <= limit)
+    }
+
+    @Test
+    fun `should redact a secret when the error body echoes it`() = runTest {
+        val mockEngine = MockEngine { _ ->
+            respond(
+                """{"error":"bad","authorization":"Bearer super-secret-value"}""",
+                HttpStatusCode.BadRequest
+            )
+        }
+
+        val publisher = HttpPublisher(clientFactory = createClientWithEngine(mockEngine))
+
+        val result = publisher.publish(createTestMessage(), createTestDestination())
+
+        val error = result.exceptionOrNull() as HttpPublishException
+        assertFalse(error.message!!.contains("super-secret-value"))
+        assertFalse(error.body!!.contains("super-secret-value"))
+    }
+
+    // === F-040: URL join with a builder ===
+
+    @Test
+    fun `should not duplicate the slash when the base URL and the path both carry one`() = runTest {
+        var capturedUrl: String? = null
+        val mockEngine = MockEngine { request ->
+            capturedUrl = request.url.toString()
+            respond("", HttpStatusCode.OK)
+        }
+
+        val publisher = HttpPublisher(createClientWithEngine(mockEngine))
+
+        publisher.publish(
+            createTestMessage(),
+            createTestDestination(baseUrl = "http://example.com/", path = "/webhook")
+        )
+
+        assertEquals("http://example.com/webhook", capturedUrl)
+    }
+
+    @Test
+    fun `should insert the slash when neither the base URL nor the path carries one`() = runTest {
+        var capturedUrl: String? = null
+        val mockEngine = MockEngine { request ->
+            capturedUrl = request.url.toString()
+            respond("", HttpStatusCode.OK)
+        }
+
+        val publisher = HttpPublisher(createClientWithEngine(mockEngine))
+
+        publisher.publish(
+            createTestMessage(),
+            createTestDestination(baseUrl = "http://example.com", path = "webhook")
+        )
+
+        assertEquals("http://example.com/webhook", capturedUrl)
+    }
+
+    @Test
+    fun `should keep the base path when the base URL carries one`() = runTest {
+        var capturedUrl: String? = null
+        val mockEngine = MockEngine { request ->
+            capturedUrl = request.url.toString()
+            respond("", HttpStatusCode.OK)
+        }
+
+        val publisher = HttpPublisher(createClientWithEngine(mockEngine))
+
+        publisher.publish(
+            createTestMessage(),
+            createTestDestination(baseUrl = "http://example.com/api/", path = "/webhook")
+        )
+
+        assertEquals("http://example.com/api/webhook", capturedUrl)
     }
 }

@@ -20,6 +20,7 @@ import org.nxtspec.repository.DatabaseProviderFactory
 import org.nxtspec.repository.DatabaseType
 import org.nxtspec.repository.InboxColumnMappingData
 import org.nxtspec.repository.OutboxColumnMappingData
+import org.nxtspec.auth.InboxAuthValidator
 import org.nxtspec.transform.InboxTransformPipeline
 import org.nxtspec.transform.TransformEngine
 import org.nxtspec.transform.TransformPipeline
@@ -117,7 +118,9 @@ fun main() {
     // Publishers
     val httpPublisher = HttpPublisher(
         metricsCollector = metricsCollector,
-        authResolver = authResolver
+        authResolver = authResolver,
+        // F-039: the operator value bounds the error body that a failed publish keeps.
+        httpConfig = config.http
     )
     // F-003: RabbitMQ destinations are advertised, so the RabbitMQ publisher must be
     // registered. Without it the poller marks every RabbitMQ message as dead.
@@ -126,6 +129,9 @@ fun main() {
 
     // F-003: fail fast when a destination has no publisher.
     validatePublisherCoverage(destinations, publishers)
+
+    // F-034: fail fast when the admin routes are enabled with no authentication.
+    requireAdminAuth(config.admin)
 
     // Transform pipelines (shared engine for both outbox and inbox)
     val transformEngine = TransformEngine()
@@ -228,7 +234,7 @@ fun main() {
         configureInboxRoutes(config.inbox, config.sources, inboxHandler)
         configureHealthRoutes(healthManager)
         configureMetricsRoutes(prometheusRegistry)
-        configureAdminRoutes(transformEngine)
+        configureAdminRoutes(config.admin, InboxAuthValidator(), transformEngine)
     }
 
     val shutdownSequence = ShutdownSequence(

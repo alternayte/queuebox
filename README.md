@@ -274,6 +274,66 @@ sources:
       requestsPerMinute: 60               # The 61st request in a minute gets 429
 ```
 
+### Outbound HTTP Limits
+
+QueueBox bounds the error text of a failed publish and can refuse a destination on a private
+address.
+
+| Field | Default | Description |
+|-------|---------|-------------|
+| `http.maxErrorBodyBytes` | `2048` | Upper bound in bytes for the error body that a failed publish keeps. The publisher truncates the body and redacts every secret value before the text reaches a log or the `last_error` column. |
+| `http.blockPrivateAddresses` | `false` | Set it to true to refuse a destination whose host resolves to a loopback, link-local, site-local, or unique-local address. QueueBox applies the check at startup. A host that does not resolve does not stop the startup. |
+
+QueueBox validates every destination `baseUrl` at startup. The value must be an absolute `http` or
+`https` URL with a host.
+
+```yaml
+database:
+  url: jdbc:postgresql://localhost:5432/queuebox
+  username: queuebox
+  password: ${DB_PASSWORD}
+
+http:
+  maxErrorBodyBytes: 2048                 # Keep at most 2048 bytes of an error body
+  blockPrivateAddresses: true             # Refuse a destination on a private address
+
+destinations:
+  my-api:
+    type: http
+    baseUrl: https://api.example.com
+    path: /webhooks
+
+routes:
+  - topicPattern: "order.*"
+    destination: my-api
+```
+
+### Admin Endpoint
+
+The admin endpoint evaluates a caller-supplied JSONata expression. That is remote compute on the
+message-processing host, so QueueBox disables the endpoint by default and needs authentication.
+
+| Field | Default | Description |
+|-------|---------|-------------|
+| `admin.enabled` | `false` | Set it to true to register `/admin/transform/test`. The route does not exist while the value is false. |
+| `admin.auth` | none | Credentials for the admin route. It uses the same schemes as `inbox.auth`: `bearer`, `api-key`, and `hmac`. A request without valid credentials gets 401. |
+| `admin.insecure` | `false` | Set it to true to allow the admin route with no authentication. Use it for a local test only. |
+| `admin.maxTransformTimeoutMs` | `1000` | Upper bound in milliseconds for the caller-supplied `timeoutMs`. QueueBox clamps a larger value to this bound. |
+| `admin.maxPayloadBytes` | `65536` | Upper bound in bytes for the caller-supplied payload. A larger request gets 413. |
+
+QueueBox refuses to start when `admin.enabled` is true, `admin.auth` is absent, and
+`admin.insecure` is false.
+
+```yaml
+admin:
+  enabled: true
+  auth:
+    type: bearer
+    token: ${ADMIN_TOKEN}
+  maxTransformTimeoutMs: 1000
+  maxPayloadBytes: 65536
+```
+
 ### Required Fields Reference
 
 #### Core Required Fields
@@ -574,6 +634,21 @@ transform:
 - `fail` — Mark message as failed, retry later (default)
 - `skip` — Skip this message, mark as sent
 - `dead` — Move directly to dead-letter
+
+## Security
+
+Read [docs/operations/security.md](docs/operations/security.md) before you put QueueBox on a
+network that you do not control. It covers the transport, the secrets, the admin endpoint, and
+the request limits.
+
+Three rules matter most.
+
+1. **Terminate TLS in front of QueueBox.** QueueBox listens on plain HTTP and does not terminate
+   TLS. The document holds a working ingress example.
+2. **Point a credential at a file.** Every credential field accepts a `file:` reference, so an
+   operator can mount a Kubernetes secret. QueueBox reads the file once, at startup.
+3. **A credential never prints.** Every credential field carries the `Secret` type, whose
+   `toString` returns a mask.
 
 ## Authentication
 
