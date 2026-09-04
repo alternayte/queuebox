@@ -7,10 +7,10 @@ Source of truth: `hardening-doc.md`. The document is immutable and authoritative
 | Phase | Title | Findings | Status |
 |-------|-------|----------|--------|
 | 1 | Truth in advertising | F-001 to F-012 | **complete** (commit `eeb1d00`) |
-| 2 | Durability and correctness | F-013 to F-033 | not started |
+| 2 | Durability and correctness | F-013 to F-033 | **complete** (commits `93afae4`..`8960a00`) |
 | 3 | Security hardening | F-034 to F-045 | not started |
 | 4 | Observability and operations | F-046 to F-057 | not started |
-| 5 | Open source governance | F-058 to F-071 | not started |
+| 5 | Open source governance | F-058 to F-071 | not started. F-071 is already closed. |
 | 6 | Documentation and polish | F-072 to F-085 | not started |
 
 ---
@@ -102,14 +102,106 @@ gates at the end of Phase 2.
 
 ---
 
+---
+
+## Phase 2 — complete
+
+Plan: `docs/build/phase-02-plan.md`. Commits `93afae4`, `67d4586`, `eddce74`, `40a90ec`,
+`8960a00`.
+
+### Findings closed
+
+| ID | Fix | Evidence |
+|----|-----|----------|
+| F-013 | Each message runs inside try/catch. The retry strategy applies to that message, and the batch continues. | `OutboxPollerTest` |
+| F-014 | The poller publishes up to `outbox.concurrency` messages at the same time. | `OutboxPollerTest` |
+| F-015 | The pending count runs at most once per `outbox.pendingGaugeIntervalMs`. | `OutboxPollerTest` |
+| F-016 | `last_error` column, two migrations, and `ErrorSanitizer`. | `ErrorSanitizerTest`, `E2EOutboxFlowTest` |
+| F-017 | `markFailed` is gone. `scheduleRetry` is the only method that increments. | `OutboxRepositoryTest`, `E2EOutboxFlowTest` |
+| F-018 | One actor coroutine owns the AMQP channel and performs every acknowledgement. | `RabbitConsumerConcurrencyTest` |
+| F-019 | `stop` cancels the consumer tag, drains, then closes. | `RabbitConsumerConcurrencyTest` |
+| F-020 | One cached confirm channel per destination behind a mutex. | `RabbitPublisherThroughputTest` |
+| F-021 | The README states the measured throughput and names the test. | `RabbitPublisherThroughputTest` |
+| F-022 | A return listener correlates an unroutable return to its confirm. | `RabbitPublisherIntegrationTest` |
+| F-023 | The body cap runs before every read, on every route. | `InboxRoutesTest`, `BodySizeLimitTest` |
+| F-024 | A per-source rate limit answers 429 with `Retry-After`. | `InboxRoutesTest` |
+| F-025 | One JSON parse per message. | `IdempotencyExtractorTest` |
+| F-026 | Precompiled, escaped, anchored patterns. | `MessageRouterTest` |
+| F-027 | `stop()` returns in under two seconds with a one hour interval. | `RetentionServiceTest` |
+| F-028 | `shutdown()` is bounded by `outbox.shutdownTimeoutMs`. | `OutboxPollerTest` |
+| F-029 | Drain, then stop the server, then the services, then the resources. | `ShutdownSequenceTest`, `E2EShutdownTest` |
+| F-030 | Flyway runs the bundled migrations at startup. | `PostgresMigratorTest`, `SqlServerMigratorTest`, `MigrationGuardTest` |
+| F-031 | The two migration sets correspond one to one. `docs/development/migrations.md`. | file listing |
+| F-032 | A column mapping using `order` and `user` works on both providers, for both tables. | `CustomTableNameTest`, `SqlServerCustomColumnTest` |
+| F-033 | The README states the age column per table, and a test asserts it. | `RetentionSemanticsTest` |
+| F-071 | Pulled forward from Phase 5. See below. | `grep -rn "Hello, " --include='*.kt' .` returns nothing |
+
+### Exit condition evidence
+
+Command: `./gradlew clean build check jacocoAggregatedReport --rerun-tasks`
+
+```
+BUILD SUCCESSFUL in 3m 44s
+74 actionable tasks: 74 executed
+```
+
+Aggregate coverage:
+
+```
+BRANCH: 0.7719 (758/982)
+LINE:   0.8782 (2531/2882)
+```
+
+The gates are now the values that decision 3 of section 2A requires: 80 percent aggregate line,
+70 percent aggregate branch, 60 percent per module. `check` enforces all three.
+
+### Decisions recorded during Phase 2
+
+1. **F-071 pulled forward from Phase 5.** Decision 3 of section 2A requires the raised coverage
+   gates at the end of Phase 2. The five template `Main.kt` files and the `utils` module held
+   dead code that no test can reasonably cover, so the gate could not pass while they existed.
+   The finding is a pure deletion, so pulling it forward carries no design risk.
+2. **The coverage exclusion list.** `AppKt` and its lambdas are excluded, because only a started
+   process runs `main`. `TESTING.md` names every exclusion and its reason, which is what F-070
+   asks for. The same list now applies to the per-module reports and to the aggregated report.
+3. **DoubleReceive removed.** F-023 asks to cap the `DoubleReceive` buffer. The route now reads
+   the body once, under the cap, and reuses those bytes for the HMAC check and the JSON parse,
+   so the plugin is not needed. Removing it deletes the second, uncapped buffer entirely.
+4. **Migrations and a custom schema.** The bundled files name the default schema. QueueBox
+   refuses to run them when the configuration renames a table or a column, and it tells the
+   operator to set `database.migrate` to false. Templated migrations are not in the document.
+5. **Migration idempotence is mandatory.** Flyway baselines an existing database at version 0
+   and replays every file, so every file guards its own statements.
+
+### Deviations from the Definition of Done
+
+- **F-015.** The DoD suggests virtual time. The test uses wall-clock time with a 20 ms poll
+  interval and a 5000 ms gauge interval, and asserts exactly one count call in 500 ms. The
+  margin is large, so the check is stable.
+- **F-030.** The plan named an `E2EMigrationTest` in the `app` module. The coverage lives in
+  `PostgresMigratorTest` and `SqlServerMigratorTest` instead. Both start against an empty
+  database with no init script, apply every migration, and then run the message path through the
+  repositories. No test boots `main` itself, because `main` blocks on the HTTP server.
+
+### Findings from the audit that were not acted on
+
+- **C4.** A RabbitMQ destination serialises its publishes behind one channel mutex, so
+  `outbox.concurrency` raises throughput only across destinations. That follows from the F-020
+  cached channel and the F-021 synchronous confirm, which the document accepts. The README now
+  states it.
+- **C6.** The rate limiter uses one bucket per source rather than one per client. The F-024
+  Definition of Done is met. A per-client key is a design change that the document does not ask
+  for. Record it for Phase 3, which owns the security findings.
+
+---
+
 ## Next phase to start
 
-**Phase 2 — Durability and correctness, F-013 to F-033.** Exit condition: all major
-findings closed, and new integration tests for crash recovery, concurrency and
-retention pass.
+**Phase 3 — Security hardening, F-034 to F-045.** Exit condition: all security findings closed,
+`/admin` is authenticated, request size limits enforced, secrets never printed.
 
-Start with `docs/build/phase-02-plan.md`, which does not exist yet.
+`docs/build/phase-03-plan.md` does not exist yet.
 
 ## Open questions for the maintainer
 
-None. No question blocks Phase 2.
+None. No question blocks Phase 3.
