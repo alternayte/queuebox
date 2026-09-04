@@ -108,37 +108,7 @@ fun main() {
 
     // Repositories via factory pattern
     val dbType = DatabaseType.valueOf(config.database.type.uppercase())
-    val columnMappingData = ColumnMappingData(
-        outbox = OutboxColumnMappingData(
-            id = config.database.columnMapping.outbox.id,
-            topic = config.database.columnMapping.outbox.topic,
-            key = config.database.columnMapping.outbox.key,
-            payload = config.database.columnMapping.outbox.payload,
-            headers = config.database.columnMapping.outbox.headers,
-            state = config.database.columnMapping.outbox.state,
-            attempt = config.database.columnMapping.outbox.attempt,
-            maxAttempts = config.database.columnMapping.outbox.maxAttempts,
-            scheduledAt = config.database.columnMapping.outbox.scheduledAt,
-            createdAt = config.database.columnMapping.outbox.createdAt,
-            updatedAt = config.database.columnMapping.outbox.updatedAt,
-            claimedAt = config.database.columnMapping.outbox.claimedAt,
-            lastError = config.database.columnMapping.outbox.lastError
-        ),
-        inbox = InboxColumnMappingData(
-            id = config.database.columnMapping.inbox.id,
-            source = config.database.columnMapping.inbox.source,
-            idempotencyKey = config.database.columnMapping.inbox.idempotencyKey,
-            aggregateId = config.database.columnMapping.inbox.aggregateId,
-            eventType = config.database.columnMapping.inbox.eventType,
-            payload = config.database.columnMapping.inbox.payload,
-            state = config.database.columnMapping.inbox.state,
-            createdAt = config.database.columnMapping.inbox.createdAt,
-            processedAt = config.database.columnMapping.inbox.processedAt,
-            claimedAt = config.database.columnMapping.inbox.claimedAt
-        ),
-        outboxTableName = config.database.outboxTableName,
-        inboxTableName = config.database.inboxTableName
-    )
+    val columnMappingData = columnMappingData(config.database)
     val repositoryFactory = DatabaseProviderFactory.create(dbType, dataSource, columnMappingData)
 
     // F-030: apply the bundled migrations before anything reads a table.
@@ -214,12 +184,9 @@ fun main() {
                 transformPipeline = inboxTransformPipeline,
                 sourceTransform = rabbitConfig.transform,
                 // A transform rejection on an AMQP source must not destroy the message. The
-                // consumer stores the original payload, and this callback marks the row dead so
-                // the relay never forwards a rejected payload. The mark serves the duplicate
-                // path, where an earlier row can still be pending.
-                markDead = inboxRepository::markDeadByKey,
-                // Third review gate, defect 1: the first store already writes state 'dead' in
-                // one transaction, so the relay never sees a claimable rejected row.
+                // consumer stores the original payload in state 'dead' in one transaction, so
+                // the relay never sees a claimable rejected row. See the third review gate,
+                // defect 1.
                 storeDeadMessage = inboxRepository::storeDead
             ) to connection
         }
@@ -395,6 +362,45 @@ internal fun createSourceConnection(sourceName: String, connectionUrl: String): 
             ".connectionUrl. The URL is not printed, because it carries the broker password."
     )
 }
+
+/**
+ * Maps the configured column names onto the repository data class.
+ *
+ * Fourth review gate, defect 2: every name of the configuration must appear here. A dropped
+ * name passes the configuration validator, and then every statement of that table fails.
+ */
+internal fun columnMappingData(database: DatabaseConfig): ColumnMappingData = ColumnMappingData(
+    outbox = OutboxColumnMappingData(
+        id = database.columnMapping.outbox.id,
+        topic = database.columnMapping.outbox.topic,
+        key = database.columnMapping.outbox.key,
+        payload = database.columnMapping.outbox.payload,
+        headers = database.columnMapping.outbox.headers,
+        state = database.columnMapping.outbox.state,
+        attempt = database.columnMapping.outbox.attempt,
+        maxAttempts = database.columnMapping.outbox.maxAttempts,
+        scheduledAt = database.columnMapping.outbox.scheduledAt,
+        createdAt = database.columnMapping.outbox.createdAt,
+        updatedAt = database.columnMapping.outbox.updatedAt,
+        claimedAt = database.columnMapping.outbox.claimedAt,
+        lastError = database.columnMapping.outbox.lastError
+    ),
+    inbox = InboxColumnMappingData(
+        id = database.columnMapping.inbox.id,
+        source = database.columnMapping.inbox.source,
+        idempotencyKey = database.columnMapping.inbox.idempotencyKey,
+        aggregateId = database.columnMapping.inbox.aggregateId,
+        eventType = database.columnMapping.inbox.eventType,
+        payload = database.columnMapping.inbox.payload,
+        state = database.columnMapping.inbox.state,
+        createdAt = database.columnMapping.inbox.createdAt,
+        processedAt = database.columnMapping.inbox.processedAt,
+        claimedAt = database.columnMapping.inbox.claimedAt,
+        correlationId = database.columnMapping.inbox.correlationId
+    ),
+    outboxTableName = database.outboxTableName,
+    inboxTableName = database.inboxTableName
+)
 
 /**
  * Maps one RabbitMQ source of the configuration onto the consumer configuration.

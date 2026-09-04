@@ -62,7 +62,6 @@ class RetentionBatchingTest {
         override suspend fun claimPending(batchSize: Int): List<InboxMessage> = emptyList()
         override suspend fun markProcessed(id: UUID) = Unit
         override suspend fun markDead(id: UUID) = Unit
-        override suspend fun markDeadByKey(source: String, idempotencyKey: String) = Unit
         override suspend fun countByState(state: String): Long = rows.count { it.state == state }.toLong()
 
         override suspend fun reclaimStale(olderThan: Duration): Int = 0

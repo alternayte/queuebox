@@ -344,44 +344,4 @@ class InboxRepositoryTest : PostgresTestBase() {
         assertEquals(1, claimed.size)
         assertEquals(null, claimed[0].aggregateId)
     }
-
-    // --- markDeadByKey tests ---
-    //
-    // The RabbitMQ consumer marks a rejected row dead by the pair (source, idempotencyKey),
-    // because a redelivery holds a new row identifier. The predicate must therefore match that
-    // pair exactly, and nothing else.
-
-    @Test
-    fun `markDeadByKey should mark the row of the pair dead`() = runBlocking {
-        val id = insertInboxMessage("stripe", "evt_123", state = "pending")
-        setInboxClaimedAt(id, Clock.System.now())
-
-        repository.markDeadByKey("stripe", "evt_123")
-
-        assertEquals("dead", getInboxMessageState(id))
-        assertEquals(null, getInboxClaimedAt(id), "The mark must release the claim.")
-    }
-
-    @Test
-    fun `markDeadByKey should mark no other row`() = runBlocking {
-        val target = insertInboxMessage("stripe", "evt_123", state = "pending")
-        val otherSource = insertInboxMessage("plaid", "evt_123", state = "pending")
-        val otherKey = insertInboxMessage("stripe", "evt_456", state = "pending")
-
-        repository.markDeadByKey("stripe", "evt_123")
-
-        assertEquals("dead", getInboxMessageState(target))
-        assertEquals("pending", getInboxMessageState(otherSource), "Another source must keep its state.")
-        assertEquals("pending", getInboxMessageState(otherKey), "Another key must keep its state.")
-    }
-
-    @Test
-    fun `markDeadByKey should do nothing when no row matches`() = runBlocking {
-        val other = insertInboxMessage("stripe", "evt_123", state = "pending")
-
-        repository.markDeadByKey("stripe", "evt_absent")
-
-        assertEquals("pending", getInboxMessageState(other))
-        assertEquals(0, repository.countByState("dead"))
-    }
 }

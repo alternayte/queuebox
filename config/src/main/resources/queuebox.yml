@@ -1,13 +1,20 @@
-# QueueBox Configuration
-# Environment variables can be used with ${VAR_NAME} syntax
+# The packaged QueueBox configuration.
+#
+# QueueBox reads this file ONLY when no external file exists. See finding F-076 and
+# docs/configuration.md. A deployment writes /etc/queuebox/queuebox.yml instead, or names another
+# path with QUEUEBOX_CONFIG_FILE.
+#
+# Every value below is a plain default for a local run. Configure a deployment with the QUEUEBOX_
+# variables, for example QUEUEBOX_DATABASE_URL. This file names no other environment variable, so
+# one naming rule holds everywhere.
 
 server:
   httpPort: 8080
 
 database:
-  url: ${DB_URL:-jdbc:postgresql://localhost:5432/queuebox}
-  username: ${DB_USER:-queuebox}
-  password: ${DB_PASSWORD:-queuebox}
+  url: jdbc:postgresql://localhost:5432/queuebox
+  username: queuebox
+  password: queuebox
   poolSize: 10
   connectionTimeoutMs: 30000
 
@@ -31,7 +38,7 @@ destinations:
 
   events-exchange:
     type: rabbitmq
-    url: ${RABBITMQ_URL:-amqp://localhost:5672}
+    url: amqp://localhost:5672
     exchange: queuebox-events
     exchangeType: topic
 

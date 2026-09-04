@@ -152,7 +152,6 @@ class RabbitConsumerRejectionRedeliveryTest {
             config = config,
             transformPipeline = rejectingPipeline(),
             sourceTransform = rejectingTransform,
-            markDead = { _, key -> deadKeys.add(key) },
             storeDeadMessage = { message ->
                 if (attempts.incrementAndGet() == 1) {
                     error("Simulated database outage")
@@ -179,18 +178,22 @@ class RabbitConsumerRejectionRedeliveryTest {
     }
 
     /**
-     * Defect 1, duplicate path: an earlier attempt can have left a pending row. The store of the
-     * dead row then answers Duplicate, and the mark by key must still run.
+     * Fourth review gate, defect 1. A healthy row must not die because a later, unrelated
+     * message shares its idempotency key.
+     *
+     * The store of the dead row answers Duplicate, because the natural key exists. The consumer
+     * marks nothing. A rejected message reaches `storeDeadMessage` only, and that call writes
+     * state 'dead' in one transaction, so no rejected row ever waits in state 'pending'.
      */
     @Test
-    fun `a duplicate row that is still pending is marked dead`() = runBlocking {
+    fun `a healthy row survives a rejected message that shares its idempotency key`() = runBlocking {
         val id = "duplicate-${UUID.randomUUID()}"
         val config = RabbitConsumerConfig(
             queueName = TEST_QUEUE,
             sourceName = "test-source",
             idempotencyKeyPath = "$.id"
         )
-        // The earlier attempt already stored a pending row for this key.
+        // An earlier, healthy event already stored a pending row for this key.
         mockStore(
             InboxMessage(
                 source = "test-source",
@@ -206,7 +209,6 @@ class RabbitConsumerRejectionRedeliveryTest {
             config = config,
             transformPipeline = rejectingPipeline(),
             sourceTransform = rejectingTransform,
-            markDead = { _, key -> deadKeys.add(key) },
             storeDeadMessage = mockStore
         )
         consumer.start()
@@ -217,7 +219,11 @@ class RabbitConsumerRejectionRedeliveryTest {
         consumer.stop()
 
         assertEquals(1, storedMessages.size, "The duplicate must add no second row.")
-        assertTrue(deadKeys.contains(id), "The pending duplicate row must be marked dead.")
+        assertEquals(
+            kotlinx.serialization.json.JsonObject(emptyMap()),
+            storedMessages.single().payload,
+            "The healthy row must keep its own payload."
+        )
         assertEquals(0L, queueDepth(), "The queue must be empty after the acknowledgement.")
     }
 
@@ -236,7 +242,6 @@ class RabbitConsumerRejectionRedeliveryTest {
             config = config,
             transformPipeline = rejectingPipeline(),
             sourceTransform = rejectingTransform,
-            markDead = null,
             storeDeadMessage = null
         )
         consumer.start()

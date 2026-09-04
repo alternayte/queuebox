@@ -60,10 +60,16 @@ a running process can execute it.
 
 | Pattern | Reason |
 |---------|--------|
-| `**/*Table.class` | An Exposed table definition. It declares columns and indexes, and it holds no branch. The integration tests exercise every column through the repositories. |
-| `**/*Tables.class` | The same, for the file that declares more than one table. |
+| `**/OutboxTable.class` | An Exposed table definition. It declares columns and indexes, and it holds no branch. The integration tests exercise every column through the repositories. |
+| `**/InboxTable.class` | The same, for the inbox. |
+| `**/SqlServerOutboxTable.class` | The same, for the SQL Server outbox. |
+| `**/SqlServerInboxTable.class` | The same, for the SQL Server inbox. |
 | `**/AppKt.class` | The process entry point. `main` wires the whole application together and then blocks on the HTTP server, so only a started process runs it. The file also holds `configureRouting`, which installs content negotiation and the root route. |
 | `**/AppKt$*.class` | The lambdas that `main` declares, including the three shutdown steps, for the same reason. |
+
+Every entry names ONE class. Finding F-070 removed the earlier suffix patterns `**/*Table.class`
+and `**/*Tables.class`, because a suffix also hid `DynamicTables`, which carries the column mapping
+feature. A new exclusion therefore names a class, never a suffix.
 
 The exclusion hides the wiring itself, not the parts that the wiring composes. Each part has its
 own test: `ShutdownSequenceTest`, `MigrationGuardTest`, `BodySizeLimitTest`,

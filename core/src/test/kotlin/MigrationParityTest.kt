@@ -92,4 +92,31 @@ class MigrationParityTest {
     private companion object {
         val VERSION_PATTERN = Regex("""^V(\d+)__.+\.sql$""")
     }
+
+    /**
+     * The manual schema procedure must name every file that ships.
+     *
+     * Fourth review gate, defect B3. `docs/development/migrations.md` listed V1 to V4 while V5
+     * shipped. An operator who followed the document built a schema with no `correlation_id`
+     * column, and every inbox insert then failed. An incomplete set does not fail at startup,
+     * so nothing told the operator until the first message arrived.
+     */
+    @Test
+    fun `the migration document lists every migration that ships`() {
+        val document = File(repositoryRoot, "docs/development/migrations.md")
+        assertTrue(document.isFile, "docs/development/migrations.md must exist")
+        val text = document.readText()
+
+        val shipped = postgresDirectory.listFiles { f -> f.name.endsWith(".sql") }
+            ?.map { it.name }
+            ?.sorted()
+            ?: emptyList()
+        assertTrue(shipped.isNotEmpty(), "the PostgreSQL migration directory must hold a file")
+
+        val missing = shipped.filterNot { text.contains(it) }
+        assertTrue(
+            missing.isEmpty(),
+            "docs/development/migrations.md does not name every shipped migration. Missing: $missing"
+        )
+    }
 }

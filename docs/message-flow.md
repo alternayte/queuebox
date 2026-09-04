@@ -92,11 +92,18 @@ that window. The row never exists in state `pending`.
 The order is mandatory. If the store fails, QueueBox does not acknowledge the delivery. It nacks
 with requeue, and the broker keeps the message.
 
-A repeat of the same idempotency key hits the unique index. The earlier row already holds the
-payload, so QueueBox stores nothing more. QueueBox then marks the earlier row dead by its natural
-key, and only then acknowledges the delivery. This mark is necessary. An earlier attempt can have
-stored the row in state `pending`, for example through the normal path before a later transform
-change, so the row can still be claimable.
+A repeat of the same idempotency key hits the unique index. The earlier row already holds a
+payload, so QueueBox stores nothing more. QueueBox acknowledges the delivery, and it marks
+nothing.
+
+**QueueBox marks no row on the duplicate path.** The natural key is not unique to one delivery.
+Two events can carry the same value in the field that `idempotencyKeyPath` names. A mark by the
+natural key therefore destroys an earlier, healthy row. A `pending` row is then never forwarded,
+which breaks the at-least-once guarantee below. A `processed` row goes back to `dead`, and an
+operator who returns that row to `pending` gets a second delivery. The mark is also unnecessary. A
+rejected message reaches the single-transaction store only, and that store writes state `dead`. No
+path leaves a rejected message in state `pending`, so no row needs repair. See the fourth review
+gate, defect 1.
 
 A message with no idempotency key gets a stable SHA-256 digest of the body as its key. A
 redelivery of the identical message therefore hits the unique index, and the inbox holds one row.

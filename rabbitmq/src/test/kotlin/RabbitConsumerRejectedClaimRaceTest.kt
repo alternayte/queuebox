@@ -154,7 +154,6 @@ class RabbitConsumerRejectedClaimRaceTest {
             config = config,
             transformPipeline = rejectingPipeline(),
             sourceTransform = rejectingTransform,
-            markDead = repository::markDeadByKey,
             storeDeadMessage = repository::storeDead
         )
         consumer.start()
@@ -177,5 +176,60 @@ class RabbitConsumerRejectedClaimRaceTest {
             claimed.size,
             "A rejected payload must never become claimable. claimed=$claimed"
         )
+    }
+
+    /**
+     * Fourth review gate, defect 1. A healthy row must not die because a later, unrelated
+     * message shares its idempotency key.
+     *
+     * Event A is healthy and reaches the inbox in state 'pending'. Event B carries the same
+     * value in the field that `idempotencyKeyPath` names, and the transform rejects it. The
+     * store of the dead row answers Duplicate. The consumer must mark nothing, so event A stays
+     * claimable and the relay still forwards it.
+     */
+    @Test
+    fun `a healthy pending row survives a rejected message that shares its idempotency key`() = runBlocking {
+        val config = RabbitConsumerConfig(
+            queueName = TEST_QUEUE,
+            sourceName = "race-source",
+            idempotencyKeyPath = "$.id"
+        )
+        // Event A is healthy. It reaches the inbox through the normal path.
+        val healthy = InboxMessage(
+            source = "race-source",
+            idempotencyKey = "shared-key",
+            payload = kotlinx.serialization.json.JsonObject(
+                mapOf("id" to kotlinx.serialization.json.JsonPrimitive("shared-key"))
+            )
+        )
+        assertEquals(InboxResult.Stored, repository.store(healthy))
+
+        // Event B shares the key and the transform rejects it.
+        consumer = RabbitConsumer(
+            connection = connection,
+            storeMessage = repository::store,
+            extractor = IdempotencyExtractor(),
+            config = config,
+            transformPipeline = rejectingPipeline(),
+            sourceTransform = rejectingTransform,
+            storeDeadMessage = repository::storeDead
+        )
+        consumer.start()
+
+        publishMessage("""{"id": "shared-key", "secretField": "rejected-payload"}""")
+
+        delay(3000)
+        consumer.stop()
+
+        assertEquals(
+            0L,
+            repository.countByState("dead"),
+            "The rejected duplicate must add no dead row, and it must kill no healthy row."
+        )
+        assertEquals(1L, repository.countByState("pending"), "The healthy row must stay pending.")
+
+        val claimed = repository.claimPending(10)
+        assertEquals(1, claimed.size, "The relay must still forward the healthy row.")
+        assertEquals("shared-key", claimed.single().idempotencyKey)
     }
 }

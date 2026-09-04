@@ -342,44 +342,4 @@ class SqlServerInboxRepositoryTest : SqlServerTestBase() {
         assertEquals(1, claimed.size)
         assertEquals(null, claimed[0].aggregateId)
     }
-
-    // --- markDeadByKey tests ---
-    //
-    // The RabbitMQ consumer marks a rejected row dead by the pair (source, idempotencyKey),
-    // because a redelivery holds a new row identifier. The predicate must therefore match that
-    // pair exactly, and nothing else.
-
-    @Test
-    fun `markDeadByKey marks the row of the pair dead`() = runTest {
-        val id = insertInboxMessage(source = "svc", idempotencyKey = "key-1", state = "pending")
-        setInboxClaimedAt(id, Clock.System.now())
-
-        repository.markDeadByKey("svc", "key-1")
-
-        assertEquals("dead", getInboxMessageState(id))
-        assertNull(getInboxClaimedAt(id), "The mark must release the claim.")
-    }
-
-    @Test
-    fun `markDeadByKey marks no other row`() = runTest {
-        val target = insertInboxMessage(source = "svc", idempotencyKey = "key-1", state = "pending")
-        val otherSource = insertInboxMessage(source = "other", idempotencyKey = "key-1", state = "pending")
-        val otherKey = insertInboxMessage(source = "svc", idempotencyKey = "key-2", state = "pending")
-
-        repository.markDeadByKey("svc", "key-1")
-
-        assertEquals("dead", getInboxMessageState(target))
-        assertEquals("pending", getInboxMessageState(otherSource), "Another source must keep its state.")
-        assertEquals("pending", getInboxMessageState(otherKey), "Another key must keep its state.")
-    }
-
-    @Test
-    fun `markDeadByKey does nothing when no row matches`() = runTest {
-        val other = insertInboxMessage(source = "svc", idempotencyKey = "key-1", state = "pending")
-
-        repository.markDeadByKey("svc", "absent")
-
-        assertEquals("pending", getInboxMessageState(other))
-        assertEquals(0, repository.countByState("dead"))
-    }
 }

@@ -26,6 +26,8 @@ dependencies {
     implementation(libs.bundles.kotlinxEcosystem)
 
     testImplementation(libs.kotlin.test)
+    // A log-capture test needs a binding. See the fourth review gate, defect 3.
+    testImplementation(libs.logback.classic)
     testImplementation(libs.mockk)
     testImplementation(libs.kotlinx.coroutines.test)
     testImplementation(libs.ktor.server.test.host)

@@ -200,14 +200,6 @@ class InboxRepository(
         Unit
     }
 
-    override suspend fun markDeadByKey(source: String, idempotencyKey: String): Unit = joinOrNewTransaction {
-        table.update({ (table.messageSrc eq source) and (table.idempotencyKey eq idempotencyKey) }) {
-            it[state] = "dead"
-            it[claimedAt] = null
-        }
-        Unit
-    }
-
     /**
      * F-006: returns rows that stay in state 'processing' longer than the visibility timeout
      * back to state 'pending'.

@@ -44,8 +44,6 @@ class InboxRelayTest {
             dead.add(id)
         }
 
-        override suspend fun markDeadByKey(source: String, idempotencyKey: String) = Unit
-
         override suspend fun countByState(state: String): Long = 0
         override suspend fun reclaimStale(olderThan: Duration): Int {
             reclaimCalls++

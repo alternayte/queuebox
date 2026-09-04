@@ -18,6 +18,7 @@ Each version number describes the same logical change on both databases.
 | `V2__create_inbox.sql` | Create the inbox table, its unique deduplication constraint, and its indexes. |
 | `V3__add_claimed_at.sql` | Add `claimed_at` to both tables, so a crashed claim can be recovered. |
 | `V4__add_last_error.sql` | Add `last_error` to the outbox, so an operator can see why a delivery failed. |
+| `V5__add_correlation_id.sql` | Add `correlation_id` to the inbox, so one identifier follows a message through every log line. |
 
 ## Policy
 
@@ -51,7 +52,12 @@ psql -f postgres/src/main/resources/db/postgresql/V1__create_outbox.sql
 psql -f postgres/src/main/resources/db/postgresql/V2__create_inbox.sql
 psql -f postgres/src/main/resources/db/postgresql/V3__add_claimed_at.sql
 psql -f postgres/src/main/resources/db/postgresql/V4__add_last_error.sql
+psql -f postgres/src/main/resources/db/postgresql/V5__add_correlation_id.sql
 ```
+
+Apply EVERY file. An incomplete set does not fail at startup. It fails on the first insert, because
+the row names a column the table does not hold. `MigrationParityTest` asserts that this document
+lists every file that ships.
 
 ## History note
 

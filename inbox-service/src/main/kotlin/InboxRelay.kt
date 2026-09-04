@@ -154,10 +154,10 @@ class InboxRelay(
                 // The row stays in state 'processing'. The reclaim step returns it to 'pending'.
                 log.error(
                     "Forwarding inbox message {} of source '{}' failed. The reclaim step " +
-                        "returns the row to pending.",
+                        "returns the row to pending. Reason: {}",
                     message.id,
                     message.source,
-                    error
+                    ErrorSanitizer.sanitize(error)
                 )
                 metricsCollector?.recordInboxRelayError()
                 false

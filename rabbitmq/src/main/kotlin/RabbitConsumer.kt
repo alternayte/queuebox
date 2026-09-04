@@ -51,18 +51,6 @@ class RabbitConsumer(
     private val transformPipeline: InboxTransformPipeline? = null,
     private val sourceTransform: TransformConfig? = null,
     /**
-     * Marks one stored inbox row dead by its natural key (source, idempotencyKey). The consumer
-     * calls it after a transform rejection.
-     *
-     * An AMQP publisher has no caller that can hold the message, and QueueBox declares no
-     * dead-letter exchange. The consumer therefore stores the original payload and marks the
-     * row dead. An operator can read the row and replay it.
-     *
-     * The key addresses the row, not the row identifier. A redelivery holds a new row
-     * identifier, but the same natural key, so this callback also works on the duplicate path.
-     */
-    private val markDead: (suspend (String, String) -> Unit)? = null,
-    /**
      * Stores one rejected message that is already dead, in ONE transaction.
      *
      * Third review gate, defect 1. A store in state 'pending' followed by a mark dead commits a
@@ -313,12 +301,15 @@ class RabbitConsumer(
                 sendAck(envelope.deliveryTag)
             }
             is InboxResult.Duplicate -> {
-                // The unique index already holds a row for this key. The earlier row carries the
-                // payload, so the delivery adds no payload. The earlier row can still be
-                // pending, because an earlier mark dead failed. The mark therefore runs again.
-                // Without it the relay forwards a payload that the transform rejected.
-                val marked = markDeadRow(envelope, message.idempotencyKey)
-                if (!marked) return
+                // The unique index already holds a row for this key, so the delivery adds
+                // nothing. QueueBox marks nothing here.
+                //
+                // Fourth review gate, defect 1. An earlier mark by the natural key destroyed a
+                // healthy row. The natural key is not unique to one delivery, because two events
+                // can carry the same value in the field that `idempotencyKeyPath` names. The
+                // mark is also unnecessary. A rejected message reaches `storeDeadMessage` only,
+                // and that call writes state 'dead' in ONE transaction. No code path leaves a
+                // rejected message in state 'pending', so no row needs repair here.
                 metricsCollector?.recordInboxDuplicate()
                 sendAck(envelope.deliveryTag)
             }
@@ -330,39 +321,6 @@ class RabbitConsumer(
                 )
                 sendNack(envelope.deliveryTag, true)
             }
-        }
-    }
-
-    /**
-     * Marks the stored row dead by its natural key. Returns false when the delivery is already
-     * nacked.
-     *
-     * A missing callback also ends in a nack. An acknowledgement of a row that stays pending
-     * lets the relay forward a rejected payload, which the class promises cannot happen.
-     */
-    private suspend fun markDeadRow(envelope: Envelope, idempotencyKey: String): Boolean {
-        val mark = markDead
-        if (mark == null) {
-            log.error(
-                "No dead-letter callback is configured for source '{}'. The row of key {} stays " +
-                    "pending, so QueueBox requeues the message rather than forward the payload.",
-                config.sourceName,
-                idempotencyKey
-            )
-            sendNack(envelope.deliveryTag, true)
-            return false
-        }
-        return try {
-            mark(config.sourceName, idempotencyKey)
-            true
-        } catch (e: Exception) {
-            log.error(
-                "Marking the row of key {} dead failed. The message is requeued.",
-                idempotencyKey,
-                e
-            )
-            sendNack(envelope.deliveryTag, true)
-            false
         }
     }
 

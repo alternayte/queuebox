@@ -2067,4 +2067,104 @@ class ConfigValidatorTest {
 
         assertContains(exception.message!!, "timestampTolerance")
     }
+
+    // === Extraction path validation (the fourth review gate) ===
+
+    @Test
+    fun `should fail when http source idempotencyKeyPath is indefinite`() {
+        val config = createValidConfig().copy(
+            sources = mapOf(
+                "stripe-webhooks" to SourceConfig.Http(
+                    path = "/webhooks/stripe",
+                    idempotencyKeyPath = "$..orderId",
+                    eventTypePath = "$.type"
+                )
+            )
+        )
+
+        val exception = assertFailsWith<IllegalArgumentException> {
+            ConfigValidator.validate(config)
+        }
+
+        assertContains(exception.message!!, "idempotencyKeyPath")
+        assertContains(exception.message!!, "indefinite")
+    }
+
+    @Test
+    fun `should fail when http source eventTypePath is indefinite`() {
+        val config = createValidConfig().copy(
+            sources = mapOf(
+                "stripe-webhooks" to SourceConfig.Http(
+                    path = "/webhooks/stripe",
+                    idempotencyKeyPath = "$.id",
+                    eventTypePath = "$.events[*].type"
+                )
+            )
+        )
+
+        val exception = assertFailsWith<IllegalArgumentException> {
+            ConfigValidator.validate(config)
+        }
+
+        assertContains(exception.message!!, "eventTypePath")
+        assertContains(exception.message!!, "indefinite")
+    }
+
+    @Test
+    fun `should fail when rabbitmq source aggregateIdPath is indefinite`() {
+        val config = createValidConfig().copy(
+            sources = mapOf(
+                "order-events" to SourceConfig.RabbitMQ(
+                    queueName = "orders",
+                    connectionUrl = "amqp://localhost:5672",
+                    idempotencyKeyPath = "$.orderId",
+                    aggregateIdPath = "$..customerId"
+                )
+            )
+        )
+
+        val exception = assertFailsWith<IllegalArgumentException> {
+            ConfigValidator.validate(config)
+        }
+
+        assertContains(exception.message!!, "aggregateIdPath")
+        assertContains(exception.message!!, "indefinite")
+    }
+
+    @Test
+    fun `should fail when an extraction path does not parse`() {
+        val config = createValidConfig().copy(
+            sources = mapOf(
+                "stripe-webhooks" to SourceConfig.Http(
+                    path = "/webhooks/stripe",
+                    idempotencyKeyPath = "$.[",
+                    eventTypePath = "$.type"
+                )
+            )
+        )
+
+        val exception = assertFailsWith<IllegalArgumentException> {
+            ConfigValidator.validate(config)
+        }
+
+        assertContains(exception.message!!, "not a valid JSONPath expression")
+    }
+
+    @Test
+    fun `should pass when every extraction path is definite`() {
+        val config = createValidConfig().copy(
+            sources = mapOf(
+                "stripe-webhooks" to SourceConfig.Http(
+                    path = "/webhooks/stripe",
+                    idempotencyKeyPath = "$.data.orderId",
+                    aggregateIdPath = "$.data.customerId",
+                    eventTypePath = "$.type"
+                )
+            )
+        )
+
+        val validated = ConfigValidator.validate(config)
+
+        assertNotNull(validated)
+    }
 }

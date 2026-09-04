@@ -239,4 +239,98 @@ class IdempotencyExtractorTest {
         assertEquals(0, parseCount)
         assertTrue(values.isEmpty())
     }
+
+    // --- The fourth review gate: an indefinite path must not produce a silent key ---
+
+    @Test
+    fun `should return failure when indefinite path matches nothing`() {
+        val payload = Json.parseToJsonElement("""{"data": {"other": "B-2"}}""")
+
+        val result = extractor.extract(payload, "$..orderId")
+
+        assertTrue(result.isFailure)
+        assertIs<ExtractionException>(result.exceptionOrNull())
+    }
+
+    @Test
+    fun `should unwrap the single match of an indefinite path`() {
+        val payload = Json.parseToJsonElement("""{"data": {"orderId": "A-1"}}""")
+
+        val result = extractor.extract(payload, "$..orderId")
+
+        assertTrue(result.isSuccess)
+        assertEquals("A-1", result.getOrNull())
+    }
+
+    @Test
+    fun `should agree with the definite path for a single match`() {
+        val payload = Json.parseToJsonElement("""{"data": {"orderId": "A-1"}}""")
+
+        val indefinite = extractor.extract(payload, "$..orderId")
+        val definite = extractor.extract(payload, "$.data.orderId")
+
+        assertEquals(definite.getOrNull(), indefinite.getOrNull())
+    }
+
+    @Test
+    fun `should return failure when indefinite path matches several nodes`() {
+        val payload = Json.parseToJsonElement(
+            """{"a": {"orderId": "A-1"}, "b": {"orderId": "A-2"}}"""
+        )
+
+        val result = extractor.extract(payload, "$..orderId")
+
+        assertTrue(result.isFailure)
+        assertIs<ExtractionException>(result.exceptionOrNull())
+    }
+
+    @Test
+    fun `should return failure when wildcard path matches nothing`() {
+        val payload = Json.parseToJsonElement("""{"items": []}""")
+
+        val result = extractor.extract(payload, "$.items[*].id")
+
+        assertTrue(result.isFailure)
+        assertIs<ExtractionException>(result.exceptionOrNull())
+    }
+
+    @Test
+    fun `should keep the array value of a definite path`() {
+        val payload = Json.parseToJsonElement("""{"tags": ["a", "b"]}""")
+
+        val result = extractor.extract(payload, "$.tags")
+
+        assertTrue(result.isSuccess)
+        assertEquals("""["a","b"]""", result.getOrNull())
+    }
+
+    @Test
+    fun `should return failure for an invalid path expression`() {
+        val payload = Json.parseToJsonElement("""{"id": "a"}""")
+
+        val result = extractor.extract(payload, "$.[")
+
+        assertTrue(result.isFailure)
+        assertIs<ExtractionException>(result.exceptionOrNull())
+    }
+
+    @Test
+    fun `should map an empty indefinite result to null in extractAll`() {
+        val payload = Json.parseToJsonElement("""{"data": {"other": "B-2"}}""")
+
+        val values = extractor.extractAll(payload, mapOf("key" to "$..orderId"))
+
+        assertNull(values["key"])
+    }
+
+    @Test
+    fun `should map an ambiguous indefinite result to null in extractAll`() {
+        val payload = Json.parseToJsonElement(
+            """{"a": {"orderId": "A-1"}, "b": {"orderId": "A-2"}}"""
+        )
+
+        val values = extractor.extractAll(payload, mapOf("key" to "$..orderId"))
+
+        assertNull(values["key"])
+    }
 }

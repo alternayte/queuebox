@@ -146,6 +146,7 @@ object ConfigValidator {
         config.sources.forEach { (name, source) ->
             validateTransform(source.transform, "Source '$name'", "sources.$name.transform")
             validateSourceTopic(name, source)
+            validateExtractionPaths(name, source)
             source.rateLimit?.let {
                 require(it.requestsPerMinute > 0) {
                     "Source '$name' rateLimit.requestsPerMinute must be greater than 0. " +
@@ -238,6 +239,47 @@ object ConfigValidator {
             "Route[$index] has an invalid topicPattern: '$pattern'. Use '*' for one segment and " +
                 "'**' for any number of segments. " +
                 "Set via 'routes[$index].topicPattern' in YAML or QUEUEBOX_ROUTES_${index}_TOPICPATTERN env var."
+        }
+    }
+
+    /**
+     * Refuses an extraction path that is invalid or indefinite. See the fourth review gate.
+     *
+     * An indefinite path, such as `$..orderId`, matches any number of nodes. The number depends
+     * on the message, so the idempotency key of a source becomes unpredictable. QueueBox refuses
+     * such a path at startup instead of a rejection for every message.
+     */
+    private fun validateExtractionPaths(name: String, source: SourceConfig) {
+        val paths = when (source) {
+            is SourceConfig.Http -> listOf(
+                "idempotencyKeyPath" to source.idempotencyKeyPath,
+                "aggregateIdPath" to source.aggregateIdPath,
+                "eventTypePath" to source.eventTypePath
+            )
+            is SourceConfig.RabbitMQ -> listOf(
+                "idempotencyKeyPath" to source.idempotencyKeyPath,
+                "aggregateIdPath" to source.aggregateIdPath
+            )
+        }
+
+        paths.forEach { (field, path) ->
+            if (path == null) {
+                return@forEach
+            }
+            val yamlPath = "sources.$name.$field"
+            val definite = try {
+                IdempotencyExtractor.isDefinitePath(path)
+            } catch (e: Exception) {
+                throw IllegalArgumentException(
+                    "Source '$name' $field '$path' is not a valid JSONPath expression: " +
+                        "${e.message}. " + setVia(yamlPath)
+                )
+            }
+            require(definite) {
+                "Source '$name' $field '$path' is an indefinite JSONPath expression. It matches " +
+                    "any number of nodes, so QueueBox cannot read one value from it. Use a " +
+                    "definite path, such as '\$.data.orderId'. " + setVia(yamlPath)
+            }
         }
     }
 

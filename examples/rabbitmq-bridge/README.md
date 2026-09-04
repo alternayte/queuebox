@@ -12,7 +12,10 @@ broker outage delays a message but never loses one.
   message arrives.
 
 `definitions.json` declares the exchange `queuebox-events`, the queue `events-audit` and a binding
-on `#`, so the example needs no setup step.
+on `payment.*`, so the example needs no setup step. The binding is deliberately narrow: it proves
+that QueueBox renders the routing key from the topic. A binding on `#` would match whatever the
+publisher sent, so it would test nothing. An event whose topic does not match `payment.*` reaches
+the exchange and the broker drops it, because no queue is bound to it.
 
 ## Run it
 
