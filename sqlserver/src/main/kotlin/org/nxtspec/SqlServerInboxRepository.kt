@@ -50,6 +50,7 @@ class SqlServerInboxRepository(
             val payloadCol = quoteSqlServerIdentifier(columnMapping.payload)
             val stateCol = quoteSqlServerIdentifier(columnMapping.state)
             val createdAtCol = quoteSqlServerIdentifier(columnMapping.createdAt)
+            val correlationIdCol = quoteSqlServerIdentifier(columnMapping.correlationId)
 
             // Use MERGE for atomic insert-if-not-exists
             // This is the SQL Server equivalent of INSERT ... ON CONFLICT DO NOTHING
@@ -58,8 +59,8 @@ class SqlServerInboxRepository(
                 USING (SELECT ? AS source, ? AS idempotency_key) AS src
                 ON target.$sourceCol = src.source AND target.$idempotencyKeyCol = src.idempotency_key
                 WHEN NOT MATCHED THEN
-                    INSERT ($idCol, $sourceCol, $idempotencyKeyCol, $aggregateIdCol, $eventTypeCol, $payloadCol, $stateCol, $createdAtCol)
-                    VALUES (?, ?, ?, ?, ?, ?, 'pending', ?);
+                    INSERT ($idCol, $sourceCol, $idempotencyKeyCol, $aggregateIdCol, $eventTypeCol, $payloadCol, $stateCol, $createdAtCol, $correlationIdCol)
+                    VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?);
             """.trimIndent()
 
             val conn = TransactionManager.current().connection.connection as java.sql.Connection
@@ -73,6 +74,7 @@ class SqlServerInboxRepository(
                 stmt.setString(7, message.eventType)
                 stmt.setString(8, message.payload.toString())
                 stmt.setTimestamp(9, nowTimestamp)
+                stmt.setString(10, message.correlationId)
                 stmt.executeUpdate()
             }
 
@@ -346,7 +348,8 @@ class SqlServerInboxRepository(
         payload = Json.parseToJsonElement(this[table.payload]),
         state = stringToMessageState(this[table.state]),
         createdAt = this[table.createdAt],
-        processedAt = this[table.processedAt]
+        processedAt = this[table.processedAt],
+        correlationId = this[table.correlationId]
     )
 
     private fun ResultSet.toInboxMessage(): InboxMessage = InboxMessage(
@@ -358,7 +361,8 @@ class SqlServerInboxRepository(
         payload = Json.parseToJsonElement(getString(columnMapping.payload)),
         state = stringToMessageState(getString(columnMapping.state)),
         createdAt = getTimestamp(columnMapping.createdAt).toInstant().toKotlinInstant(),
-        processedAt = getTimestamp(columnMapping.processedAt)?.toInstant()?.toKotlinInstant()
+        processedAt = getTimestamp(columnMapping.processedAt)?.toInstant()?.toKotlinInstant(),
+        correlationId = getString(columnMapping.correlationId)
     )
 
     private fun stringToMessageState(state: String): MessageState = when (state) {

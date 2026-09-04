@@ -84,6 +84,8 @@ class HttpPublisher(
             }
 
             recordPublishDuration(startTime)
+            // F-052: the metric carries the status class only, never the raw code.
+            metricsCollector?.recordHttpStatus(response.status.value)
 
             if (response.status.isSuccess()) {
                 Result.success(Unit)

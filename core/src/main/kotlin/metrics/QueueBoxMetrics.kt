@@ -4,6 +4,7 @@ import io.micrometer.core.instrument.Counter
 import io.micrometer.core.instrument.Gauge
 import io.micrometer.core.instrument.MeterRegistry
 import io.micrometer.core.instrument.Timer
+import org.nxtspec.BuildInfo
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicLong
 
@@ -56,6 +57,23 @@ class QueueBoxMetrics(private val registry: MeterRegistry) {
     // Cleanup timers (one per table)
     private val cleanupTimers = mutableMapOf<String, Timer>()
 
+    // F-052: one counter per destination and outcome. A destination name comes from the
+    // configuration, so the label set stays bounded.
+    private val destinationCounters = mutableMapOf<Pair<String, String>, Counter>()
+
+    // F-052: one gauge per destination. The value is the number of messages that wait for a
+    // publish to that destination.
+    private val queueDepths = mutableMapOf<String, AtomicLong>()
+
+    // F-052: one counter per transform error strategy.
+    private val transformFailureCounters = mutableMapOf<String, Counter>()
+
+    // F-052: one counter per inbox rejection reason. The reason is a fixed enumeration.
+    private val inboxRejectionCounters = mutableMapOf<String, Counter>()
+
+    // F-052: one counter per HTTP status class. A raw status code is never a label.
+    private val httpStatusCounters = mutableMapOf<String, Counter>()
+
     fun getPublishTimer(destinationType: String): Timer {
         return publishTimers.getOrPut(destinationType) {
             Timer.builder("queuebox_outbox_publish_duration_seconds")
@@ -104,7 +122,8 @@ class QueueBoxMetrics(private val registry: MeterRegistry) {
     // Application info gauge
     val info: Gauge = Gauge.builder("queuebox_info", this) { 1.0 }
         .description("QueueBox application info")
-        .tag("version", "0.1.0")
+        // F-053: the version comes from the build, not from a literal.
+        .tag("version", BuildInfo.version)
         .register(registry)
 
     /**
@@ -174,5 +193,108 @@ class QueueBoxMetrics(private val registry: MeterRegistry) {
         getCleanupCounter(table).increment(deleted.toDouble())
         getCleanupTimer(table).record(durationNanos, TimeUnit.NANOSECONDS)
         getOrCreateCleanupLastRunGauge(table).set(System.currentTimeMillis() / 1000)
+    }
+
+    // --- F-052: the metric gaps ---
+
+    @Synchronized
+    private fun getDestinationCounter(destination: String, outcome: String): Counter {
+        return destinationCounters.getOrPut(destination to outcome) {
+            Counter.builder("queuebox_outbox_destination_messages_total")
+                .description("Total outbox messages per destination and outcome")
+                .tag("destination", destination)
+                .tag("outcome", outcome)
+                .register(registry)
+        }
+    }
+
+    /**
+     * Record one message that reached the destination.
+     */
+    fun recordDestinationSuccess(destination: String) {
+        getDestinationCounter(destination, OUTCOME_SUCCESS).increment()
+    }
+
+    /**
+     * Record one message that the destination did not accept.
+     */
+    fun recordDestinationFailure(destination: String) {
+        getDestinationCounter(destination, OUTCOME_FAILURE).increment()
+    }
+
+    /**
+     * Set the number of messages that wait for a publish to one destination.
+     */
+    @Synchronized
+    fun setQueueDepth(destination: String, depth: Long) {
+        val holder = queueDepths.getOrPut(destination) {
+            val value = AtomicLong(0)
+            Gauge.builder("queuebox_outbox_queue_depth", value) { it.get().toDouble() }
+                .description("Messages that wait for a publish to the destination")
+                .tag("destination", destination)
+                .register(registry)
+            value
+        }
+        holder.set(depth)
+    }
+
+    /**
+     * Record one transform failure under the error strategy that the configuration selects.
+     */
+    @Synchronized
+    fun recordTransformFailure(strategy: String) {
+        transformFailureCounters.getOrPut(strategy) {
+            Counter.builder("queuebox_transform_failures_total")
+                .description("Total transform failures by error strategy")
+                .tag("strategy", strategy)
+                .register(registry)
+        }.increment()
+    }
+
+    /**
+     * Record one inbox message that QueueBox did not accept.
+     */
+    @Synchronized
+    fun recordInboxRejection(reason: InboxRejectionReason) {
+        inboxRejectionCounters.getOrPut(reason.label) {
+            Counter.builder("queuebox_inbox_rejections_total")
+                .description("Total inbox messages that QueueBox rejected, by reason")
+                .tag("reason", reason.label)
+                .register(registry)
+        }.increment()
+    }
+
+    /**
+     * Record one HTTP response under its status class.
+     *
+     * The label is the status class, for example "5xx". A raw status code would make the label
+     * set unbounded.
+     */
+    @Synchronized
+    fun recordHttpStatus(statusCode: Int) {
+        val statusClass = statusClassOf(statusCode)
+        httpStatusCounters.getOrPut(statusClass) {
+            Counter.builder("queuebox_http_publish_responses_total")
+                .description("Total HTTP publish responses by status class")
+                .tag("status_class", statusClass)
+                .register(registry)
+        }.increment()
+    }
+
+    companion object {
+        private const val OUTCOME_SUCCESS = "success"
+        private const val OUTCOME_FAILURE = "failure"
+
+        /**
+         * Maps a status code to its class. An unexpected code maps to "other".
+         */
+        fun statusClassOf(statusCode: Int): String = when (statusCode / 100) {
+            1 -> "1xx"
+            2 -> "2xx"
+            3 -> "3xx"
+            4 -> "4xx"
+            5 -> "5xx"
+            else -> "other"
+        }
     }
 }

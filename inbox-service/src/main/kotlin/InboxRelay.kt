@@ -10,6 +10,7 @@ import kotlinx.coroutines.job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.supervisorScope
 import kotlinx.datetime.Clock
+import org.nxtspec.logging.CORRELATION_ID_HEADER
 import org.nxtspec.logging.LogKeys
 import org.nxtspec.logging.logger
 import org.nxtspec.logging.withLogContext
@@ -94,7 +95,8 @@ class InboxRelay(
         messages.forEach { message ->
             val moved = withLogContext(
                 LogKeys.MESSAGE_ID to message.id,
-                LogKeys.SOURCE to message.source
+                LogKeys.SOURCE to message.source,
+                LogKeys.CORRELATION_ID to message.correlationId
             ) {
                 forward(message)
             }
@@ -181,11 +183,14 @@ class InboxRelay(
             topic = topic,
             key = message.aggregateId,
             payload = message.payload,
-            headers = mapOf(
-                "x-inbox-id" to message.id.toString(),
-                "x-source" to message.source,
-                "x-idempotency-key" to message.idempotencyKey
-            ),
+            headers = buildMap {
+                put("x-inbox-id", message.id.toString())
+                put("x-source", message.source)
+                put("x-idempotency-key", message.idempotencyKey)
+                // F-047: the identifier travels on to the destination, because the publisher
+                // forwards every message header.
+                message.correlationId?.let { put(CORRELATION_ID_HEADER, it) }
+            },
             state = MessageState.Pending,
             scheduledAt = now,
             createdAt = now,

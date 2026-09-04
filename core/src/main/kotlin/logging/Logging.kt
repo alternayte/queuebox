@@ -49,3 +49,14 @@ inline fun <T> withLogContext(vararg entries: Pair<String, Any?>, block: () -> T
         applied.forEach { (key, _) -> MDC.remove(key) }
     }
 }
+
+/**
+ * The HTTP and AMQP header that carries the correlation identifier. See F-047.
+ *
+ * The inbox accepts it, the relay copies it into the outbox headers, and every publisher
+ * forwards the message headers, so the identifier reaches the destination.
+ */
+const val CORRELATION_ID_HEADER: String = "X-Correlation-Id"
+
+/** A caller-supplied identifier is bounded, so it cannot fill a log line or a column. */
+const val MAX_CORRELATION_ID_LENGTH: Int = 128

@@ -59,6 +59,7 @@ class SqlServerDynamicInboxTable(
     val createdAt = timestamp(mapping.createdAt)
     val processedAt = timestamp(mapping.processedAt).nullable()
     val claimedAt = timestamp(mapping.claimedAt).nullable()
+    val correlationId: Column<String?> = varchar(mapping.correlationId, 128).nullable()
 
     init {
         uniqueIndex(messageSrc, idempotencyKey)

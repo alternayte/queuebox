@@ -69,9 +69,33 @@ kotlin {
     jvmToolchain(21)
 }
 
+// F-053: the build writes the project version into a resource of the core module. `BuildInfo`
+// reads that resource, so the version metric never carries a stale literal.
+if (project.name == "core") {
+    val buildInfoDir = layout.buildDirectory.dir("generated/buildInfo/resources")
+
+    val generateBuildInfo = tasks.register<WriteProperties>("generateBuildInfo") {
+        group = "build"
+        description = "Writes the Gradle project version into a resource"
+        destinationFile.set(buildInfoDir.map { it.file("queuebox-build.properties") })
+        property("version", rootProject.version.toString())
+    }
+
+    extensions.getByType<SourceSetContainer>().named("main") {
+        resources.srcDir(buildInfoDir)
+    }
+
+    tasks.named("processResources") {
+        dependsOn(generateBuildInfo)
+    }
+}
+
 tasks.withType<Test>().configureEach {
     // Configure all test Gradle tasks to use JUnitPlatform.
     useJUnitPlatform()
+
+    // F-053: a test asserts that the version metric tag equals the Gradle project version.
+    systemProperty("queuebox.version", rootProject.version.toString())
 
     // Log information about all test results, not only the failed ones.
     testLogging {

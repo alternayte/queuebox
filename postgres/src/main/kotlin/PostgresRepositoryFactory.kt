@@ -42,7 +42,8 @@ class PostgresRepositoryFactory(
         state = columnMapping.inbox.state,
         createdAt = columnMapping.inbox.createdAt,
         processedAt = columnMapping.inbox.processedAt,
-        claimedAt = columnMapping.inbox.claimedAt
+        claimedAt = columnMapping.inbox.claimedAt,
+        correlationId = columnMapping.inbox.correlationId
     )
 
     override fun createOutboxRepository(): OutboxRepositoryInterface =

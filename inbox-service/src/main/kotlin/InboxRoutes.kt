@@ -12,6 +12,10 @@ import kotlinx.serialization.json.JsonElement
 import org.nxtspec.auth.AuthResult
 import org.nxtspec.auth.InboxAuthValidator
 import org.nxtspec.auth.RawBodyKey
+import org.nxtspec.logging.CORRELATION_ID_HEADER
+import org.nxtspec.logging.LogKeys
+import org.nxtspec.logging.MAX_CORRELATION_ID_LENGTH
+import org.nxtspec.logging.withLogContext
 import java.io.ByteArrayOutputStream
 import kotlin.time.Duration.Companion.seconds
 
@@ -86,6 +90,13 @@ private suspend fun RoutingContext.handleInboxPost(
         }
     }
 
+    // F-047: accept the caller's correlation identifier, or generate one. Every log line of
+    // this request, and the stored row, then carry the same value.
+    val correlationId = call.request.headers[CORRELATION_ID_HEADER]?.take(MAX_CORRELATION_ID_LENGTH)
+        ?.takeIf { it.isNotBlank() }
+        ?: java.util.UUID.randomUUID().toString()
+    call.response.headers.append(CORRELATION_ID_HEADER, correlationId)
+
     // Parse JSON payload from the capped body
     val payload: JsonElement = try {
         Json.parseToJsonElement(rawBody.decodeToString())
@@ -94,7 +105,14 @@ private suspend fun RoutingContext.handleInboxPost(
         return
     }
 
-    when (val result = handler.handle(sourceName, httpConfig, payload)) {
+    val result = withLogContext(
+        LogKeys.SOURCE to sourceName,
+        LogKeys.CORRELATION_ID to correlationId
+    ) {
+        handler.handle(sourceName, httpConfig, payload, correlationId)
+    }
+
+    when (result) {
         is InboxHandlerResult.Accepted ->
             call.respond(HttpStatusCode.OK, mapOf("messageId" to result.messageId.toString()))
 

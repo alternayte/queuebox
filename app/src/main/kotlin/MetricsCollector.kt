@@ -1,6 +1,7 @@
 package org.nxtspec.app
 
 import io.micrometer.core.instrument.MeterRegistry
+import org.nxtspec.metrics.InboxRejectionReason
 import org.nxtspec.metrics.MetricsCollectorInterface
 import org.nxtspec.metrics.QueueBoxMetrics
 
@@ -99,5 +100,47 @@ class MetricsCollector(registry: MeterRegistry) : MetricsCollectorInterface {
      */
     override fun recordCleanupRun(table: String, deleted: Int, durationNanos: Long) {
         metrics.recordCleanupRun(table, deleted, durationNanos)
+    }
+
+    /**
+     * Record one message that reached the destination.
+     */
+    override fun recordDestinationSuccess(destination: String) {
+        metrics.recordDestinationSuccess(destination)
+    }
+
+    /**
+     * Record one message that the destination did not accept.
+     */
+    override fun recordDestinationFailure(destination: String) {
+        metrics.recordDestinationFailure(destination)
+    }
+
+    /**
+     * Update the number of messages that wait for a publish to one destination.
+     */
+    override fun updateQueueDepth(destination: String, depth: Long) {
+        metrics.setQueueDepth(destination, depth)
+    }
+
+    /**
+     * Record one transform failure under the configured error strategy.
+     */
+    override fun recordTransformFailure(strategy: String) {
+        metrics.recordTransformFailure(strategy)
+    }
+
+    /**
+     * Record one inbox message that QueueBox did not accept.
+     */
+    override fun recordInboxRejection(reason: InboxRejectionReason) {
+        metrics.recordInboxRejection(reason)
+    }
+
+    /**
+     * Record one HTTP publish response under its status class.
+     */
+    override fun recordHttpStatus(statusCode: Int) {
+        metrics.recordHttpStatus(statusCode)
     }
 }

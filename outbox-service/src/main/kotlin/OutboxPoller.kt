@@ -3,6 +3,7 @@ package org.nxtspec
 import kotlinx.coroutines.*
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
+import org.nxtspec.logging.CORRELATION_ID_HEADER
 import org.nxtspec.logging.LogKeys
 import org.nxtspec.logging.logger
 import org.nxtspec.logging.withLogContext
@@ -32,6 +33,9 @@ class OutboxPoller(
 
     // Number of messages that the poller currently publishes. Reported on a shutdown timeout.
     private val inFlight = java.util.concurrent.atomic.AtomicInteger(0)
+
+    // F-052: the number of messages that wait for a publish, per destination name.
+    private val queueDepths = java.util.concurrent.ConcurrentHashMap<String, java.util.concurrent.atomic.AtomicLong>()
 
     // F-006: the reclaim step runs at most once per claimTimeoutMs / 5.
     private val reclaimIntervalMs = (config.claimTimeoutMs / 5).coerceAtLeast(1)
@@ -99,7 +103,10 @@ class OutboxPoller(
             withLogContext(
                 LogKeys.MESSAGE_ID to message.id,
                 LogKeys.TOPIC to message.topic,
-                LogKeys.ATTEMPT to message.attempt
+                LogKeys.ATTEMPT to message.attempt,
+                // F-047: the identifier that the relay put in the headers reaches every log
+                // line of the outbound publish.
+                LogKeys.CORRELATION_ID to message.headers[CORRELATION_ID_HEADER]
             ) {
                 processMessage(message)
             }
@@ -187,20 +194,47 @@ class OutboxPoller(
             message
         }
 
-        publisher.publish(
-            messageToPublish,
-            routingResult.destination,
-            PublishContext(routingKey = routingResult.routingKey)
-        ).fold(
-            onSuccess = {
-                repository.markSent(message.id)
-                metricsCollector?.recordMessageSent()
-            },
-            onFailure = { error ->
-                handlePublishFailure(message, error)
-            }
-        )
+        // F-052: the depth counts the messages that wait for a publish to this destination.
+        val destinationName = destinationName(routingResult.destination)
+        changeQueueDepth(destinationName, 1)
+        try {
+            publisher.publish(
+                messageToPublish,
+                routingResult.destination,
+                PublishContext(routingKey = routingResult.routingKey)
+            ).fold(
+                onSuccess = {
+                    repository.markSent(message.id)
+                    metricsCollector?.recordMessageSent()
+                    metricsCollector?.recordDestinationSuccess(destinationName)
+                },
+                onFailure = { error ->
+                    metricsCollector?.recordDestinationFailure(destinationName)
+                    handlePublishFailure(message, error)
+                }
+            )
+        } finally {
+            changeQueueDepth(destinationName, -1)
+        }
         recordProcessingDuration(startTime)
+    }
+
+    /**
+     * F-052: the destination name comes from the configuration, so the label set stays bounded.
+     */
+    private fun destinationName(destination: Destination): String = when (destination) {
+        is Destination.Http -> destination.name
+        is Destination.RabbitMQ -> destination.name
+    }
+
+    /**
+     * F-052: changes the queue depth of one destination and reports the new value.
+     */
+    private fun changeQueueDepth(destination: String, delta: Long) {
+        val depth = queueDepths
+            .computeIfAbsent(destination) { java.util.concurrent.atomic.AtomicLong(0) }
+            .addAndGet(delta)
+        metricsCollector?.updateQueueDepth(destination, depth)
     }
 
     private fun recordProcessingDuration(startTime: Long) {

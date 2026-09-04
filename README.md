@@ -524,8 +524,34 @@ All other settings have defaults or are optional depending on your use case.
 | Endpoint | Description |
 |----------|-------------|
 | `GET /` | Basic health check — returns "QueueBox is running!" |
-| `GET /health` | Detailed health status with database connectivity |
+| `GET /health/live` | Liveness. The process answer. It does no input or output. |
+| `GET /health/ready` | Readiness. The database, the workers and each RabbitMQ connection. |
+| `GET /health` | Alias of `/health/ready`. It stays for compatibility. |
 | `GET /metrics` | Prometheus metrics |
+
+#### Liveness, readiness and the management port
+
+`GET /health/live` reports the process alone. It touches no dependency, so a slow database or a
+broken database cannot fail it. Use it for a Kubernetes liveness probe.
+
+`GET /health/ready` reports every dependency. It returns 200 when all components are up. It returns
+503 when one component is down. The body names each component: `database`, `outbox-poller`,
+`retention-service`, `inbox-relay`, and `rabbitmq.<source>` for each RabbitMQ source. Use it for a
+Kubernetes readiness probe.
+
+`GET /health` is an alias of `GET /health/ready`.
+
+Set `server.managementPort` to move the operational endpoints to a separate port. The option is
+optional and defaults to null. The port must differ from `server.httpPort`. When the port is set,
+QueueBox serves `/metrics`, `/health/*` and `/admin` on that port only. The data port then returns
+404 for those paths. Bind the management port to an internal network, because the metrics reveal
+traffic volumes and destination names.
+
+```yaml
+server:
+  httpPort: 8080
+  managementPort: 9090
+```
 
 ### Inbox Endpoints
 
@@ -858,25 +884,35 @@ laptop, with the broker in a local container.
 
 QueueBox exposes Prometheus metrics at `/metrics`:
 
-**Outbox metrics:**
-- `queuebox_outbox_messages_total{status}` — Counter by status (sent, failed, dead)
-- `queuebox_outbox_messages_pending` — Current pending messages gauge
-- `queuebox_outbox_processing_duration_seconds` — Processing time histogram
-- `queuebox_outbox_publish_duration_seconds{destination_type}` — Publish time by destination
-- `queuebox_outbox_messages_reclaimed_total` — Messages returned to pending after a stale claim
+The table lists every metric that QueueBox emits. Every label set is bounded. A metric never
+carries a message identifier, a raw error string, or a raw HTTP status code as a label.
 
-**Inbox metrics:**
-- `queuebox_inbox_messages_total{status}` — Counter by status (new, duplicate, forwarded)
-- `queuebox_inbox_relay_errors_total` — Inbox relay error counter
+| Metric | Type | Labels | Meaning |
+|--------|------|--------|---------|
+| `queuebox_outbox_messages_total` | counter | `status` = sent, failed, dead | Outbox messages by final status. |
+| `queuebox_outbox_messages_pending` | gauge | none | Messages in state `pending`. |
+| `queuebox_outbox_processing_duration_seconds` | timer | none | Time to process one outbox message. |
+| `queuebox_outbox_publish_duration_seconds` | timer | `destination_type` = http, rabbitmq | Time to publish to a destination type. |
+| `queuebox_outbox_messages_reclaimed_total` | counter | none | Messages returned to `pending` after a stale claim. |
+| `queuebox_outbox_process_errors_total` | counter | none | Errors that stopped the processing of one message. |
+| `queuebox_outbox_destination_messages_total` | counter | `destination`, `outcome` = success, failure | Publish outcomes per configured destination. |
+| `queuebox_outbox_queue_depth` | gauge | `destination` | Messages that wait for a publish to the destination. |
+| `queuebox_transform_failures_total` | counter | `strategy` = skip, fail, dead | Transform failures by error strategy. |
+| `queuebox_http_publish_responses_total` | counter | `status_class` = 1xx, 2xx, 3xx, 4xx, 5xx, other | HTTP publish responses by status class. |
+| `queuebox_inbox_messages_total` | counter | `status` = new, duplicate, forwarded | Inbox messages by status. |
+| `queuebox_inbox_relay_errors_total` | counter | none | Errors of the inbox relay. |
+| `queuebox_inbox_rejections_total` | counter | `reason` = extraction_failed, transform_failed, storage_failed | Inbox messages that QueueBox rejected. |
+| `queuebox_cleanup_messages_deleted_total` | counter | `table` = outbox, inbox | Messages that the retention cleanup deleted. |
+| `queuebox_cleanup_duration_seconds` | timer | `table` | Duration of one cleanup run. |
+| `queuebox_cleanup_last_run_timestamp` | gauge | `table` | Unix time of the last cleanup run. |
+| `queuebox_uptime_seconds` | gauge | none | Time since the application started. |
+| `queuebox_info` | gauge | `version` | Application information. The version comes from the build. |
 
-**Cleanup metrics:**
-- `queuebox_cleanup_messages_deleted_total{table}` — Deleted messages counter
-- `queuebox_cleanup_duration_seconds{table}` — Cleanup run duration
-- `queuebox_cleanup_last_run_timestamp{table}` — Last cleanup timestamp
+The Prometheus exporter removes the `_info` suffix, so `queuebox_info` appears in the scrape as
+`queuebox`.
 
-**System metrics:**
-- `queuebox_uptime_seconds` — Application uptime
-- `queuebox_info{version}` — Application info gauge
+Micrometer also registers the JVM metrics and the HikariCP pool metrics on the same endpoint.
+Those names start with `jvm_` and `hikaricp_`.
 
 ## Database Schema
 
@@ -1044,6 +1080,12 @@ routes:
     destination: order-service
 ```
 
+## Operations
+
+- [Operations runbook](docs/operations/runbook.md) — inspect and replay dead-lettered messages,
+  react to a growing pending gauge, size the pool and the batch, and diagnose a slow destination.
+- [Dead letters](docs/operations/dead-letter.md) — the SQL to list a dead message and to requeue one.
+
 ## Development
 
 ```bash
@@ -1073,14 +1115,25 @@ queuebox/
 
 ## Roadmap
 
-**Planned features:**
+### Not in 1.0
 
-- [ ] Admin UI for monitoring and dead-letter management
-- [ ] Kafka destination support
-- [ ] Message replay from dead-letter
-- [ ] Rate limiting per destination
-- [ ] OpenTelemetry tracing integration
-- [ ] Kubernetes Helm chart
+QueueBox 1.0 does not ship these features. The list is a statement of intent, not a promise of a
+date.
+
+| Feature | Target | Note |
+|---------|--------|------|
+| OpenTelemetry tracing | 1.1 | 1.0 correlates a message with the `X-Correlation-Id` header, the `correlation_id` column, and the `correlationId` field of every log line. That covers the debugging path. A span tree does not. See [docs/operations/runbook.md](docs/operations/runbook.md). |
+| Message replay from the dead-letter state | 1.1 | 1.0 documents the SQL. See [docs/operations/dead-letter.md](docs/operations/dead-letter.md). |
+| Kafka destination | 1.2 | |
+| Rate limit per destination | 1.2 | 1.0 rate limits an inbox source. |
+| Admin user interface | not scheduled | |
+| Kubernetes Helm chart | not scheduled | The deployment examples in [docs/operations/security.md](docs/operations/security.md) cover the same ground. |
+
+### How to read this table
+
+A row with a version number is work that a maintainer intends to do. A row that says "not
+scheduled" is work that nobody has committed to. Do not plan a deployment around a row of the
+second kind.
 
 ## License
 

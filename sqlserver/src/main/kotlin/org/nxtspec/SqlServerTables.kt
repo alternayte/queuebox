@@ -43,6 +43,7 @@ object SqlServerInboxTable : UUIDTable("inbox") {
     val createdAt = timestamp("created_at")
     val processedAt = timestamp("processed_at").nullable()
     val claimedAt = timestamp("claimed_at").nullable()
+    val correlationId: Column<String?> = varchar("correlation_id", 128).nullable()
 
     init {
         uniqueIndex(messageSrc, idempotencyKey)

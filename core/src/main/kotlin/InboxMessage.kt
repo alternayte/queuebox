@@ -17,5 +17,7 @@ data class InboxMessage(
     val payload: JsonElement,
     val state: MessageState = MessageState.Pending,
     val createdAt: Instant = Clock.System.now(),
-    val processedAt: Instant? = null
+    val processedAt: Instant? = null,
+    /** Identifier that follows the message across the system. See F-047. */
+    val correlationId: String? = null
 )

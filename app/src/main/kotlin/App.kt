@@ -36,7 +36,15 @@ fun main() {
     val prometheusRegistry = PrometheusMeterRegistry(PrometheusConfig.DEFAULT)
 
     // Database setup with metrics integration
+    // F-057: an invalid transform expression must stop the start, not every message.
+    StartupValidator.validateTransforms(config)
+
     val dataSource = DatabaseFactory.create(config.database, prometheusRegistry)
+
+    // F-056: wait for the database rather than exiting at once. An orchestrator otherwise shows
+    // a crash loop with no useful message while the database comes up.
+    DatabaseStartup.awaitConnection(dataSource, config.database.startupTimeoutMs)
+
     DatabaseFactory.init(dataSource)
 
     // Repositories via factory pattern
@@ -138,7 +146,8 @@ fun main() {
 
     // Transform pipelines (shared engine for both outbox and inbox)
     val transformEngine = TransformEngine()
-    val transformPipeline = TransformPipeline(transformEngine)
+    // F-052: the pipeline counts a transform failure by strategy.
+    val transformPipeline = TransformPipeline(transformEngine, metricsCollector)
     val inboxTransformPipeline = InboxTransformPipeline(transformEngine)
 
     // Retention service
@@ -205,7 +214,21 @@ fun main() {
         }
 
     // Health manager
-    val healthManager = HealthManager(dataSource)
+    // F-050: the readiness answer covers the workers and every RabbitMQ connection.
+    val rabbitSourceNames = config.sources
+        .filterValues { it is SourceConfig.RabbitMQ }
+        .keys
+        .toList()
+    val healthContributors = buildList {
+        add(SimpleHealthContributor("outbox-poller") { outboxPoller.isRunning() })
+        add(SimpleHealthContributor("retention-service") { retentionService.isRunning() })
+        add(SimpleHealthContributor("inbox-relay") { inboxRelay.isRunning() })
+        rabbitSourceNames.forEachIndexed { index, sourceName ->
+            val consumer = rabbitConsumers[index].first
+            add(SimpleHealthContributor("rabbitmq.$sourceName") { consumer.isChannelOpen })
+        }
+    }
+    val healthManager = HealthManager(dataSource, healthContributors)
 
     // Start poller
     outboxPoller.start()
@@ -235,9 +258,32 @@ fun main() {
         configureBodySizeLimit(config.inbox.maxBodyBytes)
         configureRouting()
         configureInboxRoutes(config.inbox, config.sources, inboxHandler)
-        configureHealthRoutes(healthManager)
-        configureMetricsRoutes(prometheusRegistry)
-        configureAdminRoutes(config.admin, InboxAuthValidator(), transformEngine)
+        // F-051: the operational endpoints leave the data port when a management port is set.
+        configureDataPortOperationalRoutes(
+            managementPort = config.server.managementPort,
+            prometheusRegistry = prometheusRegistry,
+            healthManager = healthManager,
+            adminConfig = config.admin,
+            transformEngine = transformEngine
+        )
+    }
+
+    // F-051: the second server carries the operational endpoints alone.
+    val managementServer = config.server.managementPort?.let { port ->
+        embeddedServer(
+            factory = Netty,
+            environment = applicationEnvironment { },
+            configure = {
+                connector { this.port = port }
+            }
+        ) {
+            configureOperationalRoutes(
+                prometheusRegistry = prometheusRegistry,
+                healthManager = healthManager,
+                adminConfig = config.admin,
+                transformEngine = transformEngine
+            )
+        }
     }
 
     val shutdownSequence = ShutdownSequence(
@@ -253,6 +299,11 @@ fun main() {
                 )
             }
             server.stop(
+                gracePeriodMillis = SHUTDOWN_GRACE_PERIOD_MS,
+                timeoutMillis = config.outbox.shutdownTimeoutMs
+            )
+            // F-051: the management server stops with the data server, before the resources close.
+            managementServer?.stop(
                 gracePeriodMillis = SHUTDOWN_GRACE_PERIOD_MS,
                 timeoutMillis = config.outbox.shutdownTimeoutMs
             )
@@ -281,7 +332,40 @@ fun main() {
         }
     )
 
+    managementServer?.start(wait = false)
     server.start(wait = true)
+}
+
+/**
+ * Registers the operational endpoints: the metrics endpoint, the health endpoints and the admin
+ * endpoint. See F-051.
+ */
+fun Application.configureOperationalRoutes(
+    prometheusRegistry: PrometheusMeterRegistry,
+    healthManager: HealthManager,
+    adminConfig: AdminConfig,
+    transformEngine: TransformEngine
+) {
+    configureHealthRoutes(healthManager)
+    configureMetricsRoutes(prometheusRegistry)
+    configureAdminRoutes(adminConfig, InboxAuthValidator(), transformEngine)
+}
+
+/**
+ * Registers the operational endpoints on the data port only while no management port exists.
+ *
+ * F-051: a set management port moves the metrics endpoint, the health endpoints and the admin
+ * endpoint off the data port.
+ */
+fun Application.configureDataPortOperationalRoutes(
+    managementPort: Int?,
+    prometheusRegistry: PrometheusMeterRegistry,
+    healthManager: HealthManager,
+    adminConfig: AdminConfig,
+    transformEngine: TransformEngine
+) {
+    if (managementPort != null) return
+    configureOperationalRoutes(prometheusRegistry, healthManager, adminConfig, transformEngine)
 }
 
 /** Time that an in-flight request has to finish before the server stops. See F-029. */

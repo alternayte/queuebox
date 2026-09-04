@@ -135,7 +135,8 @@ data class InboxColumnMapping(
     val state: String = "state",
     val createdAt: String = "created_at",
     val processedAt: String = "processed_at",
-    val claimedAt: String = "claimed_at"
+    val claimedAt: String = "claimed_at",
+    val correlationId: String = "correlation_id"
 )
 
 @Serializable

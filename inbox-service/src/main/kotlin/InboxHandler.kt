@@ -2,6 +2,7 @@ package org.nxtspec
 
 import kotlinx.datetime.Clock
 import kotlinx.serialization.json.JsonElement
+import org.nxtspec.metrics.InboxRejectionReason
 import org.nxtspec.metrics.MetricsCollectorInterface
 import org.nxtspec.repository.InboxRepositoryInterface
 import org.nxtspec.transform.InboxTransformContext
@@ -23,7 +24,13 @@ class InboxHandler(
     private val metricsCollector: MetricsCollectorInterface? = null,
     private val transformPipeline: InboxTransformPipeline? = null
 ) {
-    suspend fun handle(source: String, sourceConfig: SourceConfig.Http, payload: JsonElement): InboxHandlerResult {
+    suspend fun handle(
+        source: String,
+        sourceConfig: SourceConfig.Http,
+        payload: JsonElement,
+        /** The identifier that follows the message across the system. See F-047. */
+        correlationId: String? = null
+    ): InboxHandlerResult {
         val messageId = UUID.randomUUID()
 
         // Extract every path BEFORE transform, from the original payload, with one parse. See F-025.
@@ -35,9 +42,13 @@ class InboxHandler(
         val extracted = extractor.extractAll(payload, paths)
 
         val idempotencyKey = extracted[IDEMPOTENCY_KEY]
-            ?: return InboxHandlerResult.ExtractionFailed(
+        if (idempotencyKey == null) {
+            // F-052: the reason is a fixed enumeration, never the path or the payload.
+            metricsCollector?.recordInboxRejection(InboxRejectionReason.EXTRACTION_FAILED)
+            return InboxHandlerResult.ExtractionFailed(
                 "Path not found: ${sourceConfig.idempotencyKeyPath}"
             )
+        }
         val aggregateId = extracted[AGGREGATE_ID_KEY]
         val eventType = extracted[EVENT_TYPE_KEY]
 
@@ -52,7 +63,10 @@ class InboxHandler(
             )
             when (val result = transformPipeline.transform(payload, sourceConfig.transform, context)) {
                 is InboxTransformResult.Success -> result.payload
-                is InboxTransformResult.Rejected -> return InboxHandlerResult.TransformFailed(result.reason)
+                is InboxTransformResult.Rejected -> {
+                    metricsCollector?.recordInboxRejection(InboxRejectionReason.TRANSFORM_FAILED)
+                    return InboxHandlerResult.TransformFailed(result.reason)
+                }
             }
         } else {
             payload
@@ -65,7 +79,8 @@ class InboxHandler(
             idempotencyKey = idempotencyKey,
             aggregateId = aggregateId,
             eventType = eventType,
-            payload = transformedPayload
+            payload = transformedPayload,
+            correlationId = correlationId
         )
 
         // Store with deduplication
@@ -78,7 +93,10 @@ class InboxHandler(
                 metricsCollector?.recordInboxDuplicate()
                 InboxHandlerResult.Duplicate
             }
-            is InboxResult.Error -> InboxHandlerResult.StorageFailed(result.message)
+            is InboxResult.Error -> {
+                metricsCollector?.recordInboxRejection(InboxRejectionReason.STORAGE_FAILED)
+                InboxHandlerResult.StorageFailed(result.message)
+            }
         }
     }
 

@@ -48,6 +48,7 @@ class InboxRepository(
                 it[payload] = message.payload
                 it[state] = "pending"
                 it[createdAt] = now
+                it[correlationId] = message.correlationId
             }
 
             if (inserted.insertedCount == 0) {
@@ -117,7 +118,8 @@ class InboxRepository(
             RETURNING target.$idCol, target.${q(columnMapping.source)},
                       target.${q(columnMapping.idempotencyKey)}, target.$aggregateCol,
                       target.${q(columnMapping.eventType)}, target.${q(columnMapping.payload)},
-                      target.$stateCol, target.$createdAtCol, target.${q(columnMapping.processedAt)}
+                      target.$stateCol, target.$createdAtCol, target.${q(columnMapping.processedAt)},
+                      target.${q(columnMapping.correlationId)}
         """.trimIndent()
 
         val now = Clock.System.now()
@@ -239,7 +241,8 @@ class InboxRepository(
         payload = this[table.payload],
         state = stringToMessageState(this[table.state]),
         createdAt = this[table.createdAt],
-        processedAt = this[table.processedAt]
+        processedAt = this[table.processedAt],
+        correlationId = this[table.correlationId]
     )
 
     private fun java.sql.ResultSet.toInboxMessageFromResultSet(): InboxMessage = InboxMessage(
@@ -255,7 +258,8 @@ class InboxRepository(
         },
         processedAt = getTimestamp(columnMapping.processedAt)?.toInstant()?.let {
             kotlinx.datetime.Instant.fromEpochSeconds(it.epochSecond, it.nano)
-        }
+        },
+        correlationId = getString(columnMapping.correlationId)
     )
 
     private fun stringToMessageState(state: String): MessageState = when (state) {

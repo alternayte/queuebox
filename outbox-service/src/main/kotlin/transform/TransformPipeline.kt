@@ -3,6 +3,7 @@ package org.nxtspec.transform
 import kotlinx.serialization.json.JsonElement
 import org.nxtspec.TransformConfig
 import org.nxtspec.TransformErrorStrategy
+import org.nxtspec.metrics.MetricsCollectorInterface
 
 /**
  * Pipeline that applies route-level and destination-level transforms in sequence.
@@ -15,9 +16,11 @@ import org.nxtspec.TransformErrorStrategy
  * Error handling is configurable per transform via [TransformErrorStrategy].
  *
  * @property engine The JSONata transform engine to use for evaluation
+ * @property metricsCollector Optional collector that counts a failure by error strategy (F-052)
  */
 class TransformPipeline(
-    private val engine: TransformEngine
+    private val engine: TransformEngine,
+    private val metricsCollector: MetricsCollectorInterface? = null
 ) {
     /**
      * Applies route and destination transforms in sequence to a message payload.
@@ -92,6 +95,22 @@ class TransformPipeline(
     private fun handleError(
         error: TransformResult.Error,
         strategy: TransformErrorStrategy,
+        fallbackPayload: JsonElement
+    ): TransformResult {
+        // F-052: the strategy name is a fixed enumeration, so the label set stays bounded.
+        metricsCollector?.recordTransformFailure(strategyLabel(strategy))
+        return applyStrategy(strategy, error, fallbackPayload)
+    }
+
+    private fun strategyLabel(strategy: TransformErrorStrategy): String = when (strategy) {
+        TransformErrorStrategy.Skip -> "skip"
+        TransformErrorStrategy.Fail -> "fail"
+        TransformErrorStrategy.Dead -> "dead"
+    }
+
+    private fun applyStrategy(
+        strategy: TransformErrorStrategy,
+        error: TransformResult.Error,
         fallbackPayload: JsonElement
     ): TransformResult = when (strategy) {
         TransformErrorStrategy.Skip -> TransformResult.Success(fallbackPayload)

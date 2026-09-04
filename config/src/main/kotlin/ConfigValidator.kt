@@ -305,7 +305,8 @@ object ConfigValidator {
             "state" to mapping.inbox.state,
             "createdAt" to mapping.inbox.createdAt,
             "processedAt" to mapping.inbox.processedAt,
-            "claimedAt" to mapping.inbox.claimedAt
+            "claimedAt" to mapping.inbox.claimedAt,
+            "correlationId" to mapping.inbox.correlationId
         )
 
         inboxColumns.forEach { (fieldName, columnName) ->
