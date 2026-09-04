@@ -164,19 +164,15 @@ object ConfigValidator {
      * mistake. A run of more than two `*` has no meaning.
      */
     private fun validateTopicPattern(pattern: String, index: Int) {
-        require(TOPIC_PATTERN_CHARS.matches(pattern)) {
-            "Route[$index] has an invalid topicPattern: '$pattern'. A topic pattern accepts " +
-                "letters, digits, '_', '-', '.' and '*'. " +
-                "Set via 'routes[$index].topicPattern' in YAML or QUEUEBOX_ROUTES_${index}_TOPICPATTERN env var."
-        }
+        // MessageRouter escapes every literal segment, so a regular expression metacharacter in
+        // a pattern is a literal and is safe. The validator therefore rejects only what the
+        // glob syntax cannot express.
         require(!pattern.contains("***")) {
             "Route[$index] has an invalid topicPattern: '$pattern'. Use '*' for one segment and " +
                 "'**' for any number of segments. " +
                 "Set via 'routes[$index].topicPattern' in YAML or QUEUEBOX_ROUTES_${index}_TOPICPATTERN env var."
         }
     }
-
-    private val TOPIC_PATTERN_CHARS = Regex("^[A-Za-z0-9_.*-]+$")
 
     private fun validateSourceTopic(name: String, source: SourceConfig) {
         require(source.topic.isNotBlank()) {

@@ -58,6 +58,43 @@ class SqlServerMigratorTest {
         SqlServerDatabaseFactory.close(dataSource)
     }
 
+    @Test
+    fun `migrate succeeds against a schema that an operator already created`() = runBlocking {
+        // Every migration file must be safe to run twice, because an operator can apply the
+        // SQL by hand before Flyway baselines the database.
+        val databaseName = "queuebox_existing"
+        createEmptyDatabase(databaseName)
+
+        val url = SqlServerTestBase.sqlserver.jdbcUrl + ";databaseName=$databaseName"
+        val config = DatabaseConfig(
+            type = "sqlserver",
+            url = url,
+            username = SqlServerTestBase.sqlserver.username,
+            password = SqlServerTestBase.sqlserver.password,
+            poolSize = 5
+        )
+        val dataSource = SqlServerDatabaseFactory.create(config)
+
+        dataSource.connection.use { connection ->
+            listOf(
+                "V1__create_outbox.sql",
+                "V2__create_inbox.sql",
+                "V3__add_claimed_at.sql",
+                "V4__add_last_error.sql"
+            ).forEach { name ->
+                val sql = requireNotNull(
+                    javaClass.getResourceAsStream("/db/sqlserver/$name")
+                ) { "Migration $name must be on the classpath" }.bufferedReader().readText()
+                connection.createStatement().use { it.execute(sql) }
+            }
+        }
+
+        val applied = SqlServerMigrator().migrate(dataSource)
+        assertTrue(applied >= 4, "Flyway records every file. Applied $applied")
+
+        SqlServerDatabaseFactory.close(dataSource)
+    }
+
     private fun createEmptyDatabase(name: String) {
         val container = SqlServerTestBase.sqlserver
         java.sql.DriverManager.getConnection(

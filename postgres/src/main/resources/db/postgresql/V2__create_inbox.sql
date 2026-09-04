@@ -1,5 +1,5 @@
 -- Inbox table for idempotent message processing
-CREATE TABLE inbox (
+CREATE TABLE IF NOT EXISTS inbox (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     source VARCHAR(255) NOT NULL,
     idempotency_key VARCHAR(255) NOT NULL,
@@ -15,14 +15,14 @@ CREATE TABLE inbox (
 );
 
 -- Index for efficient claiming of pending messages
-CREATE INDEX idx_inbox_pending ON inbox(state)
+CREATE INDEX IF NOT EXISTS idx_inbox_pending ON inbox(state)
     WHERE state = 'pending';
 
 -- Index for source lookups
-CREATE INDEX idx_inbox_source ON inbox(source);
+CREATE INDEX IF NOT EXISTS idx_inbox_source ON inbox(source);
 
 -- Index for efficient aggregate ordering queries
-CREATE INDEX idx_inbox_aggregate_state ON inbox(aggregate_id, state);
+CREATE INDEX IF NOT EXISTS idx_inbox_aggregate_state ON inbox(aggregate_id, state);
 
 COMMENT ON TABLE inbox IS 'Inbox for idempotent webhook/message processing';
 COMMENT ON COLUMN inbox.source IS 'Message source identifier (e.g., stripe, github)';

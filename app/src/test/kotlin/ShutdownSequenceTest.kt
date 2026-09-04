@@ -55,8 +55,8 @@ class ShutdownSequenceTest {
     @Test
     fun `drain waits until the last request leaves`() = runBlocking {
         val drain = RequestDrain()
-        drain.enter()
-        drain.enter()
+        assertTrue(drain.enter())
+        assertTrue(drain.enter())
         assertEquals(2, drain.count())
 
         val waiting = async { drain.await(5000) }
@@ -72,9 +72,24 @@ class ShutdownSequenceTest {
     @Test
     fun `drain gives up after the timeout`() = runBlocking {
         val drain = RequestDrain()
-        drain.enter()
+        assertTrue(drain.enter())
 
         assertFalse(drain.await(150))
         assertEquals(1, drain.count())
+    }
+
+    @Test
+    fun `drain refuses a request after the drain starts`() = runBlocking {
+        val drain = RequestDrain()
+
+        assertTrue(drain.enter())
+        drain.startDraining()
+
+        assertTrue(drain.isDraining())
+        assertFalse(drain.enter(), "A request that arrives during the drain must be refused")
+        assertEquals(1, drain.count(), "A refused request must not count")
+
+        drain.exit()
+        assertTrue(drain.await(1000))
     }
 }

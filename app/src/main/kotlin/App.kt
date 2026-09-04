@@ -72,6 +72,7 @@ fun main() {
 
     // F-030: apply the bundled migrations before anything reads a table.
     if (config.database.migrate) {
+        requireDefaultSchemaForMigrations(config.database)
         val applied = repositoryFactory.createMigrator().migrate(dataSource)
         println("Applied $applied migration(s)")
     }
@@ -218,11 +219,11 @@ fun main() {
         environment = applicationEnvironment { },
         configure = {
             connector { port = config.server.httpPort }
-            // Bound the buffer that the engine allocates for one request chunk. See F-023.
-            maxChunkSize = minOf(config.inbox.maxBodyBytes, maxChunkSize.toLong()).toInt()
         }
     ) {
         configureRequestDrain(requestDrain)
+        // F-023: the cap applies to every route, not only to the inbox route.
+        configureBodySizeLimit(config.inbox.maxBodyBytes)
         configureRouting()
         configureInboxRoutes(config.inbox, config.sources, inboxHandler)
         configureHealthRoutes(healthManager)
@@ -232,7 +233,9 @@ fun main() {
 
     val shutdownSequence = ShutdownSequence(
         stopServer = {
-            // Wait for the in-flight requests. The Ktor stop cancels a running handler.
+            // Refuse new requests, then wait for the in-flight ones. The Ktor stop cancels a
+            // running handler, so the wait must finish first.
+            requestDrain.startDraining()
             val drained = requestDrain.await(SHUTDOWN_GRACE_PERIOD_MS)
             if (!drained) {
                 println("Shutdown drain timeout. ${requestDrain.count()} request(s) still in flight.")

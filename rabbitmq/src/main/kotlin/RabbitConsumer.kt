@@ -7,6 +7,7 @@ import com.rabbitmq.client.Envelope
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
@@ -49,10 +50,16 @@ class RabbitConsumer(
     // F-018: an AMQP channel is not thread safe. One actor coroutine owns the channel and
     // performs every acknowledgement. The message coroutines only send a command.
     private val ackScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    @Volatile
     private var ackCommands: kotlinx.coroutines.channels.Channel<AckCommand>? = null
+
+    @Volatile
     private var ackActor: kotlinx.coroutines.Job? = null
 
+    @Volatile
     private var consumerTag: String? = null
+
+    @Volatile
     private var channel: Channel? = null
     private val json = Json { ignoreUnknownKeys = true }
 
@@ -105,11 +112,37 @@ class RabbitConsumer(
     }
 
     private suspend fun sendAck(deliveryTag: Long) {
-        ackCommands?.send(AckCommand.Ack(deliveryTag))
+        send(AckCommand.Ack(deliveryTag), deliveryTag)
     }
 
     private suspend fun sendNack(deliveryTag: Long, requeue: Boolean) {
-        ackCommands?.send(AckCommand.Nack(deliveryTag, requeue))
+        send(AckCommand.Nack(deliveryTag, requeue), deliveryTag)
+    }
+
+    /**
+     * Sends one acknowledgement command to the actor.
+     *
+     * The actor closes during the shutdown. A command that arrives after the close cannot reach
+     * the broker, so the message is redelivered. The loss is logged, because a silent loss hides
+     * a shutdown that is too short.
+     */
+    private suspend fun send(command: AckCommand, deliveryTag: Long) {
+        val commands = ackCommands
+        if (commands == null) {
+            println(
+                "Dropped the acknowledgement of delivery $deliveryTag, because the consumer " +
+                    "stopped. The broker redelivers the message, and the inbox deduplicates it."
+            )
+            return
+        }
+        try {
+            commands.send(command)
+        } catch (e: kotlinx.coroutines.channels.ClosedSendChannelException) {
+            println(
+                "Dropped the acknowledgement of delivery $deliveryTag, because the consumer " +
+                    "stopped. The broker redelivers the message, and the inbox deduplicates it."
+            )
+        }
     }
 
     private suspend fun processMessage(
@@ -251,9 +284,13 @@ class RabbitConsumer(
             }
         }
 
+        // The message jobs cannot send another command after this point.
+        scope.cancel()
+
         ackCommands?.close()
         withTimeoutOrNull(STOP_TIMEOUT_MILLIS) { ackActor?.join() }
         ackCommands = null
+        ackScope.cancel()
         ackActor = null
 
         try {

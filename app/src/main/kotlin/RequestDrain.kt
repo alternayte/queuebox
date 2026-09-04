@@ -1,6 +1,8 @@
 package org.nxtspec.app
 
+import io.ktor.http.*
 import io.ktor.server.application.*
+import io.ktor.server.response.*
 import kotlinx.coroutines.delay
 import java.util.concurrent.atomic.AtomicInteger
 
@@ -14,10 +16,32 @@ import java.util.concurrent.atomic.AtomicInteger
 class RequestDrain {
     private val inFlight = AtomicInteger(0)
 
+    @Volatile
+    private var draining = false
+
     fun count(): Int = inFlight.get()
 
-    fun enter() {
+    fun isDraining(): Boolean = draining
+
+    /**
+     * Refuses every new request from now on.
+     *
+     * Without this step the count never reaches zero under steady traffic, and a request that
+     * arrives during the drain is cancelled by the server stop.
+     */
+    fun startDraining() {
+        draining = true
+    }
+
+    /**
+     * Registers one request.
+     *
+     * @return false when the drain started, which means the caller must refuse the request
+     */
+    fun enter(): Boolean {
+        if (draining) return false
         inFlight.incrementAndGet()
+        return true
     }
 
     fun exit() {
@@ -44,7 +68,15 @@ class RequestDrain {
  */
 fun Application.configureRequestDrain(drain: RequestDrain) {
     intercept(ApplicationCallPipeline.Setup) {
-        drain.enter()
+        if (!drain.enter()) {
+            call.respondText(
+                text = """{"error":"QueueBox is shutting down"}""",
+                contentType = ContentType.Application.Json,
+                status = HttpStatusCode.ServiceUnavailable
+            )
+            finish()
+            return@intercept
+        }
         try {
             proceed()
         } finally {

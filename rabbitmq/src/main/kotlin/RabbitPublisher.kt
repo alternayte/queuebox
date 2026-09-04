@@ -88,6 +88,10 @@ class RabbitPublisher(
                             )
                         }
                     } catch (e: Exception) {
+                        // The broker can have recorded a return before the failure, so the id
+                        // is removed here as well. Without it the set grows for the life of
+                        // the process.
+                        holder.returnedIds.remove(messageId)
                         discardChannel(holder)
                         throw e
                     }
@@ -143,6 +147,8 @@ class RabbitPublisher(
             // The channel is already broken. The next publish creates a new one.
         }
         holder.channel = null
+        // A return that the discarded channel recorded cannot belong to a future publish.
+        holder.returnedIds.clear()
     }
 
     private fun recordPublishDuration(startTime: Long) {

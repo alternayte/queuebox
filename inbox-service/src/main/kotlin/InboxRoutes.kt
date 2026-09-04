@@ -2,7 +2,6 @@ package org.nxtspec
 
 import io.ktor.http.*
 import io.ktor.server.application.*
-import io.ktor.server.plugins.doublereceive.*
 import io.ktor.server.plugins.ratelimit.*
 import io.ktor.server.request.*
 import io.ktor.server.response.*
@@ -22,10 +21,9 @@ fun Application.configureInboxRoutes(
     handler: InboxHandler,
     authValidator: InboxAuthValidator = InboxAuthValidator()
 ) {
-    // Install DoubleReceive for body buffering (needed for HMAC verification)
-    install(DoubleReceive) {
-        cacheRawRequest = true
-    }
+    // F-023: DoubleReceive is not installed. It buffers every request body without a cap.
+    // The route now reads the body once, under the cap, and reuses those bytes for the HMAC
+    // check and for the JSON parse.
 
     val httpSources = sources.filterValues { it is SourceConfig.Http }
         .mapValues { (_, value) -> value as SourceConfig.Http }
@@ -135,7 +133,10 @@ private suspend fun ApplicationCall.receiveCappedBody(maxBytes: Long): ByteArray
         val read = channel.readAvailable(chunk, 0, chunk.size)
         if (read == -1) break
         if (read == 0) {
+            // readAvailable suspends while the body is still open, so a zero read means the
+            // channel has no more data for now. Yield rather than spin, and stop at the end.
             if (channel.isClosedForRead) break
+            kotlinx.coroutines.yield()
             continue
         }
         total += read

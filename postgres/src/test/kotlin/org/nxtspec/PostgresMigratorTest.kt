@@ -82,4 +82,49 @@ class PostgresMigratorTest {
 
         DatabaseFactory.close(dataSource)
     }
+
+    @Test
+    fun `migrate succeeds against a schema that an operator already created`() = runBlocking {
+        // The Compose file and the manual procedure both create the tables outside Flyway.
+        // Flyway then baselines the database and replays every file, so every file must be
+        // safe to run twice.
+        val databaseName = "queuebox_existing"
+        java.sql.DriverManager.getConnection(
+            container.jdbcUrl,
+            container.username,
+            container.password
+        ).use { connection ->
+            connection.createStatement().use { it.execute("CREATE DATABASE $databaseName") }
+        }
+
+        val url = container.jdbcUrl.substringBeforeLast('/') + "/" + databaseName
+        val config = DatabaseConfig(
+            url = url,
+            username = container.username,
+            password = container.password,
+            poolSize = 5
+        )
+        val dataSource = DatabaseFactory.create(config)
+
+        // The operator applies the shipped SQL by hand first.
+        dataSource.connection.use { connection ->
+            listOf(
+                "V1__create_outbox.sql",
+                "V2__create_inbox.sql",
+                "V3__add_claimed_at.sql",
+                "V4__add_last_error.sql"
+            ).forEach { name ->
+                val sql = requireNotNull(
+                    javaClass.getResourceAsStream("/db/postgresql/$name")
+                ) { "Migration $name must be on the classpath" }.bufferedReader().readText()
+                connection.createStatement().use { it.execute(sql) }
+            }
+        }
+
+        // Flyway must not fail on the replay.
+        val applied = PostgresMigrator().migrate(dataSource)
+        assertTrue(applied >= 4, "Flyway records every file. Applied $applied")
+
+        DatabaseFactory.close(dataSource)
+    }
 }

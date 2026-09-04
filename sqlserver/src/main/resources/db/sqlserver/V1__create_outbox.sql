@@ -1,4 +1,5 @@
 -- Outbox table for reliable message publishing
+IF OBJECT_ID('outbox', 'U') IS NULL
 CREATE TABLE outbox (
     id UNIQUEIDENTIFIER PRIMARY KEY DEFAULT NEWID(),
     topic NVARCHAR(255) NOT NULL,
@@ -14,8 +15,10 @@ CREATE TABLE outbox (
 );
 
 -- Filtered index for efficient pending message queries
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_outbox_pending_scheduled' AND object_id = OBJECT_ID('outbox'))
 CREATE INDEX idx_outbox_pending_scheduled ON outbox(state, scheduled_at)
     WHERE state = 'pending';
 
 -- Index for state-based cleanup operations
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_outbox_state_updated' AND object_id = OBJECT_ID('outbox'))
 CREATE INDEX idx_outbox_state_updated ON outbox(state, updated_at);

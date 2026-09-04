@@ -311,26 +311,19 @@ class ConfigValidatorTest {
     }
 
     @Test
-    fun `should fail when topic pattern contains a regex metacharacter`() {
+    fun `should pass when topic pattern contains a regex metacharacter`() {
+        // MessageRouter escapes every literal segment, so a metacharacter is a literal.
+        // MessageRouterTest proves that such a pattern routes correctly, so the validator must
+        // not reject it.
         val config = createValidConfig().copy(
-            routes = listOf(RouteConfig(topicPattern = "order.(a+)", destination = "webhook-api"))
+            routes = listOf(
+                RouteConfig(topicPattern = "order.(a+)", destination = "webhook-api"),
+                RouteConfig(topicPattern = "order.[y]", destination = "webhook-api"),
+                RouteConfig(topicPattern = "order created", destination = "webhook-api")
+            )
         )
-        val exception = assertFailsWith<IllegalArgumentException> {
-            ConfigValidator.validate(config)
-        }
-        assertContains(exception.message!!, "topicPattern")
-        assertContains(exception.message!!, "order.(a+)")
-    }
 
-    @Test
-    fun `should fail when topic pattern contains whitespace`() {
-        val config = createValidConfig().copy(
-            routes = listOf(RouteConfig(topicPattern = "order created", destination = "webhook-api"))
-        )
-        val exception = assertFailsWith<IllegalArgumentException> {
-            ConfigValidator.validate(config)
-        }
-        assertContains(exception.message!!, "topicPattern")
+        assertNotNull(ConfigValidator.validate(config))
     }
 
     @Test

@@ -1,4 +1,5 @@
 -- Inbox table for idempotent message processing
+IF OBJECT_ID('inbox', 'U') IS NULL
 CREATE TABLE inbox (
     id UNIQUEIDENTIFIER PRIMARY KEY DEFAULT NEWID(),
     source NVARCHAR(255) NOT NULL,
@@ -15,10 +16,13 @@ CREATE TABLE inbox (
 );
 
 -- Index for pending message processing
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_inbox_state' AND object_id = OBJECT_ID('inbox'))
 CREATE INDEX idx_inbox_state ON inbox(state);
 
 -- Index for state-based cleanup operations
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_inbox_state_created' AND object_id = OBJECT_ID('inbox'))
 CREATE INDEX idx_inbox_state_created ON inbox(state, created_at);
 
 -- Index for efficient aggregate ordering queries
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_inbox_aggregate_state' AND object_id = OBJECT_ID('inbox'))
 CREATE INDEX idx_inbox_aggregate_state ON inbox(aggregate_id, state);

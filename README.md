@@ -765,6 +765,10 @@ publishes up to `outbox.concurrency` messages at the same time. Two messages of 
 therefore arrive at the destination out of order. Set `outbox.concurrency: 1` when a destination
 needs strict order.
 
+A RabbitMQ destination is the exception. It holds one confirmed channel, and one publish at a
+time uses it, so `outbox.concurrency` raises throughput only across different destinations. An
+HTTP destination has no such limit.
+
 **Precedence.** The route `routingKeyTemplate` wins. QueueBox renders it, and the RabbitMQ
 publisher uses the result. A RabbitMQ destination also has its own `routingKeyTemplate`, which
 supports `{{ topic }}` only. That destination template applies only when the matched route sets

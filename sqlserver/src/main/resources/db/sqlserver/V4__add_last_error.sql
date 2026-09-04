@@ -2,4 +2,5 @@
 -- The application truncates the text and redacts the known secret-bearing headers before it
 -- writes the column.
 
-ALTER TABLE outbox ADD last_error NVARCHAR(MAX) NULL;
+IF COL_LENGTH('outbox', 'last_error') IS NULL
+    ALTER TABLE outbox ADD last_error NVARCHAR(MAX) NULL;

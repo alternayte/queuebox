@@ -140,10 +140,11 @@ class RabbitPublisherIntegrationTest {
             payload = JsonObject(mapOf("msg" to JsonPrimitive("second")))
         )
 
-        publisher.publish(message1, destination)
-        publisher.publish(message2, destination)
+        val first = publisher.publish(message1, destination)
+        val second = publisher.publish(message2, destination)
 
-        assertTrue(true)
+        assertTrue(first.isSuccess, "The first publish must succeed")
+        assertTrue(second.isSuccess, "The second publish must reuse the cached channel")
     }
 
     @Test
@@ -248,7 +249,7 @@ class RabbitPublisherIntegrationTest {
                 // exchangeDeclarePassive will throw if exchange doesn't exist
                 channel.exchangeDeclarePassive(uniqueExchange)
                 // If we get here without exception, the exchange exists
-                assertTrue(true, "Exchange should exist after publish")
+                
             }
         }
 

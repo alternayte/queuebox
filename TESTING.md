@@ -62,8 +62,14 @@ a running process can execute it.
 |---------|--------|
 | `**/*Table.class` | An Exposed table definition. It declares columns and indexes, and it holds no branch. The integration tests exercise every column through the repositories. |
 | `**/*Tables.class` | The same, for the file that declares more than one table. |
-| `**/AppKt.class` | The process entry point. `main` wires the whole application together and then blocks on the HTTP server, so only a started process runs it. Every part that `main` wires has its own test: `ShutdownSequenceTest`, `PublisherRegistrationTest`, `MetricsCollectorTest`, `HealthRoutesTest`, `AdminRoutesTest`, and the end to end tests under `app/src/test/kotlin/e2e`. |
-| `**/AppKt$*.class` | The lambdas that `main` declares, for the same reason. |
+| `**/AppKt.class` | The process entry point. `main` wires the whole application together and then blocks on the HTTP server, so only a started process runs it. The file also holds `configureRouting`, which installs content negotiation and the root route. |
+| `**/AppKt$*.class` | The lambdas that `main` declares, including the three shutdown steps, for the same reason. |
+
+The exclusion hides the wiring itself, not the parts that the wiring composes. Each part has its
+own test: `ShutdownSequenceTest`, `MigrationGuardTest`, `BodySizeLimitTest`,
+`PublisherRegistrationTest`, `MetricsCollectorTest`, `HealthRoutesTest` and `AdminRoutesTest`.
+The end to end tests under `app/src/test/kotlin/e2e` compose the same parts the way `main` does,
+and `E2EShutdownTest` runs the real shutdown steps against a real inbox request.
 
 The `**/MainKt.class` exclusion is gone. Finding F-071 deleted the five template `Main.kt` files
 and the `utils` module, so the duplicate class no longer exists.
