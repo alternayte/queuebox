@@ -9,7 +9,7 @@ Source of truth: `hardening-doc.md`. The document is immutable and authoritative
 | 1 | Truth in advertising | F-001 to F-012 | **complete** (commit `eeb1d00`) |
 | 2 | Durability and correctness | F-013 to F-033 | **complete** (commits `93afae4`..`8960a00`) |
 | 3 | Security hardening | F-034 to F-045 | **complete** (commits `fb1f01f`..`f3fc59d`) |
-| 4 | Observability and operations | F-046 to F-057 | not started |
+| 4 | Observability and operations | F-046 to F-057 | **complete** (commits `b261c3c`..`e86b6d2`) |
 | 5 | Open source governance | F-058 to F-071 | not started. F-071 is already closed. |
 | 6 | Documentation and polish | F-072 to F-085 | not started |
 
@@ -273,13 +273,93 @@ build/reports/queuebox-0.1.0-SNAPSHOT-sbom.json
 
 ---
 
+## Phase 4 — complete
+
+Plan: `docs/build/phase-04-plan.md`. Commits `b261c3c`, `e86b6d2`.
+
+### Findings closed
+
+| ID | Fix | Evidence |
+|----|-----|----------|
+| F-046 | SLF4J and Logback replace every `println`. The mapped diagnostic context carries the message-scoped fields. | `grep` returns zero results. `LoggingTest`, `LogContextTest` |
+| F-047 | The inbox accepts or generates `X-Correlation-Id`, stores it, and the relay forwards it. The AMQP source carries it too. | `E2ECorrelationTest`, `InboxRoutesTest` |
+| F-048 | The roadmap names the target version for tracing and separates intent from a promise. | `README.md` |
+| F-049 | `/health/live` does no input or output. `/health/ready` reports the dependencies. | `HealthRoutesTest` |
+| F-050 | Contributors cover the poller, the retention service, the relay, and each RabbitMQ source. | `HealthManagerTest` |
+| F-051 | `server.managementPort` moves the operational endpoints to a second server. | `ManagementPortTest` |
+| F-052 | New bounded counters and a queue depth gauge. | `QueueBoxMetricsTest`, `MetricsRoutesTest` |
+| F-053 | The info gauge reads the Gradle version through a generated resource. | `QueueBoxMetricsTest` |
+| F-054 | `docs/operations/runbook.md` covers the five scenarios. | `RunbookSqlTest` executes every documented statement |
+| F-055 | `docs/operations/dead-letter.md` documents the list and the requeue. | `E2EDeadLetterReplayTest` |
+| F-056 | The start waits for the database with backoff. | `DatabaseStartupTest`, `E2EStartupTest` |
+| F-057 | Every configured transform compiles at startup. | `StartupValidatorTest` |
+
+### Exit condition evidence
+
+Command: `./gradlew clean build check jacocoAggregatedReport --rerun-tasks`
+
+```
+BUILD SUCCESSFUL in 5m 7s
+77 actionable tasks: 76 executed, 1 up-to-date
+```
+
+```
+grep -rn "println(" --include='*.kt' */src/main
+0
+```
+
+Aggregate coverage: line 0.8800, branch 0.7418. Both gates hold.
+
+### Decisions recorded during Phase 4
+
+1. **The correlation header constant lives in `core`.** `OutboxPoller` needs it for the mapped
+   diagnostic context, and `outbox-service` does not depend on `inbox-service`.
+2. **The outbox needs no correlation column.** The relay writes the identifier into the outbox
+   headers, and every publisher forwards the message headers.
+3. **`withLogContext` uses `MDCContext`.** The mapped diagnostic context of SLF4J is thread
+   local, and a coroutine can resume on another thread. A put and remove pair loses the context
+   and leaks an entry to an unrelated message.
+4. **A readiness check runs in the health manager's own scope.** A structured child would make
+   the caller wait for a blocking check that ignores cancellation. The abandoned job ends when
+   its blocking call returns.
+5. **F-048 states a target version.** The document allows either implementation or a qualified
+   roadmap entry. Tracing is a feature, and Phase 4 closes operational defects.
+
+### Deviations from the Definition of Done
+
+- **F-046.** The document names 20 `println` occurrences. The tree held 15 when the phase
+  started, because earlier phases had already replaced five.
+- **F-052.** The Prometheus exporter strips the `_info` suffix, so `queuebox_info` appears in a
+  scrape as `queuebox`. The README states it and the test asserts the exposed form.
+
+### Findings from the audit that were not acted on
+
+- **A control character in an HTTP correlation header.** Ktor rejects it before the route sees
+  it, so the route filter is the second layer. `InboxRoutesTest` asserts that Ktor rejects it.
+  The filter still matters for an AMQP source, where a header value is an arbitrary string.
+- **`DatabaseStartup` bounds the sleeps, not the attempts.** The wall time can exceed
+  `database.startupTimeoutMs` by one attempt, which is the pool timeout plus the validation.
+  `DatabaseStartupTest` asserts what the code guarantees.
+
+### Carried forward
+
+Decision 4 of section 2A requires the inbox accept response to change from 200 to 202. That is
+F-078, which belongs to Phase 6. The audit flagged it so it is not lost.
+
+---
+
 ## Next phase to start
 
-**Phase 4 — Observability and operations, F-046 to F-057.** Exit condition: structured logging
-replaces every `println`, graceful shutdown proven by test, runbook published.
+**Phase 5 — Open source governance, F-058 to F-071.** Exit condition: LICENSE, CI, templates and
+release process in place. A new contributor can go from clone to green build using only
+`CONTRIBUTING.md`.
 
-`docs/build/phase-04-plan.md` does not exist yet.
+F-012 and F-071 are already closed. `docs/build/phase-05-plan.md` does not exist yet.
 
 ## Open questions for the maintainer
 
-None. No question blocks Phase 4.
+**One question blocks part of Phase 5.** F-063 needs the GHCR permissions that only the
+maintainer can grant, and the release workflow cannot be proven without them. Section 2A
+decision 2 settles the artifact question: a container image only, no Maven artifacts and no
+signing. The remaining question is operational, not a product decision, so Phase 5 will write
+the workflow and record it as unverified rather than stop.
