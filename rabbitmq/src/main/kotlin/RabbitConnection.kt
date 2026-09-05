@@ -8,9 +8,25 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
+/**
+ * Thrown when the AMQP URI of a source or a destination cannot be parsed.
+ *
+ * It carries NO cause and it never names the URI. `URISyntaxException` embeds the whole value it
+ * rejected, and a broker URI holds the password. Five review gates repaired the redaction of that
+ * text after the fact; this stops the credential entering the text at all. The redaction stays as
+ * the second layer, not the first.
+ */
+class InvalidAmqpUriException(message: String) : RuntimeException(message)
+
 open class RabbitConnection(private val url: String) {
     private val factory = ConnectionFactory().apply {
-        setUri(url)
+        try {
+            setUri(url)
+        } catch (e: Exception) {
+            throw InvalidAmqpUriException(
+                "The AMQP URI is not valid: ${CredentialMasking.maskUrl(e.message ?: "no reason")}"
+            )
+        }
         isAutomaticRecoveryEnabled = true
         networkRecoveryInterval = 5000 // 5 seconds
     }
