@@ -489,6 +489,31 @@ class ErrorSanitizerTest {
         }
     }
 
+    /**
+     * The boundary of the credential shape rule, stated so it cannot drift by accident.
+     *
+     * Sixteen letters keeps "Digest authentication failed" readable. The cost is that fifteen
+     * lower-case letters with no digit escape. No token format in use produces that shape.
+     */
+    @Test
+    fun `the scheme token boundary is sixteen characters for a value with no digit`() {
+        assertEquals("Bearer abcdefghijklmno", ErrorSanitizer.sanitize("Bearer abcdefghijklmno"))
+        assertTrue(ErrorSanitizer.sanitize("Bearer abcdefghijklmnop")!!.contains(REDACTED_MARK))
+        assertEquals("Digest authentication failed", ErrorSanitizer.sanitize("Digest authentication failed"))
+    }
+
+    /** A long password and a password that holds a comma must both still be masked. */
+    @Test
+    fun `the bounded password run still masks a long password and one with a comma`() {
+        for (text in listOf(
+            "amqp://user:${"A".repeat(70)}@rabbit:5672/vh",
+            "amqp://user:pa,ss@rabbit:5672/vh"
+        )) {
+            val result = ErrorSanitizer.sanitize(text)!!
+            assertEquals("amqp://***@rabbit:5672/vh", result)
+        }
+    }
+
     private companion object {
         const val REDACTED_MARK = "[REDACTED]"
     }

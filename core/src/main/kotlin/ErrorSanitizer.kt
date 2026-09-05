@@ -100,6 +100,11 @@ object ErrorSanitizer {
     // [REDACTED] is empty" and an operator lost the meaning. A credential is long, or it carries
     // a character that a word does not. `bucket` is neither. A real bearer token, a JSON web
     // token and a base64 basic credential all are.
+    //
+    // The sixteen character line is deliberate. It keeps "Digest authentication failed" readable,
+    // because `authentication` is fourteen letters. The cost is that a credential of fifteen
+    // lower-case letters and no digit escapes. No token format in use produces that shape: a
+    // bearer token, a JSON web token and a base64 credential all carry a digit or an `=`.
     private val schemePattern: Regex = Regex(
         "(?i)\\b(" + AUTH_SCHEMES.joinToString("|") + ")\\s+" +
             "(?=[A-Za-z0-9._~+/\\-]*[0-9=]|[A-Za-z0-9._~+/\\-]{16})" +

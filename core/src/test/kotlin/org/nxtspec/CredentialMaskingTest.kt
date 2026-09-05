@@ -210,4 +210,24 @@ class CredentialMaskingTest {
             assertFalse(result.contains("aa  bb"), "the password printed: $result")
         }
     }
+
+    /**
+     * Tenth review gate B1 and B2. The repair for the ninth gate reopened the leak it bounded.
+     *
+     * Excluding a comma outright, and stopping at 64 characters, meant a password that holds
+     * whitespace AND a comma, or whitespace and a longer run, matched no shape and printed in
+     * clear. The discriminator is a comma FOLLOWED BY WHITESPACE, which is prose and never a URI
+     * user information.
+     */
+    @Test
+    fun `maskUrl masks a password that holds whitespace with a comma or a long run`() {
+        val long = "Correct-horse-battery-staple-Correct-horse-battery-staple-Correct 1"
+        for (text in listOf(
+            "amqp://user:pa,ss word@rabbit:5672/vh",
+            "amqp://user:$long@rabbit:5672/vh"
+        )) {
+            val result = CredentialMasking.maskUrl(text)
+            assertEquals("amqp://***@rabbit:5672/vh", result, "the password printed: $result")
+        }
+    }
 }

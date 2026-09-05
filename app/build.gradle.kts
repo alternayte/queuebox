@@ -59,8 +59,15 @@ dependencies {
     // F-084: `IntegrationDocSqlTest` executes every SQL statement of docs/integration.md against
     // the shipped schema. The SQL Server dialect needs its own container, driver and migration
     // support.
-    testImplementation(project(":sqlserver"))
+    // Tenth review gate B3. `:sqlserver` was a TEST dependency only, so the published image held
+    // no SQL Server provider and no driver. `DatabaseProviderFactory` loads the provider by
+    // reflection, so `type: sqlserver` threw `MissingDatabaseProviderException` at startup, while
+    // README.md, docs/configuration.md and docs/getting-started.md all promised the support.
+    // The image ships both providers now, which is what the documents claim.
+    implementation(project(":sqlserver"))
     testImplementation(libs.testcontainers.mssqlserver)
+    implementation(libs.mssql.jdbc)
+    implementation(libs.flyway.sqlserver)
     testImplementation(libs.mssql.jdbc)
     testImplementation(libs.flyway.sqlserver)
 }
@@ -105,6 +112,45 @@ tasks.test {
             ".env.example"
         )
     ).withPathSensitivity(PathSensitivity.RELATIVE)
+}
+
+/**
+ * Fails the build when a documented database provider is missing from the SHIPPED class path.
+ *
+ * Tenth review gate B3. A test cannot hold this property, because the test class path carries
+ * every `testImplementation` too, so a provider that ships only to the tests still resolves there.
+ * The runtime configuration is the thing the image contains, so the check reads that.
+ */
+val verifyShippedProviders by tasks.registering {
+    group = "verification"
+    description = "Checks that every documented database provider reaches the runtime class path"
+
+    // The component identifiers, not the artifact file names. A project shows as "project
+    // :sqlserver", so the check cannot be satisfied by a look-alike such as
+    // "flyway-database-sqlserver".
+    val runtimeNames = configurations.named("runtimeClasspath").map { configuration ->
+        configuration.incoming.resolutionResult.allComponents.map { it.id.displayName }
+    }
+
+    doLast {
+        val names = runtimeNames.get()
+        val required = mapOf(
+            "the PostgreSQL provider module" to "project :postgres",
+            "the SQL Server provider module" to "project :sqlserver",
+            "the PostgreSQL driver" to "org.postgresql:postgresql",
+            "the SQL Server driver" to "com.microsoft.sqlserver:mssql-jdbc"
+        )
+        val missing = required.filterValues { needle -> names.none { it.contains(needle) } }
+        require(missing.isEmpty()) {
+            "The runtime class path misses ${missing.keys}. The documents promise both databases, " +
+                "and DatabaseProviderFactory loads a provider by reflection, so a missing module " +
+                "fails at startup rather than at compile time. Either ship it or remove the claim."
+        }
+    }
+}
+
+tasks.named("check") {
+    dependsOn(verifyShippedProviders)
 }
 
 application {
