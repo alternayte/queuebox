@@ -174,6 +174,8 @@ fun main() {
     // Outbox service
     val router = MessageRouter(config.routes, destinations, destinationTransforms)
     val retryStrategy = RetryStrategy(config.outbox)
+    val deliverySignal = DeliverySignal()
+    val capture = org.nxtspec.capture.OutboxCapture(config.database, config.outbox.capture, dataSource, deliverySignal)
     val outboxPoller = OutboxPoller(
         config.outbox,
         outboxRepository,
@@ -181,7 +183,8 @@ fun main() {
         publishers,
         retryStrategy,
         metricsCollector,
-        transformPipeline
+        transformPipeline,
+        deliverySignal
     )
 
     // Inbox service
@@ -233,6 +236,13 @@ fun main() {
         .keys
         .toList()
     val healthContributors = buildList {
+        // Capture is advisory: it shortens the delivery delay, and SQL delivery continues
+        // without it, so a capture fault must not take a working instance out of service.
+        addAll(
+            optionalComponent("outbox-capture", config.outbox.capture.enabled, advisory = true) {
+                capture.healthy
+            }
+        )
         add(SimpleHealthContributor("outbox-poller") { outboxPoller.isRunning() })
         addAll(retentionHealthContributors(config.retention.enabled) { retentionService.isRunning() })
         addAll(optionalComponent("inbox-relay", config.inbox.relay.enabled) { inboxRelay.isRunning() })
@@ -325,6 +335,7 @@ fun main() {
                 stopQuietly("a RabbitMQ consumer") { consumer.stop() }
                 stopQuietly("a RabbitMQ connection") { connection.close() }
             }
+            stopQuietly("capture") { capture.shutdown() }
             stopQuietly("the outbox poller") { outboxPoller.shutdown() }
             stopQuietly("the inbox relay") { inboxRelay.shutdown() }
             stopQuietly("the retention service") { retentionService.stop() }
@@ -351,6 +362,7 @@ fun main() {
 
     try {
         outboxPoller.start()
+        capture.start()
         retentionService.start()
         inboxRelay.start()
         runBlocking {
@@ -431,6 +443,8 @@ internal fun columnMappingData(database: DatabaseConfig): ColumnMappingData = Co
         createdAt = database.columnMapping.outbox.createdAt,
         updatedAt = database.columnMapping.outbox.updatedAt,
         claimedAt = database.columnMapping.outbox.claimedAt,
+        claimToken = database.columnMapping.outbox.claimToken,
+        leaseExpiresAt = database.columnMapping.outbox.leaseExpiresAt,
         lastError = database.columnMapping.outbox.lastError
     ),
     inbox = InboxColumnMappingData(
@@ -444,6 +458,12 @@ internal fun columnMappingData(database: DatabaseConfig): ColumnMappingData = Co
         createdAt = database.columnMapping.inbox.createdAt,
         processedAt = database.columnMapping.inbox.processedAt,
         claimedAt = database.columnMapping.inbox.claimedAt,
+        claimToken = database.columnMapping.inbox.claimToken,
+        leaseExpiresAt = database.columnMapping.inbox.leaseExpiresAt,
+        consumption = database.columnMapping.inbox.consumption,
+        scheduledAt = database.columnMapping.inbox.scheduledAt,
+        attempt = database.columnMapping.inbox.attempt,
+        lastError = database.columnMapping.inbox.lastError,
         correlationId = database.columnMapping.inbox.correlationId
     ),
     outboxTableName = database.outboxTableName,
@@ -459,6 +479,7 @@ internal fun columnMappingData(database: DatabaseConfig): ColumnMappingData = Co
 internal fun rabbitConsumerConfig(sourceName: String, source: SourceConfig.RabbitMQ): RabbitConsumerConfig =
     RabbitConsumerConfig(
         queueName = source.queueName,
+        consumption = source.consumption,
         sourceName = sourceName,
         prefetchCount = source.prefetchCount,
         idempotencyKeyPath = source.idempotencyKeyPath,

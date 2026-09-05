@@ -17,6 +17,9 @@ graph TD
     app --> rabbitmq
     app --> outbox-service
     app --> inbox-service
+    app --> capture
+    capture --> core
+    capture --> config
     config --> core
     postgres --> core
     postgres --> config
@@ -161,6 +164,7 @@ Each module has one responsibility. The graph above shows how they depend on eac
 ```
 queuebox/
 ├── app/                    # Main application, HTTP server
+├── capture/                # Embedded change data capture, which only wakes delivery
 ├── config/                 # Configuration loading and validation
 ├── core/                   # Domain models and interfaces
 ├── inbox-service/          # Inbox handling logic

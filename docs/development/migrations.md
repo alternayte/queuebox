@@ -76,9 +76,15 @@ and an unexpired lease. The two contracts must not run at the same time, because
 worker can complete a row that a new worker owns. Upgrade in this order:
 
 1. Stop every QueueBox worker of the old version.
-2. Apply `V6__add_consumption_and_leases.sql`.
+2. Apply `V6__add_consumption_and_leases.sql`, then `V7__capture_state.sql`.
 3. Start the workers of the new version.
 
 Existing inbox rows migrate as `push`, which keeps the previous behaviour. A custom schema
 must add and map the new columns by hand; see the column mapping in
 [the configuration reference](../configuration.md).
+
+`V7__capture_state.sql` creates `queuebox_capture_state`. The table records the capture
+identity, the state identifier and a fingerprint of the capture settings, so QueueBox can
+detect a lost durable volume and a changed capture configuration. See
+[the capture guide](../capture.md). The table is unused while capture is disabled, which
+is the default.

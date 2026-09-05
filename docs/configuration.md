@@ -87,6 +87,24 @@ outbox:
   claimTimeoutMs: 300000                  # A claim older than this returns to pending
   pendingGaugeIntervalMs: 5000            # Minimum interval between pending count queries
   shutdownTimeoutMs: 30000                # Maximum wait for the in-flight messages
+  capture:                                # Change data capture. See docs/capture.md.
+    mode: polling                         # 'polling', 'postgres-logical' or 'sqlserver-cdc'
+    enabled: false                        # true on the single replica that owns capture
+    identity: queuebox                    # The name of the capture owner
+    stateDirectory: ""                    # A durable volume. Required when capture is enabled.
+    schema: null                          # Default: 'public' on PostgreSQL, 'dbo' on SQL Server
+    publication: queuebox_outbox          # PostgreSQL only. QueueBox never creates it.
+    slot: queuebox_outbox                 # PostgreSQL only
+    reconciliationIntervalMs: 1000        # The longest wait when no deadline is nearer
+    connection:                           # Optional overrides of the capture connection
+      hostname: null                      # Required when database.url names several hosts
+      port: null
+      database: null
+      username: null
+      password: null
+      encrypt: true                       # SQL Server only
+      trustServerCertificate: false       # SQL Server only
+
 inbox:
   basePath: /inbox                        # Base path for inbox HTTP endpoints
   relay:

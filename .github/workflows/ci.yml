@@ -284,7 +284,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        example: [webhook-receiver, http-fanout, rabbitmq-bridge]
+        example: [webhook-receiver, http-fanout, rabbitmq-bridge, cdc]
     steps:
       - name: Check out the repository
         uses: actions/checkout@v4

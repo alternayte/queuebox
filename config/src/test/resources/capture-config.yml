@@ -1,0 +1,50 @@
+server:
+  httpPort: 8080
+
+database:
+  url: jdbc:postgresql://localhost:5432/queuebox
+  username: postgres
+  password: secret
+
+outbox:
+  capture:
+    mode: postgres-logical
+    enabled: true
+    identity: orders_capture
+    stateDirectory: /var/lib/queuebox/capture
+    schema: events
+    publication: orders_publication
+    slot: orders_slot
+    reconciliationIntervalMs: 2000
+    connection:
+      hostname: replica.example.com
+      port: 5433
+      database: queuebox_replica
+      username: capture_user
+      password: capture_secret
+      encrypt: true
+      trustServerCertificate: false
+
+inbox:
+  basePath: /inbox
+
+destinations:
+  webhook-api:
+    type: http
+    baseUrl: https://api.example.com
+
+routes:
+  - topicPattern: "order.*"
+    destination: webhook-api
+
+sources:
+  pull-source:
+    type: http
+    path: /events
+    idempotencyKeyPath: $.headers.X-Idempotency-Key
+    consumption: pull
+  push-source:
+    type: http
+    path: /pushed
+    idempotencyKeyPath: $.headers.X-Idempotency-Key
+    eventTypePath: $.body.type

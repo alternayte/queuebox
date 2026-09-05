@@ -1,0 +1,93 @@
+# The embedded change data capture example.
+#
+# PostgreSQL runs with wal_level=logical. The stack creates the publication before
+# QueueBox starts. Capture state lives on a named volume, so a restart keeps the
+# recorded log position.
+services:
+  queuebox:
+    build:
+      context: ../..
+    ports:
+      - "${QUEUEBOX_PORT:-18084}:8080"
+    volumes:
+      - ./queuebox.yml:/etc/queuebox/queuebox.yml:ro
+      - capture-state:/var/lib/queuebox/capture
+    environment:
+      - QUEUEBOX_CONFIG_FILE=/etc/queuebox/queuebox.yml
+    depends_on:
+      publication:
+        condition: service_completed_successfully
+      receiver:
+        condition: service_started
+
+  queuebox-second:
+    # A second process with the SAME capture identity. It must refuse to own capture and
+    # keep delivering through SQL. Start it with:
+    #   docker compose --profile second up -d queuebox-second
+    profiles: ["second"]
+    build:
+      context: ../..
+    volumes:
+      - ./queuebox.yml:/etc/queuebox/queuebox.yml:ro
+      - capture-state-second:/var/lib/queuebox/capture
+    environment:
+      - QUEUEBOX_CONFIG_FILE=/etc/queuebox/queuebox.yml
+    depends_on:
+      queuebox:
+        condition: service_started
+
+  postgres:
+    image: postgres:16-alpine
+    command: ["postgres", "-c", "wal_level=logical"]
+    environment:
+      POSTGRES_DB: queuebox
+      POSTGRES_USER: queuebox
+      POSTGRES_PASSWORD: queuebox
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U queuebox"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  publication:
+    # QueueBox never creates a publication. It captures only the tables that an operator
+    # named, so this step is explicit. The outbox table must exist first, and the first
+    # QueueBox start creates it, so the publication is created for a table that QueueBox
+    # migrates on the run before. FOR ALL TABLES avoids that ordering problem in an
+    # example; name the outbox table in production.
+    image: postgres:16-alpine
+    environment:
+      PGPASSWORD: queuebox
+    command:
+      - sh
+      - -c
+      - |
+        psql -h postgres -U queuebox -d queuebox -c \
+          "SELECT 1 FROM pg_publication WHERE pubname = 'queuebox_outbox'" | grep -q 1 ||
+        psql -h postgres -U queuebox -d queuebox -c \
+          "CREATE PUBLICATION queuebox_outbox FOR ALL TABLES"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  receiver:
+    # It answers 200 and prints the body with a timestamp, so the log proves how quickly
+    # the delivery arrived.
+    image: node:22
+    command:
+      - node
+      - -e
+      - |
+        require("http").createServer((req, res) => {
+          let body = "";
+          req.on("data", (chunk) => { body += chunk; });
+          req.on("end", () => {
+            console.log("delivered " + Date.now() + " " + body);
+            res.writeHead(200, { "Content-Type": "application/json" });
+            res.end("{\"received\":true}");
+          });
+        }).listen(8080, () => console.log("receiver listening on 8080"));
+
+volumes:
+  capture-state:
+  capture-state-second:

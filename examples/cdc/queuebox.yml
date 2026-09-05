@@ -1,0 +1,32 @@
+# Embedded change data capture on PostgreSQL.
+#
+# Capture only wakes delivery. SQL stays the truth, so delivery continues when capture
+# is down. See docs/capture.md.
+database:
+  type: postgresql
+  url: jdbc:postgresql://postgres:5432/queuebox
+  username: queuebox
+  password: queuebox
+
+outbox:
+  # The reconciliation interval is deliberately long, so a fast delivery in this example
+  # proves that capture woke it rather than a timer.
+  pollIntervalMs: 100
+  capture:
+    mode: postgres-logical
+    enabled: true
+    identity: queuebox
+    stateDirectory: /var/lib/queuebox/capture
+    publication: queuebox_outbox
+    slot: queuebox_outbox
+    reconciliationIntervalMs: 30000
+
+destinations:
+  receiver:
+    type: http
+    baseUrl: http://receiver:8080
+    path: /events
+
+routes:
+  - topicPattern: "order.*"
+    destination: receiver

@@ -17,6 +17,7 @@ dependencies {
     runtimeOnly(libs.logstash.encoder)
 
     implementation(project(":core"))
+    implementation(project(":capture"))
     implementation(project(":config"))
     implementation(project(":postgres"))
     implementation(project(":rabbitmq"))

@@ -119,6 +119,32 @@ class HealthManagerTest {
     }
 
     @Test
+    fun `an advisory component is reported but never fails readiness`() = kotlinx.coroutines.runBlocking {
+        val mockConnection = mockk<Connection>()
+        val mockDataSource = mockk<DataSource>()
+        every { mockDataSource.connection } returns mockConnection
+        every { mockConnection.isValid(any()) } returns true
+        every { mockConnection.close() } just Runs
+
+        var captureHealthy = true
+        val healthManager = HealthManager(
+            mockDataSource,
+            optionalComponent("outbox-capture", enabled = true, advisory = true) { captureHealthy } +
+                listOf(SimpleHealthContributor("outbox-poller") { true })
+        )
+
+        assertEquals("healthy", healthManager.ready().status)
+
+        // A capture fault must never take a delivering instance out of service.
+        captureHealthy = false
+        val status = healthManager.ready()
+
+        assertEquals("healthy", status.status)
+        assertEquals("down", status.components["outbox-capture"]?.status)
+        assertEquals("up", status.components["outbox-poller"]?.status)
+    }
+
+    @Test
     fun `a contributor that throws counts as down`() = kotlinx.coroutines.runBlocking {
         val mockConnection = mockk<Connection>()
         val mockDataSource = mockk<DataSource>()

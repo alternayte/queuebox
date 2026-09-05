@@ -26,12 +26,26 @@ interface HealthContributor {
 
     /** True when the component works. */
     fun isHealthy(): Boolean
+
+    /**
+     * An advisory component is reported but does not decide readiness.
+     *
+     * Change data capture is the case this exists for. Capture only shortens the delivery
+     * delay, and SQL delivery continues without it, so a capture fault must not take a
+     * working instance out of service. The component still shows `down`, so an operator
+     * sees the fault.
+     */
+    val advisory: Boolean get() = false
 }
 
 /**
  * A contributor that reads a supplied function.
  */
-class SimpleHealthContributor(override val name: String, private val probe: () -> Boolean) : HealthContributor {
+class SimpleHealthContributor(
+    override val name: String,
+    override val advisory: Boolean = false,
+    private val probe: () -> Boolean
+) : HealthContributor {
     override fun isHealthy(): Boolean = try {
         probe()
     } catch (e: Exception) {
@@ -79,7 +93,8 @@ class HealthManager(
                 ComponentHealth(if (checkBounded { contributor.isHealthy() }) UP else DOWN)
         }
 
-        val healthy = components.values.all { it.status == UP }
+        val advisoryNames = contributors.filter { it.advisory }.map { it.name }.toSet()
+        val healthy = components.entries.all { it.key in advisoryNames || it.value.status == UP }
         return HealthStatus(
             status = if (healthy) HEALTHY else UNHEALTHY,
             components = components
@@ -134,7 +149,7 @@ class HealthManager(
  * @param isRunning the running state of the service.
  */
 fun retentionHealthContributors(enabled: Boolean, isRunning: () -> Boolean): List<HealthContributor> =
-    optionalComponent("retention-service", enabled, isRunning)
+    optionalComponent("retention-service", enabled, isRunning = isRunning)
 
 /**
  * The readiness component of a worker that the configuration can turn off.
@@ -145,5 +160,9 @@ fun retentionHealthContributors(enabled: Boolean, isRunning: () -> Boolean): Lis
  * process and no orchestrator ever routed traffic to the instance. That is the same defect the
  * retention service had, so the two share one rule.
  */
-fun optionalComponent(name: String, enabled: Boolean, isRunning: () -> Boolean): List<HealthContributor> =
-    if (enabled) listOf(SimpleHealthContributor(name, isRunning)) else emptyList()
+fun optionalComponent(
+    name: String,
+    enabled: Boolean,
+    advisory: Boolean = false,
+    isRunning: () -> Boolean
+): List<HealthContributor> = if (enabled) listOf(SimpleHealthContributor(name, advisory, isRunning)) else emptyList()

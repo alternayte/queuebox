@@ -18,6 +18,11 @@ COPY --from=builder /app/app/build/install/app .
 
 # Create non-root user
 RUN addgroup -S queuebox && adduser -S queuebox -G queuebox
+
+# The default capture state directory. Docker copies this ownership onto an empty named
+# volume, so the non-root user can write the capture offsets. Chown a bind mount yourself.
+RUN mkdir -p /var/lib/queuebox/capture && chown -R queuebox:queuebox /var/lib/queuebox
+
 USER queuebox
 
 EXPOSE 8080

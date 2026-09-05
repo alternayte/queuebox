@@ -109,6 +109,7 @@ each outcome.
 | [docs/architecture.md](docs/architecture.md) | The module graph, the message lifecycle, and the state diagrams. |
 | [docs/message-flow.md](docs/message-flow.md) | The message flow, the inbox relay, aggregate ordering, and the schema. |
 | [docs/delivery-semantics.md](docs/delivery-semantics.md) | Push and pull sources, message identity, the HTTP contract, and retention. |
+| [docs/capture.md](docs/capture.md) | Change data capture: setup, state, recovery, and failover. |
 | [docs/transforms.md](docs/transforms.md) | The JSONata transforms and the routing key templates. |
 | [docs/authentication.md](docs/authentication.md) | The authentication of a destination and of a source. |
 | [docs/operations/runbook.md](docs/operations/runbook.md) | The operations runbook. |
