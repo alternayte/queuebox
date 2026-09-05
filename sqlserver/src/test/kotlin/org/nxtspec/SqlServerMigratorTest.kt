@@ -52,7 +52,7 @@ class SqlServerMigratorTest {
         )
         val claimed = outbox.claimBatch(10)
         assertEquals(1, claimed.size)
-        outbox.markSent(claimed.single().id)
+        outbox.markSent(claimed.single().id, claimed.single().claimedAt)
         assertEquals(1L, outbox.countByState("sent"))
 
         SqlServerDatabaseFactory.close(dataSource)

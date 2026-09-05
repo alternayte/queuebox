@@ -69,7 +69,7 @@ class OutboxRepository(
                       target.${q(columnMapping.headers)}, target.${q(columnMapping.state)},
                       target.${q(columnMapping.attempt)}, target.${q(columnMapping.maxAttempts)},
                       target.${q(columnMapping.scheduledAt)}, target.${q(columnMapping.createdAt)},
-                      target.${q(columnMapping.updatedAt)}
+                      target.${q(columnMapping.updatedAt)}, target.${q(columnMapping.claimedAt)}
         """.trimIndent()
 
         val now = Clock.System.now()
@@ -112,33 +112,52 @@ class OutboxRepository(
         Unit
     }
 
-    override suspend fun markSent(id: UUID) = joinOrNewTransaction {
-        updateState(id, "sent")
-    }
-
-    override suspend fun scheduleRetry(id: UUID, delayMs: Long, error: String?): Unit = joinOrNewTransaction {
+    /**
+     * Seventh review gate: the write is fenced on the state and on the claim token, so a
+     * worker that lost the claim cannot overwrite the row of the new owner.
+     */
+    override suspend fun markSent(id: UUID, claimedAt: Instant?): Boolean = joinOrNewTransaction {
         val now = Clock.System.now()
-        val scheduledTime = now + delayMs.milliseconds
-        table.update({ table.id eq id }) {
-            it[table.scheduledAt] = scheduledTime
-            it[table.state] = "pending"
-            it[table.attempt] = table.attempt + 1
+        table.update({ claimFence(id, claimedAt) }) {
+            it[table.state] = "sent"
             it[table.updatedAt] = now
-            it[table.claimedAt] = null
-            if (error != null) it[table.lastError] = error
-        }
-        Unit
+        } > 0
     }
 
-    override suspend fun markDead(id: UUID, error: String?): Unit = joinOrNewTransaction {
+    override suspend fun scheduleRetry(id: UUID, delayMs: Long, claimedAt: Instant?, error: String?): Boolean =
+        joinOrNewTransaction {
+            val now = Clock.System.now()
+            val scheduledTime = now + delayMs.milliseconds
+            table.update({ claimFence(id, claimedAt) }) {
+                it[table.scheduledAt] = scheduledTime
+                it[table.state] = "pending"
+                it[table.attempt] = table.attempt + 1
+                it[table.updatedAt] = now
+                it[table.claimedAt] = null
+                if (error != null) it[table.lastError] = error
+            } > 0
+        }
+
+    override suspend fun markDead(id: UUID, claimedAt: Instant?, error: String?): Boolean = joinOrNewTransaction {
         val now = Clock.System.now()
-        table.update({ table.id eq id }) {
+        table.update({ claimFence(id, claimedAt) }) {
             it[table.state] = "dead"
             it[table.updatedAt] = now
             it[table.claimedAt] = null
             if (error != null) it[table.lastError] = error
-        }
-        Unit
+        } > 0
+    }
+
+    /**
+     * Seventh review gate: the predicate of every terminal write.
+     *
+     * The row must still be in state 'processing', and it must still carry the claim that the
+     * caller holds. A null token matches any claim, which serves an operator tool that holds
+     * no claim of its own.
+     */
+    private fun claimFence(id: UUID, claimedAt: Instant?): org.jetbrains.exposed.sql.Op<Boolean> {
+        val base = (table.id eq id) and (table.state eq "processing")
+        return if (claimedAt == null) base else base and (table.claimedAt eq claimedAt)
     }
 
     override suspend fun countByState(state: String): Long = joinOrNewTransaction {
@@ -205,14 +224,6 @@ class OutboxRepository(
         }
     }
 
-    private fun updateState(id: UUID, newState: String) {
-        val now = Clock.System.now()
-        table.update({ table.id eq id }) {
-            it[table.state] = newState
-            it[table.updatedAt] = now
-        }
-    }
-
     private fun java.sql.ResultSet.toOutboxMessage(): OutboxMessage {
         val headersJson = getString(columnMapping.headers) ?: "{}"
         val headers = runCatching {
@@ -231,7 +242,8 @@ class OutboxRepository(
             maxAttempts = getInt(columnMapping.maxAttempts),
             scheduledAt = getTimestamp(columnMapping.scheduledAt).toKotlinInstant(),
             createdAt = getTimestamp(columnMapping.createdAt).toKotlinInstant(),
-            updatedAt = getTimestamp(columnMapping.updatedAt).toKotlinInstant()
+            updatedAt = getTimestamp(columnMapping.updatedAt).toKotlinInstant(),
+            claimedAt = getTimestamp(columnMapping.claimedAt)?.toKotlinInstant()
         )
     }
 
@@ -257,7 +269,8 @@ class OutboxRepository(
             maxAttempts = this[table.maxAttempts],
             scheduledAt = this[table.scheduledAt],
             createdAt = this[table.createdAt],
-            updatedAt = this[table.updatedAt]
+            updatedAt = this[table.updatedAt],
+            claimedAt = this[table.claimedAt]
         )
     }
 

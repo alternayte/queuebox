@@ -150,8 +150,11 @@ class OutboxPoller(
         val routingResult = router.route(message.topic, message.payload)
         if (routingResult == null) {
             // No route found, mark as dead
-            repository.markDead(message.id, "No route matches topic '${message.topic}'")
-            metricsCollector?.recordMessageDead()
+            if (repository.markDead(message.id, message.claimedAt, "No route matches topic '${message.topic}'")) {
+                metricsCollector?.recordMessageDead()
+            } else {
+                reportLostClaim(message, "mark the message dead, because no route matches the topic")
+            }
             recordProcessingDuration(startTime)
             return
         }
@@ -159,11 +162,16 @@ class OutboxPoller(
         val publisher = publishers.find { it.supports(routingResult.destination) }
         if (publisher == null) {
             // No publisher supports this destination, mark as dead
-            repository.markDead(
+            val won = repository.markDead(
                 message.id,
+                message.claimedAt,
                 "No publisher supports destination '${routingResult.destination}'"
             )
-            metricsCollector?.recordMessageDead()
+            if (won) {
+                metricsCollector?.recordMessageDead()
+            } else {
+                reportLostClaim(message, "mark the message dead, because no publisher supports the destination")
+            }
             recordProcessingDuration(startTime)
             return
         }
@@ -194,8 +202,11 @@ class OutboxPoller(
                     return
                 }
                 is TransformResult.DeadLetter -> {
-                    repository.markDead(message.id, "Transform dead-lettered the message")
-                    metricsCollector?.recordMessageDead()
+                    if (repository.markDead(message.id, message.claimedAt, "Transform dead-lettered the message")) {
+                        metricsCollector?.recordMessageDead()
+                    } else {
+                        reportLostClaim(message, "mark the message dead after the transform dead-lettered it")
+                    }
                     recordProcessingDuration(startTime)
                     return
                 }
@@ -214,9 +225,24 @@ class OutboxPoller(
                 PublishContext(routingKey = routingResult.routingKey)
             ).fold(
                 onSuccess = {
-                    repository.markSent(message.id)
-                    metricsCollector?.recordMessageSent()
-                    metricsCollector?.recordDestinationSuccess(destinationName)
+                    if (repository.markSent(message.id, message.claimedAt)) {
+                        metricsCollector?.recordMessageSent()
+                        metricsCollector?.recordDestinationSuccess(destinationName)
+                    } else {
+                        // Seventh review gate. The publish runs before the mark, so the
+                        // destination already holds this message twice: this replica sent it,
+                        // and the new owner of the claim sends it again. QueueBox cannot undo a
+                        // delivery. It reports the duplicate and leaves the row to the new
+                        // owner. A raised 'outbox.claimTimeoutMs' removes the cause.
+                        log.error(
+                            "Message {} was published, but the claim was already lost. Another " +
+                                "replica owns the message and publishes it again, so the " +
+                                "destination receives a duplicate. Raise 'outbox.claimTimeoutMs' " +
+                                "above the slowest publish.",
+                            message.id
+                        )
+                        metricsCollector?.recordClaimLost(OUTBOX_COMPONENT)
+                    }
                 },
                 onFailure = { error ->
                     metricsCollector?.recordDestinationFailure(destinationName)
@@ -257,8 +283,11 @@ class OutboxPoller(
                 delay,
                 lastError
             )
-            repository.scheduleRetry(message.id, delay, lastError)
-            metricsCollector?.recordMessageFailed()
+            if (repository.scheduleRetry(message.id, delay, message.claimedAt, lastError)) {
+                metricsCollector?.recordMessageFailed()
+            } else {
+                reportLostClaim(message, "schedule the retry")
+            }
         } else {
             log.error(
                 "Message {} reached {} attempts and is now dead. Reason: {}",
@@ -266,12 +295,38 @@ class OutboxPoller(
                 message.maxAttempts,
                 lastError
             )
-            repository.markDead(message.id, lastError)
-            metricsCollector?.recordMessageDead()
+            if (repository.markDead(message.id, message.claimedAt, lastError)) {
+                metricsCollector?.recordMessageDead()
+            } else {
+                reportLostClaim(message, "mark the message dead")
+            }
         }
     }
 
+    /**
+     * Seventh review gate: reports a terminal write that lost the claim.
+     *
+     * The loss is not an error of this replica. The reclaim step returned the row to state
+     * 'pending' on a timer, and another replica claimed it. This replica changes no state and
+     * publishes nothing more. The new owner completes the message.
+     */
+    private fun reportLostClaim(message: OutboxMessage, action: String) {
+        log.warn(
+            "The claim on message {} was lost, so QueueBox did not {}. Another replica owns " +
+                "the message now and completes it. Raise 'outbox.claimTimeoutMs' above the " +
+                "slowest publish to stop the loss.",
+            message.id,
+            action
+        )
+        metricsCollector?.recordClaimLost(OUTBOX_COMPONENT)
+    }
+
     fun isRunning(): Boolean = running.get()
+
+    companion object {
+        /** The metric label of this component. See `recordClaimLost`. */
+        private const val OUTBOX_COMPONENT = "outbox"
+    }
 
     /**
      * Stops the poll loop.

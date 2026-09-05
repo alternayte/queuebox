@@ -67,7 +67,7 @@ class ExposedTransactionRunnerAtomicityTest : PostgresTestBase() {
             runCatching {
                 runner.inTransaction {
                     outboxRepository.insert(newOutboxMessage("relay-topic"))
-                    inboxRepository.markProcessed(inboxId)
+                    inboxRepository.markProcessed(inboxId, null)
                     error("forced failure after the pair")
                 }
             }

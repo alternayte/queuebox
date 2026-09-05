@@ -59,7 +59,7 @@ class CustomTableNameTest : PostgresTestBase() {
         assertEquals("order-1", claimed.single().key)
         assertEquals("test", claimed.single().headers["x-source"])
 
-        repository.markSent(claimed.single().id)
+        repository.markSent(claimed.single().id, claimed.single().claimedAt)
         assertEquals(1L, repository.countByState("sent"))
     }
 
@@ -84,7 +84,7 @@ class CustomTableNameTest : PostgresTestBase() {
         assertEquals("stripe", claimed.single().source)
         assertTrue(claimed.single().aggregateId == "cus_1")
 
-        repository.markProcessed(claimed.single().id)
+        repository.markProcessed(claimed.single().id, claimed.single().claimedAt)
         assertEquals(1L, repository.countByState("processed"))
     }
 
@@ -106,12 +106,12 @@ class CustomTableNameTest : PostgresTestBase() {
         assertEquals("order.created", claimed.single().topic)
         assertEquals("order-1", claimed.single().key)
 
-        repository.scheduleRetry(claimed.single().id, 0, "HTTP 500")
+        repository.scheduleRetry(claimed.single().id, 0, claimed.single().claimedAt, "HTTP 500")
         assertEquals(1L, repository.countByState("pending"))
 
         val reclaimed = repository.claimBatch(10)
         assertEquals(1, reclaimed.size)
-        repository.markDead(reclaimed.single().id, "gave up")
+        repository.markDead(reclaimed.single().id, reclaimed.single().claimedAt, "gave up")
         assertEquals(1L, repository.countByState("dead"))
     }
 
@@ -138,7 +138,7 @@ class CustomTableNameTest : PostgresTestBase() {
         assertEquals("cus_1", claimed.single().aggregateId)
         assertEquals("payment.succeeded", claimed.single().eventType)
 
-        repository.markProcessed(claimed.single().id)
+        repository.markProcessed(claimed.single().id, claimed.single().claimedAt)
         assertEquals(1L, repository.countByState("processed"))
 
         assertEquals(0, repository.reclaimStale(kotlin.time.Duration.ZERO))

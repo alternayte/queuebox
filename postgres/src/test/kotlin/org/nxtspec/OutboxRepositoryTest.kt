@@ -90,7 +90,7 @@ class OutboxRepositoryTest : PostgresTestBase() {
     fun `markSent should update state to sent`() = runBlocking {
         val id = insertOutboxMessage("processing")
 
-        repository.markSent(id)
+        repository.markSent(id, null)
 
         val state = getOutboxMessageState(id)
         assertEquals("sent", state)
@@ -100,7 +100,7 @@ class OutboxRepositoryTest : PostgresTestBase() {
     fun `scheduleRetry should persist the last error`() = runBlocking {
         val id = insertOutboxMessage("processing")
 
-        repository.scheduleRetry(id, 1000, "HTTP 500 from destination")
+        repository.scheduleRetry(id, 1000, null, "HTTP 500 from destination")
 
         assertEquals("HTTP 500 from destination", getOutboxLastError(id))
     }
@@ -109,7 +109,7 @@ class OutboxRepositoryTest : PostgresTestBase() {
     fun `markDead should persist the last error`() = runBlocking {
         val id = insertOutboxMessage("processing")
 
-        repository.markDead(id, "No route matches topic")
+        repository.markDead(id, null, "No route matches topic")
 
         assertEquals("dead", getOutboxMessageState(id))
         assertEquals("No route matches topic", getOutboxLastError(id))
@@ -118,19 +118,22 @@ class OutboxRepositoryTest : PostgresTestBase() {
     @Test
     fun `attempt should increase by exactly one per failed delivery`() = runBlocking {
         // F-017: scheduleRetry is the only method that increments the attempt count.
+        // Seventh review gate: a terminal write needs a claim, so each round claims the row
+        // again, like a poll cycle does.
         val id = insertOutboxMessage("pending")
 
         repeat(5) { index ->
-            repository.scheduleRetry(id, 0, "failure ${index + 1}")
+            val claimed = repository.claimBatch(10).single { it.id == id }
+            repository.scheduleRetry(id, 0, claimed.claimedAt, "failure ${index + 1}")
             assertEquals(index + 1, getOutboxMessageStateAndAttempt(id).second)
         }
     }
 
     @Test
     fun `scheduleRetry should reset state to pending`() = runBlocking {
-        val id = insertOutboxMessage("failed")
+        val id = insertOutboxMessage("processing")
 
-        repository.scheduleRetry(id, 1000, null)
+        repository.scheduleRetry(id, 1000, null, null)
 
         val state = getOutboxMessageState(id)
         assertEquals("pending", state)
@@ -138,9 +141,9 @@ class OutboxRepositoryTest : PostgresTestBase() {
 
     @Test
     fun `scheduleRetry should increment attempt`() = runBlocking {
-        val id = insertOutboxMessage("failed", attempt = 1)
+        val id = insertOutboxMessage("processing", attempt = 1)
 
-        repository.scheduleRetry(id, 1000, null)
+        repository.scheduleRetry(id, 1000, null, null)
 
         val (_, attempt) = getOutboxMessageStateAndAttempt(id)
         assertEquals(2, attempt)
@@ -148,8 +151,8 @@ class OutboxRepositoryTest : PostgresTestBase() {
 
     @Test
     fun `scheduleRetry message should not be claimable until scheduled time`() = runBlocking {
-        val id = insertOutboxMessage("failed")
-        repository.scheduleRetry(id, 10000, null)
+        val id = insertOutboxMessage("processing")
+        repository.scheduleRetry(id, 10000, null, null)
 
         val claimed = repository.claimBatch(10)
 
@@ -158,8 +161,8 @@ class OutboxRepositoryTest : PostgresTestBase() {
 
     @Test
     fun `scheduleRetry message should be claimable after scheduled time`() = runBlocking {
-        val id = insertOutboxMessage("failed")
-        repository.scheduleRetry(id, -1000, null) // Schedule in the past
+        val id = insertOutboxMessage("processing")
+        repository.scheduleRetry(id, -1000, null, null) // Schedule in the past
 
         val claimed = repository.claimBatch(10)
 
@@ -168,9 +171,9 @@ class OutboxRepositoryTest : PostgresTestBase() {
 
     @Test
     fun `markDead should set state to dead`() = runBlocking {
-        val id = insertOutboxMessage("failed")
+        val id = insertOutboxMessage("processing")
 
-        repository.markDead(id, null)
+        repository.markDead(id, null, null)
 
         val state = getOutboxMessageState(id)
         assertEquals("dead", state)
@@ -178,8 +181,8 @@ class OutboxRepositoryTest : PostgresTestBase() {
 
     @Test
     fun `markDead message should not be claimable`() = runBlocking {
-        val id = insertOutboxMessage("pending")
-        repository.markDead(id, null)
+        val id = insertOutboxMessage("processing")
+        repository.markDead(id, null, null)
 
         val claimed = repository.claimBatch(10)
 

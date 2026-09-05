@@ -202,7 +202,7 @@ class SqlServerInboxRepositoryTest : SqlServerTestBase() {
         val id = insertInboxMessage(source = "svc", idempotencyKey = "key", state = "processing")
         assertNull(getInboxProcessedAt(id))
 
-        repository.markProcessed(id)
+        repository.markProcessed(id, null)
 
         assertEquals("processed", getInboxMessageState(id))
         assertNotNull(getInboxProcessedAt(id))
@@ -304,7 +304,7 @@ class SqlServerInboxRepositoryTest : SqlServerTestBase() {
         assertEquals("key1", batch1[0].idempotencyKey)
 
         // Mark first as processed
-        repository.markProcessed(id1)
+        repository.markProcessed(id1, null)
 
         // Now second message should be claimable
         val batch2 = repository.claimPending(10)

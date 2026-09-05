@@ -29,7 +29,7 @@ Each version number describes the same logical change on both databases.
    still add a file with that version number to the other set, and write a comment that says the
    change does not apply there.
 4. **Write every file so it can run twice safely.** This is mandatory, not a preference. An
-   operator can create the schema by hand, or through the Compose init script. Flyway then
+   operator can create the schema by hand with the files below. Flyway then
    baselines the database at version 0 and replays every file. Use `CREATE TABLE IF NOT EXISTS`
    and `ADD COLUMN IF NOT EXISTS` on PostgreSQL. Use `IF OBJECT_ID(...) IS NULL` and
    `IF COL_LENGTH(...) IS NULL` on SQL Server. `PostgresMigratorTest` and `SqlServerMigratorTest`

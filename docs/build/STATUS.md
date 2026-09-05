@@ -626,8 +626,9 @@ part of the whole effort.
 | 3 | 9 | The rejected-row fix was still racy. An invalid AMQP URL printed the password to stderr. `outbox.maxAttempts` was documented and never read. The inbox `COUNT` policy was accepted and did nothing. Nine log sites passed the raw throwable to SLF4J. |
 | 4 | 3 | **A fix from pass 2 destroyed healthy messages.** An indefinite JSONPath lost every message silently. The documented manual schema rejected every inbox insert. |
 | 5 | 1 | A default AMQP source destroyed every message whose publisher omitted an undocumented header. |
+| 6 | 3 | **The aggregated coverage gate had never run.** The startup validator printed a destination password. The database retry line printed the database password on every slow start. |
 
-**Twenty-one confirmed blocking defects, every one reproduced before it was acted on.**
+**Twenty-four confirmed blocking defects, every one reproduced before it was acted on.**
 
 ### What the gate teaches
 
@@ -642,7 +643,13 @@ part of the whole effort.
 3. **A comment is not evidence.** `InboxHandler` carried a comment saying the rejection reason is
    never the path, above code that put the path in the reason. `ExposedTransactionRunner` claimed a
    nested repository call joins its transaction. Neither was true.
-4. **Redaction needs an adversary.** The sanitiser was defeated three times: on a URL password, on
+4. **A gate that nobody runs is not a gate.** Pass 6 found that `check` never ran the aggregated
+   coverage rules, although `README.md` and `TESTING.md` both said it did, and the CI job ran the
+   report rather than the verification. Every earlier "check passes" line in this file therefore
+   proved less than it appeared to. The numbers were real, because the verification task was run
+   by hand several times, but the claim about `check` was false. The task is wired in now, and the
+   proof is a mutation: raise the floor to 0.99 and the build fails.
+5. **Redaction needs an adversary.** The sanitiser was defeated three times: on a URL password, on
    an underscore key, on a bare `Basic` scheme, on a nested cause, on two spaces and a tab, and on
    a slash inside a password. Each round added a test.
 

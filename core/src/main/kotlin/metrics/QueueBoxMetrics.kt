@@ -75,6 +75,9 @@ class QueueBoxMetrics(private val registry: MeterRegistry) {
     // F-052: one counter per HTTP status class. A raw status code is never a label.
     private val httpStatusCounters = mutableMapOf<String, Counter>()
 
+    // Seventh review gate: one counter per component that lost a claim.
+    private val claimLostCounters = mutableMapOf<String, Counter>()
+
     @Synchronized
     fun getPublishTimer(destinationType: String): Timer = publishTimers.getOrPut(destinationType) {
         Timer.builder("queuebox_outbox_publish_duration_seconds")
@@ -284,6 +287,23 @@ class QueueBoxMetrics(private val registry: MeterRegistry) {
             Counter.builder("queuebox_http_publish_responses_total")
                 .description("Total HTTP publish responses by status class")
                 .tag("status_class", statusClass)
+                .register(registry)
+        }.increment()
+    }
+
+    /**
+     * Record one terminal write that lost the claim.
+     *
+     * Seventh review gate: the component is 'outbox' or 'inbox', so the label set stays
+     * bounded. A count above zero means that a worker outlived its own claim. Raise the claim
+     * timeout of that component.
+     */
+    @Synchronized
+    fun recordClaimLost(component: String) {
+        claimLostCounters.getOrPut(component) {
+            Counter.builder("queuebox_claims_lost_total")
+                .description("Total terminal writes that lost the claim, by component")
+                .tag("component", component)
                 .register(registry)
         }.increment()
     }

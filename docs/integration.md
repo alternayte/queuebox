@@ -289,3 +289,11 @@ An HTTP destination receives the payload as the body, and these headers:
 | `X-Attempt` | The delivery attempt, counted from `0`. |
 
 Delivery is at least once, so a destination must be idempotent. Deduplicate on `X-Message-Id`.
+
+`X-Message-Id` is the `id` of the outbox row, and one outbox row keeps one identifier through
+every retry. A message that the inbox relay forwards takes a NEW outbox identifier at the
+forward step. The relay forwards each inbox row once, because the terminal write is fenced on
+the claim and rolls the forward back when the claim was lost. For relay traffic the stable
+identifier of the source event is the `x-idempotency-key` header, which carries the inbox
+idempotency key. Deduplicate relay traffic on `x-idempotency-key`, and other traffic on
+`X-Message-Id`.

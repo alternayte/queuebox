@@ -128,6 +128,14 @@ replay the payload.
 **Guarantee.** Forwarding is at least once. If the transaction fails, the inbox row stays in
 state `processing`, and the reclaim step returns it to `pending` after `claimTimeoutMs`.
 
+**The claim fence.** The reclaim step runs on a timer. It does not prove that the old owner
+died, so a slow replica can outlive its own claim while another replica claims the same row.
+Every terminal write is therefore fenced. The update matches the row, the state `processing`
+and the claim token of the caller. The write reports whether it landed. A relay that lost the
+claim rolls the outbox insert back in the same transaction, so the row reaches the outbox once.
+The relay logs the loss and increments `queuebox_claims_lost_total{component="inbox"}`. Raise
+`claimTimeoutMs` when that counter moves.
+
 ## Aggregate Ordering
 
 Configure `aggregateIdPath` to extract the aggregate identifier:
@@ -148,10 +156,16 @@ sources:
 - The claim keeps the oldest claimed message per aggregate and returns the rest to `pending`.
 - A message without an aggregate identifier is independent, and it carries no ordering
   guarantee.
-- Different aggregates are forwarded in parallel.
+- The relay forwards one claimed batch sequentially, one message at a time. The outbox poller
+  publishes with the configured concurrency, so parallelism happens at delivery, not at forward.
 
 **Guarantee.** At most one message per aggregate identifier is in state `processing` at any
 time, across every replica. The relay forwards the messages of one aggregate in creation order.
+
+The advisory lock closes the window between two concurrent claims. The reclaim step opens a
+second window, because it returns a row to `pending` on a timer. The claim fence closes that
+window: the old owner cannot complete the row and cannot forward a second copy of it. Two
+replicas therefore never write one aggregate into the outbox twice.
 
 Ordering after the forward step is not guaranteed. The outbox poller and the destination decide
 the final delivery order.

@@ -128,8 +128,11 @@ class InboxRelay(
                 message.id,
                 message.source
             )
-            inboxRepository.markDead(message.id)
-            metricsCollector?.recordInboxRelayError()
+            if (inboxRepository.markDead(message.id, message.claimedAt)) {
+                metricsCollector?.recordInboxRelayError()
+            } else {
+                reportLostClaim(message, "mark the message dead")
+            }
             return false
         }
 
@@ -139,7 +142,13 @@ class InboxRelay(
             runCatching {
                 transactionRunner.inTransaction {
                     outboxRepository.insert(toOutboxMessage(message, topic))
-                    inboxRepository.markProcessed(message.id)
+                    // Seventh review gate. The mark must win the claim, or the outbox insert
+                    // must not commit. A second forward creates a second outbox row with a new
+                    // identifier, so the two copies carry a different 'X-Message-Id' and a
+                    // consumer cannot deduplicate them. The exception rolls the insert back.
+                    if (!inboxRepository.markProcessed(message.id, message.claimedAt)) {
+                        throw ClaimLostException(message.id)
+                    }
                 }
             }
         }
@@ -151,6 +160,10 @@ class InboxRelay(
             },
             onFailure = { error ->
                 if (error is CancellationException) throw error
+                if (error is ClaimLostException) {
+                    reportLostClaim(message, "forward the message")
+                    return@fold false
+                }
                 // The row stays in state 'processing'. The reclaim step returns it to 'pending'.
                 log.error(
                     "Forwarding inbox message {} of source '{}' failed. The reclaim step " +
@@ -163,6 +176,25 @@ class InboxRelay(
                 false
             }
         )
+    }
+
+    /**
+     * Seventh review gate: reports a terminal write that lost the claim.
+     *
+     * The loss is not an error of this replica. The reclaim step returned the row to state
+     * 'pending' on a timer, and another replica claimed it. That replica forwards the message,
+     * so QueueBox must change no state here and must insert no second outbox row.
+     */
+    private fun reportLostClaim(message: InboxMessage, action: String) {
+        log.warn(
+            "The claim on inbox message {} of source '{}' was lost, so QueueBox did not {}. " +
+                "Another replica owns the message now. Raise 'inbox.relay.claimTimeoutMs' " +
+                "above the slowest relay cycle to stop the loss.",
+            message.id,
+            message.source,
+            action
+        )
+        metricsCollector?.recordClaimLost(INBOX_COMPONENT)
     }
 
     /**
@@ -205,7 +237,13 @@ class InboxRelay(
         )
     }
 
+    /** Rolls the forward back when the mark loses the claim. See the seventh review gate. */
+    private class ClaimLostException(id: UUID) : RuntimeException("The claim on inbox message $id was lost.")
+
     companion object {
+        /** The metric label of this component. See `recordClaimLost`. */
+        private const val INBOX_COMPONENT = "inbox"
+
         const val DEFAULT_TOPIC_TEMPLATE: String = "{{ eventType }}"
 
         /**

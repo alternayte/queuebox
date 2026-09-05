@@ -36,12 +36,14 @@ class InboxRelayTest {
             return claimed
         }
 
-        override suspend fun markProcessed(id: UUID) {
+        override suspend fun markProcessed(id: UUID, claimedAt: Instant?): Boolean {
             processed.add(id)
+            return true
         }
 
-        override suspend fun markDead(id: UUID) {
+        override suspend fun markDead(id: UUID, claimedAt: Instant?): Boolean {
             dead.add(id)
+            return true
         }
 
         override suspend fun countByState(state: String): Long = 0
@@ -63,9 +65,9 @@ class InboxRelayTest {
             inserted.add(message)
         }
 
-        override suspend fun markSent(id: UUID) = Unit
-        override suspend fun scheduleRetry(id: UUID, delayMs: Long, error: String?) = Unit
-        override suspend fun markDead(id: UUID, error: String?) = Unit
+        override suspend fun markSent(id: UUID, claimedAt: Instant?): Boolean = true
+        override suspend fun scheduleRetry(id: UUID, delayMs: Long, claimedAt: Instant?, error: String?): Boolean = true
+        override suspend fun markDead(id: UUID, claimedAt: Instant?, error: String?): Boolean = true
         override suspend fun countByState(state: String): Long = 0
         override suspend fun reclaimStale(olderThan: Duration): Int = 0
         override suspend fun deleteOlderThan(state: String, cutoff: Instant, limit: Int): Int = 0

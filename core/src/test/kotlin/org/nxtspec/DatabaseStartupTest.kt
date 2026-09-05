@@ -6,6 +6,7 @@ import kotlin.test.Test
 import kotlin.test.assertContains
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
@@ -76,7 +77,12 @@ class DatabaseStartupTest {
 
         assertContains(exception.message!!, "3000 ms")
         assertContains(exception.message!!, "database.startupTimeoutMs")
-        assertTrue(exception.cause is java.sql.SQLException)
+        // Seventh review gate, defect 3. The exception carries NO cause. A driver puts the JDBC
+        // URL, and therefore the password, in the message of the failure that caused it. Nothing
+        // above `main` catches this, so the JVM printed the whole chain to the container log. The
+        // sanitised text of the last failure is part of the message instead.
+        assertNull(exception.cause, "the exception must carry no cause, which would be raw")
+        assertContains(exception.message!!, "The last failure was:")
     }
 
     @Test

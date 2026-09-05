@@ -37,15 +37,27 @@ interface InboxRepositoryInterface {
     suspend fun claimPending(batchSize: Int): List<InboxMessage>
 
     /**
-     * Marks a message as processed.
+     * Marks a message as processed, if the caller still owns the claim.
+     *
+     * Seventh review gate: the write matches the row, the state 'processing' and the claim
+     * token. The reclaim step returns a row to state 'pending' on a timer, not on proof that
+     * the owner died, so a worker can outlive its own claim. The fence stops that worker from
+     * overwriting the row of the new owner.
+     *
+     * @param claimedAt the claim token of the message that the caller holds. A null token
+     *     matches any claim and keeps the state fence only.
+     * @return true when the write landed, false when the caller lost the claim
      */
-    suspend fun markProcessed(id: UUID)
+    suspend fun markProcessed(id: UUID, claimedAt: Instant?): Boolean
 
     /**
      * Marks a message as dead. The relay uses this state when the message cannot be forwarded,
      * for example when the source topic template renders empty. See F-002.
+     *
+     * Seventh review gate: the write carries the same claim fence as [markProcessed].
+     * @return true when the write landed, false when the caller lost the claim
      */
-    suspend fun markDead(id: UUID)
+    suspend fun markDead(id: UUID, claimedAt: Instant?): Boolean
 
     /**
      * Counts messages in a given state.

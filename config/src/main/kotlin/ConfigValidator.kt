@@ -180,7 +180,7 @@ object ConfigValidator {
             require(config.retention.inbox.policy != RetentionPolicy.COUNT) {
                 "The inbox retention does not support the count policy. QueueBox deletes no " +
                     "inbox row under that policy, so the table grows without bound. Use " +
-                    "'age' or 'disabled'. " + setVia("retention.inbox.policy")
+                    "'AGE' or 'DISABLED'. " + setVia("retention.inbox.policy")
             }
         }
 
@@ -688,7 +688,7 @@ object ConfigValidator {
         when (config.policy) {
             RetentionPolicy.AGE -> {
                 require(config.maxAge != null) {
-                    "$table retention policy 'age' requires maxAge. " +
+                    "$table retention policy 'AGE' requires maxAge. " +
                         setVia("retention.$table.maxAge")
                 }
                 // Validate maxAge format
@@ -696,7 +696,7 @@ object ConfigValidator {
             }
             RetentionPolicy.COUNT -> {
                 require(config.maxCount != null && config.maxCount > 0) {
-                    "$table retention policy 'count' requires positive maxCount. " +
+                    "$table retention policy 'COUNT' requires positive maxCount. " +
                         setVia("retention.$table.maxCount")
                 }
             }

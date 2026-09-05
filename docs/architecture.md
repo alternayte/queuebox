@@ -60,9 +60,12 @@ sequenceDiagram
     end
 ```
 
-The inbox follows the same shape. An HTTP client posts a message to the inbox route. The route
-writes the row in state `pending`. The inbox relay claims the row, transforms it, forwards it to the
-destination, and then writes state `processed` or state `dead`.
+The inbox follows the same shape, with one difference that matters. An HTTP client posts a message
+to the inbox route. The route applies the source transform and writes the row in state `pending`.
+The inbox relay claims the row, writes an OUTBOX row from it, and then writes state `processed` or
+state `dead`. The relay delivers nothing itself, and it runs no transform: the transform ran at
+ingestion, and the outbox machinery routes and delivers the message. Decision 1 of section 2A of
+`hardening-doc.md` settles this. [message-flow.md](message-flow.md) holds the step list.
 
 A claim that a crash leaves behind returns to state `pending`. The reclaim step finds a row that
 stays in state `processing` longer than the visibility timeout.
@@ -112,6 +115,11 @@ processing
 processed
 dead
 ```
+
+`dead` reaches the inbox by one route only: `storeDead` writes it in one transaction when a source
+transform rejects an AMQP message. The relay never writes it, and `claimPending` selects `pending`
+rows, so no read path in the shipped code returns a dead inbox row. The row exists for an operator
+to read with SQL. See [operations/dead-letter.md](operations/dead-letter.md).
 
 ## The state column
 

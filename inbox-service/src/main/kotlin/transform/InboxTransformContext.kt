@@ -32,14 +32,14 @@ data class InboxTransformContext(
      * Maps inbox fields to outbox context variables:
      * - messageId -> messageId
      * - eventType (or empty) -> topic
-     * - 1 -> attempt (always 1 for inbox, no retries)
+     * - 0 -> attempt (always 0 for a source transform, which runs once)
      * - timestamp -> timestamp
      * - source -> source
      */
     fun toTransformContext(): TransformContext = TransformContext(
         messageId = messageId,
         topic = eventType ?: "",
-        attempt = 1,
+        attempt = 0,
         timestamp = timestamp,
         source = source
     )

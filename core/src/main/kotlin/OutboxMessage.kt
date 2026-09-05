@@ -19,5 +19,12 @@ data class OutboxMessage(
     val maxAttempts: Int = 5,
     val scheduledAt: Instant = Clock.System.now(),
     val createdAt: Instant = Clock.System.now(),
-    val updatedAt: Instant = Clock.System.now()
+    val updatedAt: Instant = Clock.System.now(),
+    /**
+     * The moment of the claim that this copy of the message belongs to. It is the fence token
+     * of the seventh review gate. A terminal write carries the token back, so a worker that
+     * lost the claim cannot overwrite the row of the new owner. The value is null for a row
+     * that no worker holds.
+     */
+    val claimedAt: Instant? = null
 )

@@ -59,6 +59,14 @@ class OutboxPollerTest {
         val routingResult = RoutingResult(destination, "test.topic")
 
         coEvery { repository.claimBatch(any()) } returns listOf(message) andThen emptyList()
+
+        // Seventh review gate: the terminal write reports that the claim still holds.
+
+        coEvery { repository.markSent(any(), any()) } returns true
+
+        coEvery { repository.scheduleRetry(any(), any(), any(), any()) } returns true
+
+        coEvery { repository.markDead(any(), any(), any()) } returns true
         coEvery { repository.countByState("pending") } returns 5L
         every { router.route(any(), any()) } returns routingResult
         every { publisher.supports(any()) } returns true
@@ -91,6 +99,14 @@ class OutboxPollerTest {
         val message = createTestMessage()
 
         coEvery { repository.claimBatch(any()) } returns listOf(message) andThen emptyList()
+
+        // Seventh review gate: the terminal write reports that the claim still holds.
+
+        coEvery { repository.markSent(any(), any()) } returns true
+
+        coEvery { repository.scheduleRetry(any(), any(), any(), any()) } returns true
+
+        coEvery { repository.markDead(any(), any(), any()) } returns true
         coEvery { repository.countByState("pending") } returns 0L
         every { router.route(any(), any()) } returns null
 
@@ -107,7 +123,7 @@ class OutboxPollerTest {
         delay(150)
         poller.shutdown()
 
-        coVerify { repository.markDead(message.id, any()) }
+        coVerify { repository.markDead(message.id, any(), any()) }
         verify { metricsCollector.recordMessageDead() }
         verify { metricsCollector.recordProcessingDuration(any()) }
     }
@@ -124,6 +140,14 @@ class OutboxPollerTest {
         val routingResult = RoutingResult(destination, "test.topic")
 
         coEvery { repository.claimBatch(any()) } returns listOf(message) andThen emptyList()
+
+        // Seventh review gate: the terminal write reports that the claim still holds.
+
+        coEvery { repository.markSent(any(), any()) } returns true
+
+        coEvery { repository.scheduleRetry(any(), any(), any(), any()) } returns true
+
+        coEvery { repository.markDead(any(), any(), any()) } returns true
         coEvery { repository.countByState("pending") } returns 0L
         every { router.route(any(), any()) } returns routingResult
         every { publisher.supports(any()) } returns false
@@ -141,7 +165,7 @@ class OutboxPollerTest {
         delay(150)
         poller.shutdown()
 
-        coVerify { repository.markDead(message.id, any()) }
+        coVerify { repository.markDead(message.id, any(), any()) }
         verify { metricsCollector.recordMessageDead() }
     }
 
@@ -157,6 +181,14 @@ class OutboxPollerTest {
         val routingResult = RoutingResult(destination, "test.topic")
 
         coEvery { repository.claimBatch(any()) } returns listOf(message) andThen emptyList()
+
+        // Seventh review gate: the terminal write reports that the claim still holds.
+
+        coEvery { repository.markSent(any(), any()) } returns true
+
+        coEvery { repository.scheduleRetry(any(), any(), any(), any()) } returns true
+
+        coEvery { repository.markDead(any(), any(), any()) } returns true
         coEvery { repository.countByState("pending") } returns 0L
         every { router.route(any(), any()) } returns routingResult
         every { publisher.supports(any()) } returns true
@@ -175,7 +207,7 @@ class OutboxPollerTest {
         delay(150)
         poller.shutdown()
 
-        coVerify { repository.markSent(message.id) }
+        coVerify { repository.markSent(message.id, any()) }
         verify { metricsCollector.recordMessageSent() }
     }
 
@@ -191,6 +223,14 @@ class OutboxPollerTest {
         val routingResult = RoutingResult(destination, "test.topic")
 
         coEvery { repository.claimBatch(any()) } returns listOf(message) andThen emptyList()
+
+        // Seventh review gate: the terminal write reports that the claim still holds.
+
+        coEvery { repository.markSent(any(), any()) } returns true
+
+        coEvery { repository.scheduleRetry(any(), any(), any(), any()) } returns true
+
+        coEvery { repository.markDead(any(), any(), any()) } returns true
         coEvery { repository.countByState("pending") } returns 0L
         every { router.route(any(), any()) } returns routingResult
         every { publisher.supports(any()) } returns true
@@ -209,7 +249,7 @@ class OutboxPollerTest {
         delay(150)
         poller.shutdown()
 
-        coVerify { repository.scheduleRetry(message.id, any(), any()) }
+        coVerify { repository.scheduleRetry(message.id, any(), any(), any()) }
         verify { metricsCollector.recordMessageFailed() }
     }
 
@@ -225,6 +265,14 @@ class OutboxPollerTest {
         val routingResult = RoutingResult(destination, "test.topic")
 
         coEvery { repository.claimBatch(any()) } returns listOf(message) andThen emptyList()
+
+        // Seventh review gate: the terminal write reports that the claim still holds.
+
+        coEvery { repository.markSent(any(), any()) } returns true
+
+        coEvery { repository.scheduleRetry(any(), any(), any(), any()) } returns true
+
+        coEvery { repository.markDead(any(), any(), any()) } returns true
         coEvery { repository.countByState("pending") } returns 0L
         every { router.route(any(), any()) } returns routingResult
         every { publisher.supports(any()) } returns true
@@ -243,7 +291,7 @@ class OutboxPollerTest {
         delay(150)
         poller.shutdown()
 
-        coVerify { repository.markDead(message.id, any()) }
+        coVerify { repository.markDead(message.id, any(), any()) }
         verify { metricsCollector.recordMessageDead() }
     }
 
@@ -261,6 +309,14 @@ class OutboxPollerTest {
         val contexts = mutableListOf<org.nxtspec.transform.TransformContext>()
 
         coEvery { repository.claimBatch(any()) } returns listOf(message) andThen emptyList()
+
+        // Seventh review gate: the terminal write reports that the claim still holds.
+
+        coEvery { repository.markSent(any(), any()) } returns true
+
+        coEvery { repository.scheduleRetry(any(), any(), any(), any()) } returns true
+
+        coEvery { repository.markDead(any(), any(), any()) } returns true
         coEvery { repository.countByState("pending") } returns 0L
         every { router.route(any(), any()) } returns routingResult
         every { publisher.supports(any()) } returns true
@@ -300,6 +356,14 @@ class OutboxPollerTest {
         val transformedPayload = JsonObject(mapOf("transformed" to JsonPrimitive(true)))
 
         coEvery { repository.claimBatch(any()) } returns listOf(message) andThen emptyList()
+
+        // Seventh review gate: the terminal write reports that the claim still holds.
+
+        coEvery { repository.markSent(any(), any()) } returns true
+
+        coEvery { repository.scheduleRetry(any(), any(), any(), any()) } returns true
+
+        coEvery { repository.markDead(any(), any(), any()) } returns true
         coEvery { repository.countByState("pending") } returns 0L
         every { router.route(any(), any()) } returns routingResult
         every { publisher.supports(any()) } returns true
@@ -340,6 +404,14 @@ class OutboxPollerTest {
         val transformedPayload = JsonObject(mapOf("transformed" to JsonPrimitive(true)))
 
         coEvery { repository.claimBatch(any()) } returns listOf(message) andThen emptyList()
+
+        // Seventh review gate: the terminal write reports that the claim still holds.
+
+        coEvery { repository.markSent(any(), any()) } returns true
+
+        coEvery { repository.scheduleRetry(any(), any(), any(), any()) } returns true
+
+        coEvery { repository.markDead(any(), any(), any()) } returns true
         coEvery { repository.countByState("pending") } returns 0L
         every { router.route(any(), any()) } returns routingResult
         every { publisher.supports(any()) } returns true
@@ -361,7 +433,7 @@ class OutboxPollerTest {
         delay(150)
         poller.shutdown()
 
-        coVerify { repository.markSent(message.id) }
+        coVerify { repository.markSent(message.id, any()) }
         verify { metricsCollector.recordMessageSent() }
     }
 
@@ -379,6 +451,14 @@ class OutboxPollerTest {
         val routingResult = RoutingResult(destination, "test.topic", routeTransform = transformConfig)
 
         coEvery { repository.claimBatch(any()) } returns listOf(message) andThen emptyList()
+
+        // Seventh review gate: the terminal write reports that the claim still holds.
+
+        coEvery { repository.markSent(any(), any()) } returns true
+
+        coEvery { repository.scheduleRetry(any(), any(), any(), any()) } returns true
+
+        coEvery { repository.markDead(any(), any(), any()) } returns true
         coEvery { repository.countByState("pending") } returns 0L
         every { router.route(any(), any()) } returns routingResult
         every { publisher.supports(any()) } returns true
@@ -399,7 +479,7 @@ class OutboxPollerTest {
         delay(150)
         poller.shutdown()
 
-        coVerify { repository.scheduleRetry(message.id, any(), any()) }
+        coVerify { repository.scheduleRetry(message.id, any(), any(), any()) }
         verify { metricsCollector.recordMessageFailed() }
     }
 
@@ -417,6 +497,14 @@ class OutboxPollerTest {
         val routingResult = RoutingResult(destination, "test.topic", routeTransform = transformConfig)
 
         coEvery { repository.claimBatch(any()) } returns listOf(message) andThen emptyList()
+
+        // Seventh review gate: the terminal write reports that the claim still holds.
+
+        coEvery { repository.markSent(any(), any()) } returns true
+
+        coEvery { repository.scheduleRetry(any(), any(), any(), any()) } returns true
+
+        coEvery { repository.markDead(any(), any(), any()) } returns true
         coEvery { repository.countByState("pending") } returns 0L
         every { router.route(any(), any()) } returns routingResult
         every { publisher.supports(any()) } returns true
@@ -437,7 +525,7 @@ class OutboxPollerTest {
         delay(150)
         poller.shutdown()
 
-        coVerify { repository.markDead(message.id, any()) }
+        coVerify { repository.markDead(message.id, any(), any()) }
         verify { metricsCollector.recordMessageDead() }
     }
 
@@ -454,6 +542,14 @@ class OutboxPollerTest {
         val routingResult = RoutingResult(destination, "test.topic", routeTransform = transformConfig)
 
         coEvery { repository.claimBatch(any()) } returns listOf(message) andThen emptyList()
+
+        // Seventh review gate: the terminal write reports that the claim still holds.
+
+        coEvery { repository.markSent(any(), any()) } returns true
+
+        coEvery { repository.scheduleRetry(any(), any(), any(), any()) } returns true
+
+        coEvery { repository.markDead(any(), any(), any()) } returns true
         coEvery { repository.countByState("pending") } returns 0L
         every { router.route(any(), any()) } returns routingResult
         every { publisher.supports(any()) } returns true
@@ -486,6 +582,14 @@ class OutboxPollerTest {
         val metricsCollector = mockk<MetricsCollectorInterface>(relaxed = true)
 
         coEvery { repository.claimBatch(any()) } returns emptyList()
+
+        // Seventh review gate: the terminal write reports that the claim still holds.
+
+        coEvery { repository.markSent(any(), any()) } returns true
+
+        coEvery { repository.scheduleRetry(any(), any(), any(), any()) } returns true
+
+        coEvery { repository.markDead(any(), any(), any()) } returns true
         coEvery { repository.countByState("pending") } returns 42L
 
         val poller = OutboxPoller(
@@ -516,6 +620,14 @@ class OutboxPollerTest {
         val routingResult = RoutingResult(destination, "test.topic")
 
         coEvery { repository.claimBatch(any()) } returns listOf(message) andThen emptyList()
+
+        // Seventh review gate: the terminal write reports that the claim still holds.
+
+        coEvery { repository.markSent(any(), any()) } returns true
+
+        coEvery { repository.scheduleRetry(any(), any(), any(), any()) } returns true
+
+        coEvery { repository.markDead(any(), any(), any()) } returns true
         every { router.route(any(), any()) } returns routingResult
         every { publisher.supports(any()) } returns true
         coEvery { publisher.publish(any(), any(), any()) } returns Result.success(Unit)
@@ -573,7 +685,7 @@ class OutboxPollerTest {
         poller.shutdown()
 
         // Should have recovered and processed message
-        coVerify { repository.markSent(message.id) }
+        coVerify { repository.markSent(message.id, any()) }
     }
 
     @Test
@@ -583,6 +695,14 @@ class OutboxPollerTest {
         val publisher = mockk<Publisher>()
 
         coEvery { repository.claimBatch(any()) } returns emptyList()
+
+        // Seventh review gate: the terminal write reports that the claim still holds.
+
+        coEvery { repository.markSent(any(), any()) } returns true
+
+        coEvery { repository.scheduleRetry(any(), any(), any(), any()) } returns true
+
+        coEvery { repository.markDead(any(), any(), any()) } returns true
         coEvery { repository.countByState("pending") } returns 0L
 
         val poller = OutboxPoller(
@@ -618,6 +738,14 @@ class OutboxPollerTest {
         assertTrue(poller.isRunning())
 
         coEvery { repository.claimBatch(any()) } returns emptyList()
+
+        // Seventh review gate: the terminal write reports that the claim still holds.
+
+        coEvery { repository.markSent(any(), any()) } returns true
+
+        coEvery { repository.scheduleRetry(any(), any(), any(), any()) } returns true
+
+        coEvery { repository.markDead(any(), any(), any()) } returns true
         coEvery { repository.countByState("pending") } returns 0L
 
         poller.start()
@@ -642,6 +770,14 @@ class OutboxPollerTest {
         val transformedPayload = JsonObject(mapOf("fromDest" to JsonPrimitive(true)))
 
         coEvery { repository.claimBatch(any()) } returns listOf(message) andThen emptyList()
+
+        // Seventh review gate: the terminal write reports that the claim still holds.
+
+        coEvery { repository.markSent(any(), any()) } returns true
+
+        coEvery { repository.scheduleRetry(any(), any(), any(), any()) } returns true
+
+        coEvery { repository.markDead(any(), any(), any()) } returns true
         coEvery { repository.countByState("pending") } returns 0L
         every { router.route(any(), any()) } returns routingResult
         every { publisher.supports(any()) } returns true
@@ -679,6 +815,14 @@ class OutboxPollerTest {
         val routingResult = RoutingResult(destination, "test.topic")
 
         coEvery { repository.claimBatch(any()) } returns listOf(message1, message2) andThen emptyList()
+
+        // Seventh review gate: the terminal write reports that the claim still holds.
+
+        coEvery { repository.markSent(any(), any()) } returns true
+
+        coEvery { repository.scheduleRetry(any(), any(), any(), any()) } returns true
+
+        coEvery { repository.markDead(any(), any(), any()) } returns true
         coEvery { repository.countByState("pending") } returns 0L
         every { router.route(any(), any()) } returns routingResult
         every { publisher.supports(any()) } returns true
@@ -697,8 +841,8 @@ class OutboxPollerTest {
         delay(150)
         poller.shutdown()
 
-        coVerify { repository.markSent(message1.id) }
-        coVerify { repository.markSent(message2.id) }
+        coVerify { repository.markSent(message1.id, any()) }
+        coVerify { repository.markSent(message2.id, any()) }
     }
 
     @Test
@@ -715,6 +859,14 @@ class OutboxPollerTest {
         val routingResult = RoutingResult(destination, "test.topic", routeTransform = null, destinationTransform = null)
 
         coEvery { repository.claimBatch(any()) } returns listOf(message) andThen emptyList()
+
+        // Seventh review gate: the terminal write reports that the claim still holds.
+
+        coEvery { repository.markSent(any(), any()) } returns true
+
+        coEvery { repository.scheduleRetry(any(), any(), any(), any()) } returns true
+
+        coEvery { repository.markDead(any(), any(), any()) } returns true
         coEvery { repository.countByState("pending") } returns 0L
         every { router.route(any(), any()) } returns routingResult
         every { publisher.supports(any()) } returns true
@@ -749,6 +901,14 @@ class OutboxPollerTest {
         val metricsCollector = mockk<MetricsCollectorInterface>(relaxed = true)
 
         coEvery { repository.claimBatch(any()) } returns emptyList()
+
+        // Seventh review gate: the terminal write reports that the claim still holds.
+
+        coEvery { repository.markSent(any(), any()) } returns true
+
+        coEvery { repository.scheduleRetry(any(), any(), any(), any()) } returns true
+
+        coEvery { repository.markDead(any(), any(), any()) } returns true
         coEvery { repository.reclaimStale(any()) } returns 3
 
         val poller = OutboxPoller(
@@ -774,6 +934,14 @@ class OutboxPollerTest {
         val router = mockk<MessageRouter>(relaxed = true)
 
         coEvery { repository.claimBatch(any()) } returns emptyList()
+
+        // Seventh review gate: the terminal write reports that the claim still holds.
+
+        coEvery { repository.markSent(any(), any()) } returns true
+
+        coEvery { repository.scheduleRetry(any(), any(), any(), any()) } returns true
+
+        coEvery { repository.markDead(any(), any(), any()) } returns true
         coEvery { repository.reclaimStale(any()) } returns 0
 
         // claimTimeoutMs of 300000 gives a reclaim interval of 60000 ms. The poll interval is
@@ -807,6 +975,14 @@ class OutboxPollerTest {
         val routingResult = RoutingResult(destination, "eu.high.order.created")
 
         coEvery { repository.claimBatch(any()) } returns listOf(message) andThen emptyList()
+
+        // Seventh review gate: the terminal write reports that the claim still holds.
+
+        coEvery { repository.markSent(any(), any()) } returns true
+
+        coEvery { repository.scheduleRetry(any(), any(), any(), any()) } returns true
+
+        coEvery { repository.markDead(any(), any(), any()) } returns true
         coEvery { repository.reclaimStale(any()) } returns 0
         every { router.route(any(), any()) } returns routingResult
         every { publisher.supports(destination) } returns true
@@ -841,6 +1017,14 @@ class OutboxPollerTest {
         val destination = createHttpDestination()
 
         coEvery { repository.claimBatch(any()) } returns listOf(message) andThen emptyList()
+
+        // Seventh review gate: the terminal write reports that the claim still holds.
+
+        coEvery { repository.markSent(any(), any()) } returns true
+
+        coEvery { repository.scheduleRetry(any(), any(), any(), any()) } returns true
+
+        coEvery { repository.markDead(any(), any(), any()) } returns true
         coEvery { repository.reclaimStale(any()) } returns 0
         every { router.route(any(), any()) } returns RoutingResult(destination, null)
         every { publisher.supports(destination) } returns true
@@ -886,6 +1070,14 @@ class OutboxPollerTest {
         val destination = createHttpDestination()
 
         coEvery { repository.claimBatch(any()) } returns messages andThen emptyList()
+
+        // Seventh review gate: the terminal write reports that the claim still holds.
+
+        coEvery { repository.markSent(any(), any()) } returns true
+
+        coEvery { repository.scheduleRetry(any(), any(), any(), any()) } returns true
+
+        coEvery { repository.markDead(any(), any(), any()) } returns true
         coEvery { repository.reclaimStale(any()) } returns 0
         every { router.route(any(), any()) } answers {
             if (firstArg<String>() == failing.topic) {
@@ -910,9 +1102,9 @@ class OutboxPollerTest {
         poller.shutdown()
 
         messages.filter { it.id != failing.id }.forEach { message ->
-            coVerify { repository.markSent(message.id) }
+            coVerify { repository.markSent(message.id, any()) }
         }
-        coVerify { repository.scheduleRetry(failing.id, any(), any()) }
+        coVerify { repository.scheduleRetry(failing.id, any(), any(), any()) }
         verify(atLeast = 1) { metricsCollector.recordProcessError() }
     }
 
@@ -942,6 +1134,14 @@ class OutboxPollerTest {
         val publisher = SlowPublisher(latencyMs = 200)
 
         coEvery { repository.claimBatch(any()) } returns messages andThen emptyList()
+
+        // Seventh review gate: the terminal write reports that the claim still holds.
+
+        coEvery { repository.markSent(any(), any()) } returns true
+
+        coEvery { repository.scheduleRetry(any(), any(), any(), any()) } returns true
+
+        coEvery { repository.markDead(any(), any(), any()) } returns true
         coEvery { repository.reclaimStale(any()) } returns 0
         every { router.route(any(), any()) } returns RoutingResult(destination, null)
 
@@ -976,6 +1176,14 @@ class OutboxPollerTest {
         val metricsCollector = mockk<MetricsCollectorInterface>(relaxed = true)
 
         coEvery { repository.claimBatch(any()) } returns emptyList()
+
+        // Seventh review gate: the terminal write reports that the claim still holds.
+
+        coEvery { repository.markSent(any(), any()) } returns true
+
+        coEvery { repository.scheduleRetry(any(), any(), any(), any()) } returns true
+
+        coEvery { repository.markDead(any(), any(), any()) } returns true
         coEvery { repository.reclaimStale(any()) } returns 0
         coEvery { repository.countByState("pending") } returns 0
 

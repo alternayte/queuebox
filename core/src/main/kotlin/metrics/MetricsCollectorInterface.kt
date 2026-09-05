@@ -129,4 +129,12 @@ interface MetricsCollectorInterface {
      * Record one HTTP publish response. The metric carries the status class only.
      */
     fun recordHttpStatus(statusCode: Int) {}
+
+    /**
+     * Record one terminal write that lost the claim.
+     *
+     * Seventh review gate: another replica owns the message now, so this worker changed no
+     * state. The component is 'outbox' or 'inbox', so the label set stays bounded.
+     */
+    fun recordClaimLost(component: String) {}
 }

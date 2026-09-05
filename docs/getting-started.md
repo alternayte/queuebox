@@ -137,8 +137,10 @@ document holds the local build, the multi-architecture build and the release pro
 broken database cannot fail it. Use it for a Kubernetes liveness probe.
 
 `GET /health/ready` reports every dependency. It returns 200 when all components are up. It returns
-503 when one component is down. The body names each component: `database`, `outbox-poller`,
-`retention-service`, `inbox-relay`, and `rabbitmq.<source>` for each RabbitMQ source. Use it for a
+503 when one component is down. The body names `database`, `outbox-poller`, `inbox-relay`, and
+`rabbitmq.<source>` for each RabbitMQ source. It names `retention-service` only when
+`retention.enabled` is true, which is not the default: a disabled service never runs, so a
+component that reports it would hold the instance unhealthy for ever. Use the endpoint for a
 Kubernetes readiness probe.
 
 `GET /health` is an alias of `GET /health/ready`.

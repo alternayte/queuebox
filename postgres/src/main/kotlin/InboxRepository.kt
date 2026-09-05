@@ -130,7 +130,7 @@ class InboxRepository(
                       target.${q(columnMapping.idempotencyKey)}, target.$aggregateCol,
                       target.${q(columnMapping.eventType)}, target.${q(columnMapping.payload)},
                       target.$stateCol, target.$createdAtCol, target.${q(columnMapping.processedAt)},
-                      target.${q(columnMapping.correlationId)}
+                      target.${q(columnMapping.correlationId)}, target.${q(columnMapping.claimedAt)}
         """.trimIndent()
 
         val now = Clock.System.now()
@@ -185,21 +185,35 @@ class InboxRepository(
         return kept to released
     }
 
-    override suspend fun markProcessed(id: UUID): Unit = joinOrNewTransaction {
+    /**
+     * Seventh review gate: the write is fenced on the state and on the claim token, so a
+     * worker that lost the claim cannot overwrite the row of the new owner.
+     */
+    override suspend fun markProcessed(id: UUID, claimedAt: Instant?): Boolean = joinOrNewTransaction {
         val now = Clock.System.now()
-        table.update({ table.id eq id }) {
+        table.update({ claimFence(id, claimedAt) }) {
             it[state] = "processed"
             it[processedAt] = now
-        }
-        Unit
+        } > 0
     }
 
-    override suspend fun markDead(id: UUID): Unit = joinOrNewTransaction {
-        table.update({ table.id eq id }) {
+    override suspend fun markDead(id: UUID, claimedAt: Instant?): Boolean = joinOrNewTransaction {
+        table.update({ claimFence(id, claimedAt) }) {
             it[state] = "dead"
-            it[claimedAt] = null
-        }
-        Unit
+            it[this.claimedAt] = null
+        } > 0
+    }
+
+    /**
+     * Seventh review gate: the predicate of every terminal write.
+     *
+     * The row must still be in state 'processing', and it must still carry the claim that the
+     * caller holds. A null token matches any claim, which serves an operator tool that holds
+     * no claim of its own.
+     */
+    private fun claimFence(id: UUID, claimedAt: Instant?): org.jetbrains.exposed.sql.Op<Boolean> {
+        val base = (table.id eq id) and (table.state eq "processing")
+        return if (claimedAt == null) base else base and (table.claimedAt eq claimedAt)
     }
 
     /**
@@ -255,13 +269,20 @@ class InboxRepository(
         processedAt = getTimestamp(columnMapping.processedAt)?.toInstant()?.let {
             kotlinx.datetime.Instant.fromEpochSeconds(it.epochSecond, it.nano)
         },
-        correlationId = getString(columnMapping.correlationId)
+        correlationId = getString(columnMapping.correlationId),
+        claimedAt = getTimestamp(columnMapping.claimedAt)?.toInstant()?.let {
+            kotlinx.datetime.Instant.fromEpochSeconds(it.epochSecond, it.nano)
+        }
     )
 
     private fun stringToMessageState(state: String): MessageState = when (state) {
         "pending" -> MessageState.Pending
         "processing" -> MessageState.Processing
         "processed" -> MessageState.Sent
+        // Seventh review gate. `storeDead` writes 'dead', so a dead inbox row really exists. The
+        // mapper used to report it as `Failed("Unknown state: dead")`, which is wrong and
+        // misleading for any read path that reaches one.
+        "dead" -> MessageState.Dead
         else -> MessageState.Failed(error = "Unknown state: $state", attempt = 0)
     }
 }

@@ -7,7 +7,15 @@ import javax.sql.DataSource
 /**
  * Thrown when the database does not answer inside the startup timeout.
  */
-class DatabaseUnavailableException(message: String, cause: Throwable?) : RuntimeException(message, cause)
+/**
+ * The database did not answer inside the startup budget.
+ *
+ * Seventh review gate, defect 3. This exception carries NO cause. A driver puts the JDBC URL, and
+ * therefore the database password, in the message of the failure that caused it. Nothing above
+ * `main` catches this, so the JVM prints the whole chain to the container log. The message carries
+ * the sanitised text of the last failure instead.
+ */
+class DatabaseUnavailableException(message: String) : RuntimeException(message)
 
 /**
  * Waits for the database at startup. See F-056.
@@ -72,11 +80,16 @@ object DatabaseStartup {
             }
         }
 
+        // Seventh review gate, defect 3. The retry line above redacts the failure, and this throw
+        // used to attach the SAME raw throwable as the cause. Nothing above catches it, so the
+        // JVM default handler printed the whole cause chain to stderr, which is the container
+        // log, and the driver puts the JDBC URL in that chain. The cause is not attached. Its
+        // sanitised text is part of the message instead, so an operator loses nothing.
         throw DatabaseUnavailableException(
             "The database did not answer inside $timeoutMs ms, after $attempt attempt(s). " +
                 "Check 'database.url', the credentials, and the network. Raise " +
-                "'database.startupTimeoutMs' when the database needs longer to start.",
-            lastFailure
+                "'database.startupTimeoutMs' when the database needs longer to start. " +
+                "The last failure was: ${ErrorSanitizer.sanitize(lastFailure)}"
         )
     }
 

@@ -186,9 +186,14 @@ class E2EInboxRelayTest : E2ETestBase() {
                 override suspend fun insert(message: org.nxtspec.OutboxMessage) {
                     error("insert failed")
                 }
-                override suspend fun markSent(id: UUID) = Unit
-                override suspend fun scheduleRetry(id: UUID, delayMs: Long, error: String?) = Unit
-                override suspend fun markDead(id: UUID, error: String?) = Unit
+                override suspend fun markSent(id: UUID, claimedAt: kotlinx.datetime.Instant?) = true
+                override suspend fun scheduleRetry(
+                    id: UUID,
+                    delayMs: Long,
+                    claimedAt: kotlinx.datetime.Instant?,
+                    error: String?
+                ) = true
+                override suspend fun markDead(id: UUID, claimedAt: kotlinx.datetime.Instant?, error: String?) = true
                 override suspend fun countByState(state: String): Long = 0
                 override suspend fun reclaimStale(olderThan: kotlin.time.Duration): Int = 0
                 override suspend fun deleteOlderThan(state: String, cutoff: kotlinx.datetime.Instant, limit: Int): Int =

@@ -29,6 +29,7 @@ bounded.
 | `queuebox_outbox_messages_total` | counter | `status` = `sent`, `failed` or `dead` | The outbox messages that reached each terminal status. |
 | `queuebox_outbox_messages_pending` | gauge | none | The outbox messages that wait for a publish. |
 | `queuebox_outbox_messages_reclaimed_total` | counter | none | The outbox messages that returned to pending after a stale claim. |
+| `queuebox_claims_lost_total` | counter | `component` | The terminal writes that lost the claim. Another replica owned the message. |
 | `queuebox_outbox_process_errors_total` | counter | none | The errors that stopped the processing of one outbox message. |
 | `queuebox_outbox_processing_duration_seconds` | summary | none | The time to process one outbox message. The summary carries the 50th, 95th and 99th percentile. |
 | `queuebox_outbox_processing_duration_seconds_max` | gauge | none | The largest processing time of the current window. |

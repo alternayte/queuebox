@@ -12,10 +12,12 @@ complexity:
     constructorThreshold: 10
   TooManyFunctions:
     # A test class groups many small test functions.
+    # The metrics collector holds one delegation function per metric, so the count grows with
+    # the metric set and not with the complexity of the class.
     excludes: ['**/test/**']
-    thresholdInClasses: 20
-    thresholdInFiles: 20
-    thresholdInObjects: 20
+    thresholdInClasses: 24
+    thresholdInFiles: 24
+    thresholdInObjects: 24
   LongMethod:
     excludes: ['**/test/**']
   CyclomaticComplexMethod:

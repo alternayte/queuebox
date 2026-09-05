@@ -123,33 +123,52 @@ class SqlServerOutboxRepository(
         Unit
     }
 
-    override suspend fun markSent(id: UUID) = joinOrNewTransaction {
-        updateState(id, "sent")
-    }
-
-    override suspend fun scheduleRetry(id: UUID, delayMs: Long, error: String?): Unit = joinOrNewTransaction {
+    /**
+     * Seventh review gate: the write is fenced on the state and on the claim token, so a
+     * worker that lost the claim cannot overwrite the row of the new owner.
+     */
+    override suspend fun markSent(id: UUID, claimedAt: Instant?): Boolean = joinOrNewTransaction {
         val now = Clock.System.now()
-        val scheduledTime = now + delayMs.milliseconds
-        table.update({ table.id eq id }) {
-            it[scheduledAt] = scheduledTime
-            it[state] = "pending"
-            it[attempt] = table.attempt + 1
+        table.update({ claimFence(id, claimedAt) }) {
+            it[state] = "sent"
             it[updatedAt] = now
-            it[claimedAt] = null
-            if (error != null) it[lastError] = error
-        }
-        Unit
+        } > 0
     }
 
-    override suspend fun markDead(id: UUID, error: String?): Unit = joinOrNewTransaction {
+    override suspend fun scheduleRetry(id: UUID, delayMs: Long, claimedAt: Instant?, error: String?): Boolean =
+        joinOrNewTransaction {
+            val now = Clock.System.now()
+            val scheduledTime = now + delayMs.milliseconds
+            table.update({ claimFence(id, claimedAt) }) {
+                it[scheduledAt] = scheduledTime
+                it[state] = "pending"
+                it[attempt] = table.attempt + 1
+                it[updatedAt] = now
+                it[this.claimedAt] = null
+                if (error != null) it[lastError] = error
+            } > 0
+        }
+
+    override suspend fun markDead(id: UUID, claimedAt: Instant?, error: String?): Boolean = joinOrNewTransaction {
         val now = Clock.System.now()
-        table.update({ table.id eq id }) {
+        table.update({ claimFence(id, claimedAt) }) {
             it[state] = "dead"
             it[updatedAt] = now
-            it[claimedAt] = null
+            it[this.claimedAt] = null
             if (error != null) it[lastError] = error
-        }
-        Unit
+        } > 0
+    }
+
+    /**
+     * Seventh review gate: the predicate of every terminal write.
+     *
+     * The row must still be in state 'processing', and it must still carry the claim that the
+     * caller holds. A null token matches any claim, which serves an operator tool that holds
+     * no claim of its own.
+     */
+    private fun claimFence(id: UUID, claimedAt: Instant?): org.jetbrains.exposed.sql.Op<Boolean> {
+        val base = (table.id eq id) and (table.state eq "processing")
+        return if (claimedAt == null) base else base and (table.claimedAt eq claimedAt)
     }
 
     override suspend fun countByState(state: String): Long = joinOrNewTransaction {
@@ -214,14 +233,6 @@ class SqlServerOutboxRepository(
         }
     }
 
-    private fun updateState(id: UUID, newState: String) {
-        val now = Clock.System.now()
-        table.update({ table.id eq id }) {
-            it[state] = newState
-            it[updatedAt] = now
-        }
-    }
-
     private fun ResultRow.toOutboxMessage(): OutboxMessage {
         val headersJson = this[table.headers]
         val headers = parseHeadersJson(headersJson)
@@ -236,7 +247,8 @@ class SqlServerOutboxRepository(
             maxAttempts = this[table.maxAttempts],
             scheduledAt = this[table.scheduledAt],
             createdAt = this[table.createdAt],
-            updatedAt = this[table.updatedAt]
+            updatedAt = this[table.updatedAt],
+            claimedAt = this[table.claimedAt]
         )
     }
 

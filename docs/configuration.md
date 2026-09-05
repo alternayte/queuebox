@@ -60,6 +60,9 @@ sources:
 ```yaml
 server:
   httpPort: 8080                          # HTTP server port
+  managementPort: 9090                    # Optional. Moves /health and /metrics to their own
+                                          # port, so an ingress can keep them off the data port.
+                                          # Omit it and both stay on httpPort.
 
 database:
   type: postgresql                        # 'postgresql' or 'sqlserver'
@@ -68,6 +71,10 @@ database:
   password: ${DB_PASSWORD}
   poolSize: 10                            # Connection pool size
   connectionTimeoutMs: 30000              # Connection timeout
+  migrate: true                           # Apply the bundled Flyway migrations at startup.
+                                          # Set it to false with a custom schema. See below.
+  startupTimeoutMs: 60000                 # How long QueueBox waits for the database at startup
+                                          # before it gives up and exits.
   outboxTableName: outbox                 # Custom table name (default: outbox)
   inboxTableName: inbox                   # Custom table name (default: inbox)
 
@@ -83,6 +90,13 @@ outbox:
 
 inbox:
   basePath: /inbox                        # Base path for inbox HTTP endpoints
+  relay:
+    enabled: true                         # The relay moves a stored inbox row into the outbox.
+                                          # Turn it off and the inbox becomes a write-only log.
+    pollIntervalMs: 100                   # How often the relay looks for a pending row
+    batchSize: 100                        # Rows per relay cycle
+    claimTimeoutMs: 300000                # Visibility timeout. A claim older than this returns
+                                          # to state 'pending'. See F-006.
 
 # Where messages get delivered
 destinations:
@@ -100,6 +114,10 @@ destinations:
       tokenUrl: https://auth.example.com/oauth/token
     transform:                            # Optional: transform before delivery
       expression: '{ "payload": $, "source": "queuebox" }'
+      timeoutMs: 100                      # Maximum run time of one expression
+      maxDepth: 100                       # Maximum recursion depth of one expression. It bounds
+                                          # a hostile or a runaway expression.
+      onError: Fail                       # 'Fail', 'Skip' or 'Dead'. Write the exact case.
 
   events-exchange:
     type: rabbitmq
@@ -234,8 +252,8 @@ QueueBox protects the inbox endpoints against a large body and against a request
 
 | Field | Default | Description |
 |-------|---------|-------------|
-| `inbox.maxBodyBytes` | `1048576` | Maximum accepted request body size in bytes. A larger body gets `413 Payload Too Large`. QueueBox rejects the body before it reads it. |
-| `sources.<name>.rateLimit.requestsPerMinute` | none | Maximum number of requests per minute for one source. A request over the limit gets `429 Too Many Requests` with a `Retry-After` header. Omit the field to disable the rate limit for that source. |
+| `inbox.maxBodyBytes` | `1048576` | Maximum accepted request body size in bytes. A larger body gets `413 Payload Too Large`. A request that declares a `Content-Length` is rejected before QueueBox reads the body. A chunked request declares no length, so the inbox route counts the bytes as it reads them and rejects the request when the count passes the cap. |
+| `sources.<name>.rateLimit.requestsPerMinute` | none | Maximum number of requests per minute for one source. It applies to an HTTP source only, because the limit guards an HTTP route. QueueBox accepts the field on a `rabbitmq` source and ignores it there. A request over the limit gets `429 Too Many Requests` with a `Retry-After` header. Omit the field to disable the rate limit for that source. |
 
 ```yaml
 database:
@@ -556,6 +574,7 @@ database:
   url: jdbc:postgresql://localhost:5432/mydb
   username: user
   password: pass
+  migrate: false                          # Mandatory with a custom schema. See the warning below.
   outboxTableName: my_outbox_table        # Default: outbox
   inboxTableName: my_inbox_table          # Default: inbox
   columnMapping:
@@ -571,7 +590,16 @@ database:
       # ... other columns
 ```
 
+**Set `database.migrate` to false with a custom schema.** `database.migrate` defaults to true.
+The bundled migration files name the default table and column names, so they cannot create a
+renamed schema. QueueBox therefore refuses to start when the configuration renames a table or a
+column and `database.migrate` stays true. The startup error names each renamed key. Apply your own
+schema first. [development/migrations.md](development/migrations.md) holds the SQL of the default
+schema.
+
 **Available column mappings:**
+
+Each table below is the complete set. A key that you omit keeps the default name.
 
 | Outbox Column | Default | Description |
 |---------------|---------|-------------|
@@ -586,6 +614,8 @@ database:
 | `scheduledAt` | scheduled_at | Scheduled delivery time |
 | `createdAt` | created_at | Creation timestamp |
 | `updatedAt` | updated_at | Last update timestamp |
+| `claimedAt` | claimed_at | Time of the claim. The reclaim step reads it. |
+| `lastError` | last_error | Reason of the last failed delivery |
 
 | Inbox Column | Default | Description |
 |--------------|---------|-------------|
@@ -598,4 +628,6 @@ database:
 | `state` | state | Message state |
 | `createdAt` | created_at | Creation timestamp |
 | `processedAt` | processed_at | Processing timestamp |
+| `claimedAt` | claimed_at | Time of the claim. The reclaim step reads it. |
+| `correlationId` | correlation_id | Identifier that follows the message through every log line |
 

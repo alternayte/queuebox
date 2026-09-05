@@ -60,6 +60,7 @@ class MetricsDocTest {
         collector.recordInboxRelayError()
         collector.recordInboxRejection(InboxRejectionReason.EXTRACTION_FAILED)
         collector.recordCleanupRun("outbox", 1, 1_000_000)
+        collector.recordClaimLost("outbox")
     }
 
     /** The family names of a scrape. The exporter prints one `# TYPE` line per family. */

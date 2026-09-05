@@ -26,9 +26,9 @@ The root build file derives the version from the Git tag. An untagged build carr
 1. A MINOR release can add an optional field. The default value must keep the previous behaviour.
 2. A MINOR release can add a new value to an enumerated field.
 3. A MINOR release must not remove a field, rename a field, or change the meaning of a field.
-4. A field that is due for removal is first marked deprecated in a MINOR release. QueueBox logs a
-   warning at startup when a deprecated field is set. The removal then happens in the next MAJOR
-   release.
+4. A field that is due for removal is first marked deprecated in a MINOR release. The changelog
+   and the configuration reference name it. The removal then happens in the next MAJOR release.
+   QueueBox emits no deprecation warning at startup today, so the documents are the only notice.
 5. A MAJOR release can remove a deprecated field or change a default value. The changelog must
    name every such change and state the migration step.
 

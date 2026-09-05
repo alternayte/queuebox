@@ -91,8 +91,19 @@ fun main() {
     // F-034: fail fast when the admin routes are enabled with no authentication.
     requireAdminAuth(config.admin)
 
-    // Database setup with metrics integration
-    val dataSource = DatabaseFactory.create(config.database, prometheusRegistry)
+    // Seventh review gate, defect 4. `HikariDataSource` opens the pool in its constructor, so a
+    // database that is not up yet throws here, with the JDBC URL in the cause chain. The call sat
+    // outside the try, so that chain reached stderr and the retry loop below never ran. Both
+    // failures now take the same guarded path.
+    val dataSource = try {
+        DatabaseFactory.create(config.database, prometheusRegistry)
+    } catch (e: Exception) {
+        log.error("The database pool could not start. Reason: {}", ErrorSanitizer.sanitize(e))
+        throw DatabaseUnavailableException(
+            "The database pool could not start. Check 'database.url', the credentials, and the " +
+                "network. The failure was: ${ErrorSanitizer.sanitize(e)}"
+        )
+    }
 
     try {
         // F-056: wait for the database rather than exiting at once. An orchestrator otherwise

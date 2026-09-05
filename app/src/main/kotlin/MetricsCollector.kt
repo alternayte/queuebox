@@ -103,6 +103,13 @@ class MetricsCollector(registry: MeterRegistry) : MetricsCollectorInterface {
     }
 
     /**
+     * Record one terminal write that lost the claim.
+     */
+    override fun recordClaimLost(component: String) {
+        metrics.recordClaimLost(component)
+    }
+
+    /**
      * Record one message that reached the destination.
      */
     override fun recordDestinationSuccess(destination: String) {

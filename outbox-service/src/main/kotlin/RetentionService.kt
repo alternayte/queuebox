@@ -111,8 +111,8 @@ class RetentionService(
             // policy at startup. This branch guards a service that another caller builds.
             // See the third review gate, defect 2.
             error(
-                "The inbox retention does not support the count policy. Use 'age' or " +
-                    "'disabled' for 'retention.inbox.policy'."
+                "The inbox retention does not support the count policy. Use 'AGE' or " +
+                    "'DISABLED' for 'retention.inbox.policy'."
             )
         }
         RetentionPolicy.DISABLED -> 0

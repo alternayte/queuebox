@@ -25,24 +25,39 @@ interface OutboxRepositoryInterface {
     suspend fun insert(message: OutboxMessage)
 
     /**
-     * Marks a message as successfully sent.
+     * Marks a message as successfully sent, if the caller still owns the claim.
+     *
+     * Seventh review gate: the write matches the row, the state 'processing' and the claim
+     * token. The reclaim step returns a row to state 'pending' on a timer, not on proof that
+     * the owner died, so a worker can outlive its own claim. The fence stops that worker from
+     * overwriting the row of the new owner.
+     *
+     * @param claimedAt the claim token of the message that the caller holds. A null token
+     *     matches any claim and keeps the state fence only.
+     * @return true when the write landed, false when the caller lost the claim
      */
-    suspend fun markSent(id: UUID)
+    suspend fun markSent(id: UUID, claimedAt: Instant?): Boolean
 
     /**
      * Schedules a message for retry after a delay.
      *
      * F-017: this is the only method that increments the attempt count.
+     *
+     * Seventh review gate: the write carries the same claim fence as [markSent].
+     * @return true when the write landed, false when the caller lost the claim
      * F-016: the error is persisted, so an operator can see why the delivery failed. The caller
      * redacts and truncates the text.
      */
-    suspend fun scheduleRetry(id: UUID, delayMs: Long, error: String? = null)
+    suspend fun scheduleRetry(id: UUID, delayMs: Long, claimedAt: Instant?, error: String? = null): Boolean
 
     /**
      * Marks a message as dead, because it exceeded the maximum attempts or because it cannot be
      * routed. The attempt count does not change.
+     *
+     * Seventh review gate: the write carries the same claim fence as [markSent].
+     * @return true when the write landed, false when the caller lost the claim
      */
-    suspend fun markDead(id: UUID, error: String? = null)
+    suspend fun markDead(id: UUID, claimedAt: Instant?, error: String? = null): Boolean
 
     /**
      * Counts messages in a given state.

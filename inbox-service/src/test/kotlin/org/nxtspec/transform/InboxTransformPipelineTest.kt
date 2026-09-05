@@ -284,7 +284,9 @@ class InboxTransformPipelineTest {
 
         assertEquals(context.messageId, transformContext.messageId)
         assertEquals("order.created", transformContext.topic)
-        assertEquals(1, transformContext.attempt)
+        // A source transform runs once, so no delivery has failed yet. The meaning of
+        // ${'$'}attempt is therefore the same as on the outbox: the number of failed deliveries.
+        assertEquals(0, transformContext.attempt)
         assertEquals(context.timestamp, transformContext.timestamp)
         assertEquals("my-source", transformContext.source)
     }

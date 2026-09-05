@@ -124,45 +124,52 @@ val testWithCoverage by tasks.registering {
     dependsOn(jacocoAggregatedReport)
 }
 
-// Configure after all projects are evaluated
-gradle.projectsEvaluated {
-    val execFiles = subprojects.mapNotNull { subproject ->
-        val execFile = subproject.layout.buildDirectory.file("jacoco/test.exec").get().asFile
-        execFile.takeIf { it.exists() }
-    }
+/**
+ * The inputs of the aggregated coverage tasks, resolved LAZILY.
+ *
+ * Seventh review gate, defect 1. The earlier version read `execFile.exists()` inside
+ * `gradle.projectsEvaluated`, which runs at CONFIGURATION time, before any test has run. So the
+ * list held the exec files of the PREVIOUS build. On a warm tree that looks correct. On the first
+ * build of a clean checkout the list is empty, JaCoCo skips a report with no execution data, and
+ * the gate passes without measuring anything. Every CI job runs exactly one build on a clean
+ * checkout, so the gate was vacuous in the only place it mattered.
+ *
+ * `FileCollection.filter` is lazy: it resolves when the task reads it, which is after the test
+ * tasks that this task depends on have run.
+ */
+val aggregatedExecutionData: FileCollection =
+    files(subprojects.map { it.layout.buildDirectory.file("jacoco/test.exec") }).filter { it.exists() }
 
-    val sourceDirs = subprojects.mapNotNull { subproject ->
-        val srcDir = file("${subproject.projectDir}/src/main/kotlin")
-        srcDir.takeIf { it.exists() }
-    }
+val aggregatedSourceDirectories: FileCollection =
+    files(subprojects.map { "${it.projectDir}/src/main/kotlin" }).filter { it.exists() }
 
-    // Collect class directories
-    val classDirs = subprojects.mapNotNull { subproject ->
-        val classDir = subproject.layout.buildDirectory.dir("classes/kotlin/main").get().asFile
-        if (classDir.exists()) {
-            fileTree(classDir) {
-                // F-070: the exclusions name a class, not a suffix. A suffix pattern hid
-                // DynamicTables, which carries the column mapping feature. TESTING.md names
-                // every entry and its reason.
-                exclude("**/OutboxTable.class")
-                exclude("**/InboxTable.class")
-                exclude("**/SqlServerOutboxTable.class")
-                exclude("**/SqlServerInboxTable.class")
-                exclude("**/AppKt.class")
-                exclude("**/AppKt$*.class")
+val aggregatedClassDirectories: FileCollection =
+    files(
+        subprojects.map { subproject ->
+            subproject.layout.buildDirectory.dir("classes/kotlin/main").map { directory ->
+                fileTree(directory) {
+                    // F-070: the exclusions name a class, not a suffix. A suffix pattern hid
+                    // DynamicTables, which carries the column mapping feature. TESTING.md names
+                    // every entry and its reason.
+                    exclude("**/OutboxTable.class")
+                    exclude("**/InboxTable.class")
+                    exclude("**/SqlServerOutboxTable.class")
+                    exclude("**/SqlServerInboxTable.class")
+                    exclude("**/AppKt.class")
+                    exclude("**/AppKt$*.class")
+                }
             }
-        } else null
-    }
+        }
+    )
 
-    jacocoAggregatedReport.configure {
-        executionData.setFrom(files(execFiles))
-        sourceDirectories.setFrom(files(sourceDirs))
-        classDirectories.setFrom(files(classDirs))
-    }
+jacocoAggregatedReport.configure {
+    executionData.setFrom(aggregatedExecutionData)
+    sourceDirectories.setFrom(aggregatedSourceDirectories)
+    classDirectories.setFrom(aggregatedClassDirectories)
+}
 
-    jacocoAggregatedVerification.configure {
-        executionData.setFrom(files(execFiles))
-        sourceDirectories.setFrom(files(sourceDirs))
-        classDirectories.setFrom(files(classDirs))
-    }
+jacocoAggregatedVerification.configure {
+    executionData.setFrom(aggregatedExecutionData)
+    sourceDirectories.setFrom(aggregatedSourceDirectories)
+    classDirectories.setFrom(aggregatedClassDirectories)
 }

@@ -99,7 +99,7 @@ class SqlServerOutboxRepositoryTest : SqlServerTestBase() {
     fun `markSent updates state to sent`() = runTest {
         val id = insertOutboxMessage(state = "processing")
 
-        repository.markSent(id)
+        repository.markSent(id, null)
 
         assertEquals("sent", getOutboxMessageState(id))
     }
@@ -108,7 +108,7 @@ class SqlServerOutboxRepositoryTest : SqlServerTestBase() {
     fun `scheduleRetry persists the last error and increments the attempt once`() = runTest {
         val id = insertOutboxMessage(state = "processing")
 
-        repository.scheduleRetry(id, 1000, "HTTP 500 from destination")
+        repository.scheduleRetry(id, 1000, null, "HTTP 500 from destination")
 
         val (state, attempt) = getOutboxMessageStateAndAttempt(id)
         assertEquals("pending", state)
@@ -118,10 +118,10 @@ class SqlServerOutboxRepositoryTest : SqlServerTestBase() {
 
     @Test
     fun `scheduleRetry updates scheduledAt and resets to pending`() = runTest {
-        val id = insertOutboxMessage(state = "failed", attempt = 1)
+        val id = insertOutboxMessage(state = "processing", attempt = 1)
         val beforeSchedule = Clock.System.now()
 
-        repository.scheduleRetry(id, 60000, null) // 60 seconds
+        repository.scheduleRetry(id, 60000, null, null) // 60 seconds
 
         val (state, scheduledAt) = getOutboxStateAndScheduledAt(id)
         assertEquals("pending", state)
@@ -130,9 +130,9 @@ class SqlServerOutboxRepositoryTest : SqlServerTestBase() {
 
     @Test
     fun `markDead updates state to dead`() = runTest {
-        val id = insertOutboxMessage(state = "failed", attempt = 5)
+        val id = insertOutboxMessage(state = "processing", attempt = 5)
 
-        repository.markDead(id, null)
+        repository.markDead(id, null, null)
 
         assertEquals("dead", getOutboxMessageState(id))
     }
