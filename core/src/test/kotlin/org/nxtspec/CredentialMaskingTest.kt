@@ -178,4 +178,36 @@ class CredentialMaskingTest {
 
         assertEquals(text, CredentialMasking.maskUrl(text))
     }
+
+    /**
+     * Ninth review gate B2. Over-masking destroyed the whole message.
+     *
+     * The password runs were unbounded and allowed a comma, so an HTTP error that named a base
+     * URL with a port and later named an address collapsed to nine characters. The host, the
+     * port and the failure reason were all gone, which is the opposite of the promise that the
+     * host and the port survive.
+     */
+    @Test
+    fun `maskUrl keeps a message that names a url with a port and an address later`() {
+        val text = "https://api.example.com:8443 failed, contact ops@example.com"
+
+        assertEquals(text, CredentialMasking.maskUrl(text))
+    }
+
+    /** The narrowing must not reopen any leak that an earlier gate closed. */
+    @Test
+    fun `maskUrl still masks every user information shape`() {
+        for (text in listOf(
+            "amqp://user:Sup3rS3cret@broker:5672/vhost",
+            "amqp://user:pass word@rabbit",
+            "amqp://user:aa  bb@rabbit:5672/vh",
+            "Expected authority at index 6: amqp:/broker:Sup3rS3cret@rabbit:5672",
+            "jdbc:postgresql://qb:Sup3rS3cret@db:5432/qb"
+        )) {
+            val result = CredentialMasking.maskUrl(text)
+            assertFalse(result.contains("Sup3rS3cret"), "the password printed: $result")
+            assertFalse(result.contains("pass word"), "the password printed: $result")
+            assertFalse(result.contains("aa  bb"), "the password printed: $result")
+        }
+    }
 }

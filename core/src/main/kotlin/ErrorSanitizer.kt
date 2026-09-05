@@ -94,8 +94,16 @@ object ErrorSanitizer {
     )
 
     // Matches a bare authentication scheme and the token that follows it.
+    //
+    // The token must LOOK like a credential, or an ordinary sentence loses a word. `Token` is
+    // both a scheme name and an English word, so "the token bucket is empty" became "the token
+    // [REDACTED] is empty" and an operator lost the meaning. A credential is long, or it carries
+    // a character that a word does not. `bucket` is neither. A real bearer token, a JSON web
+    // token and a base64 basic credential all are.
     private val schemePattern: Regex = Regex(
-        "(?i)\\b(" + AUTH_SCHEMES.joinToString("|") + ")\\s+[A-Za-z0-9._~+/\\-]+=*"
+        "(?i)\\b(" + AUTH_SCHEMES.joinToString("|") + ")\\s+" +
+            "(?=[A-Za-z0-9._~+/\\-]*[0-9=]|[A-Za-z0-9._~+/\\-]{16})" +
+            "[A-Za-z0-9._~+/\\-]+=*"
     )
 
     /**

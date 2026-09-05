@@ -27,6 +27,23 @@ import org.nxtspec.transform.TransformPipeline
 
 private val log = logger("org.nxtspec.app.QueueBox")
 
+/**
+ * Runs one startup step and converts any failure into a sanitised `StartupFailedException`.
+ *
+ * Ninth review gate N1. Several startup calls sat outside every guard, so a failure left `main`
+ * raw and the JVM default handler printed the whole cause chain to the container log. A driver, a
+ * pool, a migration tool and a configuration loader all put the JDBC URL, and therefore the
+ * database password, into that chain. Every risky step takes this path now.
+ */
+private inline fun <T> startupStep(what: String, block: () -> T): T = try {
+    block()
+} catch (e: StartupFailedException) {
+    // An inner step already sanitised it. Do not wrap it twice.
+    throw e
+} catch (e: Exception) {
+    throw StartupFailedException("QueueBox could not $what. Reason: ${ErrorSanitizer.sanitize(e)}")
+}
+
 fun main() {
     // Load configuration
     val config = ConfigLoader.load()
@@ -95,14 +112,8 @@ fun main() {
     // database that is not up yet throws here, with the JDBC URL in the cause chain. The call sat
     // outside the try, so that chain reached stderr and the retry loop below never ran. Both
     // failures now take the same guarded path.
-    val dataSource = try {
+    val dataSource = startupStep("open the database pool") {
         DatabaseFactory.create(config.database, prometheusRegistry)
-    } catch (e: Exception) {
-        log.error("The database pool could not start. Reason: {}", ErrorSanitizer.sanitize(e))
-        throw DatabaseUnavailableException(
-            "The database pool could not start. Check 'database.url', the credentials, and the " +
-                "network. The failure was: ${ErrorSanitizer.sanitize(e)}"
-        )
     }
 
     try {
@@ -111,22 +122,32 @@ fun main() {
         DatabaseStartup.awaitConnection(dataSource, config.database.startupTimeoutMs)
 
         DatabaseFactory.init(dataSource)
-    } catch (e: Exception) {
-        // The shutdown hook does not exist yet, so the pool closes here.
+    } catch (e: StartupFailedException) {
+        // The shutdown hook does not exist yet, so the pool closes here. The message is already
+        // sanitised, so it passes through unchanged.
         dataSource.close()
         throw e
+    } catch (e: Exception) {
+        dataSource.close()
+        throw StartupFailedException(
+            "QueueBox could not reach the database. Reason: ${ErrorSanitizer.sanitize(e)}"
+        )
     }
 
     // Repositories via factory pattern
     val dbType = DatabaseType.valueOf(config.database.type.uppercase())
     val columnMappingData = columnMappingData(config.database)
-    val repositoryFactory = DatabaseProviderFactory.create(dbType, dataSource, columnMappingData)
+    val repositoryFactory = startupStep("load the database provider") {
+        DatabaseProviderFactory.create(dbType, dataSource, columnMappingData)
+    }
 
     // F-030: apply the bundled migrations before anything reads a table.
     if (config.database.migrate) {
-        requireDefaultSchemaForMigrations(config.database)
-        val applied = repositoryFactory.createMigrator().migrate(dataSource)
-        log.info("Applied {} migration(s).", applied)
+        startupStep("apply the database migrations") {
+            requireDefaultSchemaForMigrations(config.database)
+            val applied = repositoryFactory.createMigrator().migrate(dataSource)
+            log.info("Applied {} migration(s).", applied)
+        }
     }
 
     val outboxRepository = repositoryFactory.createOutboxRepository()

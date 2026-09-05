@@ -75,9 +75,14 @@ object CredentialMasking {
 
     private const val PLAUSIBLE_HOST_AFTER = "(?=[^/?#\\s@]*:[0-9]+(?:[/?#\\s]|$)|[^/?#\\s@]*[/?#])"
 
-    private const val SLASH_RUN = "(?:(?!://)[^?#])*"
+    // Ninth review gate B2. The runs were unbounded and allowed a comma, so
+    // "https://api.example.com:8443 failed, contact ops@example.com" collapsed to
+    // "https://***@example.com". The whole failure reason was gone, which is the opposite of the
+    // promise that the host and the port survive. A URI user information is short and holds no
+    // comma, so both runs exclude a comma and stop at 64 characters.
+    private const val SLASH_RUN = "(?:(?!://)[^?#,]){0,64}"
 
-    private const val NO_SLASH_RUN = "[^/?#]*"
+    private const val NO_SLASH_RUN = "[^/?#,]{0,64}"
 
     private val USER_INFO_SPACE_WITH_SLASH = Regex(
         SCHEME + USER + SLASH_RUN + "\\s" + SLASH_RUN + "@" + PLAUSIBLE_HOST_AFTER

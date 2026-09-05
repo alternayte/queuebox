@@ -78,6 +78,12 @@ tasks.test {
     // Eighth review gate N6. `GuaranteesTest` resolves a test class of another module by reading
     // its SOURCE file, so those sources are inputs too. A renamed test method there left this
     // task UP-TO-DATE and the guarantee check did not re-run.
+    //
+    // Ninth review gate N5 records the cost: an edit to one unit test in another module re-runs
+    // `:app:test`, which starts containers. That is the price of the source fallback, and a
+    // correct check that runs too often beats a fast check that misses a defect. A narrower
+    // declaration is not possible, because the set of files the test reads depends on the
+    // content of README.md.
     inputs.files(
         rootProject.fileTree("docs") { include("**/*.md") },
         rootProject.files(
@@ -86,7 +92,10 @@ tasks.test {
             "outbox-service/src/test/kotlin",
             "inbox-service/src/test/kotlin",
             "core/src/test/kotlin",
-            "rabbitmq/src/test/kotlin"
+            "rabbitmq/src/test/kotlin",
+            // Ninth review gate N4. `sourceFileOf` walks the whole repository, so every module
+            // that holds a test source is an input. `config` was missing.
+            "config/src/test/kotlin"
         ),
         rootProject.files(
             "README.md",

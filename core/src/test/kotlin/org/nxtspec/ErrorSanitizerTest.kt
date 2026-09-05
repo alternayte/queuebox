@@ -453,4 +453,43 @@ class ErrorSanitizerTest {
 
         assertEquals(text, ErrorSanitizer.sanitize(text))
     }
+
+    /**
+     * Over-redaction is a defect too. An error message an operator cannot act on has a real cost.
+     *
+     * `Token` and `Bearer` are scheme names AND English words, and the key list matches a prefix,
+     * so a sentence must not lose a word to either rule.
+     */
+    @Test
+    fun `sanitize leaves an ordinary sentence alone`() {
+        for (text in listOf(
+            "the token bucket is empty",
+            "the bearer of this message is unknown",
+            "Digest realm-based auth failed",
+            "column password_reset_at does not exist",
+            "relation \"user_credentials_view\" does not exist",
+            "tokenizer failed at line 4",
+            "connect failed to [2001:db8::1]:5672",
+            "Connection to db:5432 refused"
+        )) {
+            assertEquals(text, ErrorSanitizer.sanitize(text), "the sanitiser mangled: $text")
+        }
+    }
+
+    /** A value that really looks like a credential is still redacted after that narrowing. */
+    @Test
+    fun `sanitize still redacts a credential that follows a scheme`() {
+        for (text in listOf(
+            "Basic dXNlcjpwYXNzd29yZA==",
+            "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9",
+            "Token 9f8e7d6c5b4a3210"
+        )) {
+            val result = ErrorSanitizer.sanitize(text)!!
+            assertTrue(result.contains(REDACTED_MARK), "the credential survived: $result")
+        }
+    }
+
+    private companion object {
+        const val REDACTED_MARK = "[REDACTED]"
+    }
 }
