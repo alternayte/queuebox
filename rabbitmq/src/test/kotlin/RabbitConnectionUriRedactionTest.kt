@@ -37,4 +37,26 @@ class RabbitConnectionUriRedactionTest {
 
         assertFalse(thrown.message!!.contains("Sup3rS3cret"), "the password printed: ${thrown.message}")
     }
+
+    /**
+     * Twelfth review gate. The earlier repair MASKED the driver message, so the class of the input
+     * still decided whether the credential printed. A password holding both a space and a `#`
+     * matched no masking shape and passed through whole. The message carries no URI text at all
+     * now, so no input shape can leak.
+     */
+    @Test
+    fun `no shape of an invalid amqp uri reaches the message`() {
+        for (url in listOf(
+            "amqp://qb:pa ss#x@rabbit:5672/vh",
+            "amqp://qb:pa ss?x@rabbit:5672/vh",
+            "amqp://qb:Sup3rS3cret p@ss@rabbit:5672/vh",
+            "http://qb:Sup3rS3cret@rabbit:5672/vh"
+        )) {
+            val thrown = assertFailsWith<InvalidAmqpUriException> { RabbitConnection(url) }
+
+            assertFalse(thrown.message!!.contains("Sup3rS3cret"), "a password printed for $url")
+            assertFalse(thrown.message!!.contains("pa ss"), "a password printed for $url")
+            assertFalse(thrown.message!!.contains("rabbit:5672"), "the URI printed for $url")
+        }
+    }
 }

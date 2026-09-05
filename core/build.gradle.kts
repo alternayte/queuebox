@@ -42,6 +42,10 @@ tasks.test {
     inputs.files(
         rootProject.fileTree("docs") { include("**/*.md") },
         rootProject.files(
+            // Twelfth review gate. `DocumentedStateSetTest` reads README.md too, and it was not
+            // declared, so a README change that broke the check left this task UP-TO-DATE. That
+            // is the fourth instance of a check that is wired and never runs.
+            "README.md",
             "postgres/src/main/kotlin",
             "sqlserver/src/main/kotlin",
             "postgres/src/main/resources/db",

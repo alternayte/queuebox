@@ -7,12 +7,18 @@ diagrams. `docs/integration.md` holds the contract that an adopter writes agains
 
 ### Inbox (Receiving Messages)
 
-1. External system sends webhook to `/inbox/{source}`
-2. QueueBox extracts idempotency key using configured JSONPath
-3. Duplicate check. If the key exists for this source, return 200 with `{"status":"duplicate"}`
-4. Optional transform applied to payload
-5. Message stored in `inbox` table with state `pending`
-6. Return 202 Accepted. The message is stored, not delivered. See F-078 and
+1. External system sends a webhook to the path that `inbox.basePath` and the `path` of the source
+   build, for example `/inbox/stripe`. The NAME of the source does not enter the path.
+2. QueueBox extracts the idempotency key with the configured JSONPath
+3. Optional transform applied to the payload
+4. Message stored in the `inbox` table with state `pending`. The unique index on
+   `(source, idempotency_key)` detects a duplicate HERE, and the route answers 200 with
+   `{"status":"duplicate"}`
+
+   The order matters. The transform runs BEFORE the duplicate check, so a repeat of a stored
+   message whose transform now fails answers 422, not 200. The transform is the gate on what
+   enters the inbox, and a payload that cannot be transformed does not become a stored row.
+5. Return 202 Accepted. The message is stored, not delivered. See F-078 and
    [adr/0002-inbox-accept-returns-202.md](adr/0002-inbox-accept-returns-202.md)
 7. The relay forwards the row into the `outbox` table and marks it `processed`
 

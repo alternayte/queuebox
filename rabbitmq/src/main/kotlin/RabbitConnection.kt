@@ -23,8 +23,15 @@ open class RabbitConnection(private val url: String) {
         try {
             setUri(url)
         } catch (e: Exception) {
+            // Twelfth review gate. The earlier repair MASKED the driver message, so the class of
+            // the input still decided whether the credential printed: a password holding both a
+            // space and a `#` matched no shape and passed through whole. The driver message is
+            // dropped entirely now. It carries the rejected URI and nothing else an operator can
+            // act on, and the operator needs the FIELD, which this message names.
             throw InvalidAmqpUriException(
-                "The AMQP URI is not valid: ${CredentialMasking.maskUrl(e.message ?: "no reason")}"
+                "The AMQP URI is not valid. Check the 'connectionUrl' of the source, or the " +
+                    "'url' of the RabbitMQ destination. The value is not printed, because it " +
+                    "carries the broker password. The failure type was ${e::class.simpleName}."
             )
         }
         isAutomaticRecoveryEnabled = true

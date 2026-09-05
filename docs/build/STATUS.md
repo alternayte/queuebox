@@ -638,9 +638,15 @@ part of the whole effort.
 | 8 | 4 | Three more credential shapes escaped the redaction, including a malformed URI with one slash. `docs/architecture.md` carried a sentence, written one commit earlier, that the code contradicts. |
 | 9 | 2 | Both findings were OVER-redaction caused by the pass 8 fix. The whole error message was destroyed, and an ordinary sentence lost a word. |
 | 10 | 3 | **SQL Server was documented and never shipped.** The pass 9 repair reopened the leak it bounded: a password with whitespace AND a comma matched no shape at all. |
+| 11 | 4 | The configuration load was the one unguarded startup call, so a malformed YAML printed a password line. A disabled inbox relay held readiness at 503 for ever. A third check was wired and never ran. Two documents denied a dependency the build declares. |
+| 12 | 3 | A password holding whitespace AND a `#` escaped the mask. A fourth check was wired and never ran. The documented inbox step order does not match the code. |
 
-**Thirty-eight confirmed blocking defects, every one reproduced before it was acted on.** Four of
+**Forty-five confirmed blocking defects, every one reproduced before it was acted on.** Four of
 them were introduced by an earlier fix in this same effort.
+
+The gate did NOT pass. Twelve passes ran and every one produced at least one confirmed finding.
+The effort stopped at the maintainer's instruction, not at a clean pass. The open findings are
+listed under "What the gate still owes" below.
 
 ### What the gate teaches
 
@@ -694,6 +700,42 @@ them were introduced by an earlier fix in this same effort.
   key source.
 
 ---
+
+## What the gate still owes
+
+The twelfth pass reported three blocking findings. All three are fixed in the final commit. The
+pass also reported items it confirmed by reading and could NOT reproduce with a failing test. The
+gate rule makes those non-blocking, and they are recorded here because nobody has closed them.
+
+**1. SQL Server aggregate ordering. The strongest open item.**
+`sqlserver/src/main/kotlin/org/nxtspec/SqlServerInboxRepository.kt` releases the session
+application lock in a `finally` block INSIDE the transaction, so the release runs BEFORE the
+commit. A second replica can then take the lock, see no `processing` row for that aggregate, and
+claim a second message of the same aggregate. PostgreSQL uses `pg_advisory_xact_lock`, which holds
+to commit, so PostgreSQL is not affected. `docs/message-flow.md` states the guarantee absolutely,
+for both databases. The reviewer could not build the interleaving without editing production code.
+**Treat the per-aggregate ordering guarantee as unproven on SQL Server until this is settled.**
+
+**2. Two credential shapes with no sink today.** A JDBC connection string of the form
+`password=my secret;` keeps its tail, because the value pattern stops at whitespace, and
+`DestinationAuthConfig.OAuth2.extraParams` is a plain map that no mask covers. Neither reaches a
+log in the shipped application: the second is blocked by `PublisherRegistry`. A future call site
+would open both.
+
+**3. Two shipped SQL comments drifted.** `V1__create_outbox.sql` names a `failed` state that no
+repository writes, and `V2__create_inbox.sql` omits `dead`, which `storeDead` writes. A migration
+is immutable once released, so the correction needs a new version rather than an edit.
+`DocumentedStateSetTest` guards the Markdown and not the shipped SQL.
+
+**4. Two documentation slips.** `docs/getting-started.md` gives a `--profile rabbitmq` command
+without `-f docker-compose.yml`, nine lines after it explains that `-f` is required, so that one
+command starts the development loop. `docs/development/releasing.md` and
+`docs/development/building.md` say the release ATTACHES the provenance attestation; the workflow
+attaches the SBOM and pushes the provenance to the registry.
+
+**5. The gate never passed.** Twelve passes, every one with a confirmed finding. The rate did not
+reach zero. A thirteenth pass would probably find something, and the honest reading of that is
+that this codebase rewards continued adversarial review rather than that it is now perfect.
 
 ## Next phase
 
