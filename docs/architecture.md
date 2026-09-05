@@ -13,6 +13,7 @@ graph TD
     app --> core
     app --> config
     app --> postgres
+    app --> sqlserver
     app --> rabbitmq
     app --> outbox-service
     app --> inbox-service
@@ -33,10 +34,16 @@ graph TD
     inbox-service --> outbox-service
 ```
 
-The `core` module has no dependency on another module. The `sqlserver` module has no dependent
-module. The `app` module does not depend on it. The repository layer loads a provider by
-reflection, so a provider module can be absent at compile time. See
+The `core` module has no dependency on another module. The repository layer loads a provider by
+reflection, so a provider module CAN be absent at compile time. See
 [ADR 0001](adr/0001-reflection-for-database-providers.md).
+
+`app` depends on both provider modules, so the shipped image runs on either database, which is
+what `README.md` and [configuration.md](configuration.md) promise. It did not always: the tenth
+review gate found that `sqlserver` was a test dependency only, so `type: sqlserver` failed at
+startup in the published image. The `verifyShippedProviders` task of `app/build.gradle.kts` fails
+the build when a documented provider leaves the runtime class path, because reflection hides that
+break from the compiler.
 
 ## Message lifecycle
 

@@ -18,8 +18,11 @@ dependency from `core` on both provider modules. That creates two problems.
 - A fixed class path. Every deployment then carries both JDBC drivers, even when it uses one
   database.
 
-The `app` module today depends on `postgres` and not on `sqlserver`. An adopter who wants SQL
-Server adds the `sqlserver` module.
+`app` depends on both provider modules, so the shipped image carries both. Reflection stays,
+because it keeps `core` free of a provider dependency and it lets an adopter who builds a smaller
+image drop one module. The tenth review gate showed the cost of that freedom: `sqlserver` was a
+test dependency only, and nothing failed at compile time, so the published image could not use the
+database its own documentation promised. `verifyShippedProviders` now fails the build for that.
 
 ## Decision
 

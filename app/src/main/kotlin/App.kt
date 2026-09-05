@@ -46,7 +46,10 @@ private inline fun <T> startupStep(what: String, block: () -> T): T = try {
 
 fun main() {
     // Load configuration
-    val config = ConfigLoader.load()
+    // Eleventh review gate B1. This was the FIRST statement of `main` and the only startup call
+    // that no guard covered. A malformed YAML makes SnakeYAML quote the offending source lines,
+    // including a password line, into the exception message, and nothing above `main` catches it.
+    val config = startupStep("read its configuration") { ConfigLoader.load() }
 
     // Create Prometheus registry for metrics
     val prometheusRegistry = PrometheusMeterRegistry(PrometheusConfig.DEFAULT)
@@ -55,7 +58,7 @@ fun main() {
     // configuration error must not cost the database startup timeout, and it must not migrate
     // the schema first.
     // F-057: an invalid transform expression must stop the start, not every message.
-    StartupValidator.validateTransforms(config)
+    startupStep("validate the configured transforms") { StartupValidator.validateTransforms(config) }
 
     // Convert config destinations to domain Destinations
     val destinations = config.destinations.mapValues { (name, destConfig) ->
@@ -232,7 +235,7 @@ fun main() {
     val healthContributors = buildList {
         add(SimpleHealthContributor("outbox-poller") { outboxPoller.isRunning() })
         addAll(retentionHealthContributors(config.retention.enabled) { retentionService.isRunning() })
-        add(SimpleHealthContributor("inbox-relay") { inboxRelay.isRunning() })
+        addAll(optionalComponent("inbox-relay", config.inbox.relay.enabled) { inboxRelay.isRunning() })
         rabbitSourceNames.forEachIndexed { index, sourceName ->
             val consumer = rabbitConsumers[index].first
             add(SimpleHealthContributor("rabbitmq.$sourceName") { consumer.isChannelOpen })

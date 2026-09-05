@@ -29,4 +29,23 @@ class RetentionHealthContributorTest {
         assertEquals(1, contributors.size)
         assertEquals("retention-service", contributors.single().name)
     }
+
+    /**
+     * Eleventh review gate B2. `inbox.relay.enabled: false` is a documented mode, and the relay
+     * contributor was registered unconditionally, so readiness answered 503 for ever.
+     */
+    @Test
+    fun `a disabled inbox relay contributes no component`() {
+        val contributors = optionalComponent("inbox-relay", enabled = false) { false }
+
+        assertTrue(contributors.isEmpty(), "a disabled relay must contribute nothing")
+    }
+
+    @Test
+    fun `an enabled inbox relay contributes its running state`() {
+        val contributors = optionalComponent("inbox-relay", enabled = true) { true }
+
+        assertEquals(1, contributors.size)
+        assertEquals("inbox-relay", contributors.single().name)
+    }
 }

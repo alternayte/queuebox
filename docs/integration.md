@@ -287,6 +287,8 @@ An HTTP destination receives the payload as the body, and these headers:
 | `X-Message-Id` | The `id` of the outbox row. Use it to deduplicate. |
 | `X-Topic` | The `topic` of the outbox row. |
 | `X-Attempt` | The delivery attempt, counted from `0`. |
+| `X-Message-Key` | The `key` of the outbox row. It is absent when the row sets no key. |
+| `X-Correlation-Id` | The identifier that follows the message, when the row carries one. |
 
 Delivery is at least once, so a destination must be idempotent. Deduplicate on `X-Message-Id`.
 

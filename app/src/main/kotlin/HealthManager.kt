@@ -134,4 +134,16 @@ class HealthManager(
  * @param isRunning the running state of the service.
  */
 fun retentionHealthContributors(enabled: Boolean, isRunning: () -> Boolean): List<HealthContributor> =
-    if (enabled) listOf(SimpleHealthContributor("retention-service", isRunning)) else emptyList()
+    optionalComponent("retention-service", enabled, isRunning)
+
+/**
+ * The readiness component of a worker that the configuration can turn off.
+ *
+ * Eleventh review gate B2. `inbox.relay.enabled: false` is a documented mode, and the relay
+ * contributor was registered unconditionally. `InboxRelay.start` returns before it sets the
+ * running flag when the relay is disabled, so `/health/ready` answered 503 for the life of the
+ * process and no orchestrator ever routed traffic to the instance. That is the same defect the
+ * retention service had, so the two share one rule.
+ */
+fun optionalComponent(name: String, enabled: Boolean, isRunning: () -> Boolean): List<HealthContributor> =
+    if (enabled) listOf(SimpleHealthContributor(name, isRunning)) else emptyList()

@@ -635,8 +635,12 @@ part of the whole effort.
 | 5 | 1 | A default AMQP source destroyed every message whose publisher omitted an undocumented header. |
 | 6 | 3 | **The aggregated coverage gate had never run.** The startup validator printed a destination password. The database retry line printed the database password on every slow start. |
 | 7 | 4 | **The pass 6 coverage fix was wrong, and so was my proof of it.** No terminal write was fenced, so a stale owner could complete another replica's claim. The database password still reached the log through the exception cause. The pool opened outside the guarded path. Plus fifteen documentation claims the code does not perform. |
+| 8 | 4 | Three more credential shapes escaped the redaction, including a malformed URI with one slash. `docs/architecture.md` carried a sentence, written one commit earlier, that the code contradicts. |
+| 9 | 2 | Both findings were OVER-redaction caused by the pass 8 fix. The whole error message was destroyed, and an ordinary sentence lost a word. |
+| 10 | 3 | **SQL Server was documented and never shipped.** The pass 9 repair reopened the leak it bounded: a password with whitespace AND a comma matched no shape at all. |
 
-**Twenty-eight confirmed blocking defects, every one reproduced before it was acted on.**
+**Thirty-eight confirmed blocking defects, every one reproduced before it was acted on.** Four of
+them were introduced by an earlier fix in this same effort.
 
 ### What the gate teaches
 
@@ -664,7 +668,18 @@ part of the whole effort.
    proved less than it appeared to. The numbers were real, because the verification task was run
    by hand several times, but the claim about `check` was false. The task is wired in now, and the
    proof is a mutation: raise the floor to 0.99 and the build fails.
-6. **Redaction needs an adversary.** The sanitiser was defeated three times: on a URL password, on
+6. **A repair of a redaction is itself a defect source.** The sanitiser pair was attacked in six
+   passes and defeated in five, and FOUR of the repairs created a new defect. A rule that bans a
+   character bans it everywhere, including inside the secret it must hide. A rule loose enough to
+   catch every secret destroys the message an operator needs. The answer was not a better regular
+   expression. It was to stop the credential entering the text at all: `RabbitConnection` now
+   masks the AMQP URI where the driver rejects it, and the sanitiser is the second layer.
+7. **A capability can be documented for a whole effort and never ship.** Ten passes ran before one
+   asked whether the SQL Server module reaches the RUNTIME class path. It did not. Reflection hid
+   the break from the compiler, and every test passed because the TEST class path carried the
+   module. A check that reads the runtime configuration now fails the build, and that check is
+   mutation proved, because its first version was satisfied by a look-alike artefact name.
+8. **Redaction needs an adversary.** The sanitiser was defeated three times: on a URL password, on
    an underscore key, on a bare `Basic` scheme, on a nested cause, on two spaces and a tab, and on
    a slash inside a password. Each round added a test.
 

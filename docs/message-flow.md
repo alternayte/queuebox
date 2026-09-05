@@ -51,7 +51,7 @@ deliver.
 | `topic` | The rendered `sources.<name>.topic` template |
 | `key` | The inbox `aggregate_id` |
 | `payload` | The stored inbox payload |
-| `headers` | `x-inbox-id`, `x-source`, and `x-idempotency-key` |
+| `headers` | `x-inbox-id`, `x-source`, `x-idempotency-key`, and `X-Correlation-Id` when the message carries one |
 
 The topic template supports `{{ source }}` and `{{ eventType }}`. The default of an HTTP source is
 `{{ eventType }}`. The default of an AMQP source is `{{ source }}`, because an AMQP message carries

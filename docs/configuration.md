@@ -60,7 +60,7 @@ sources:
 ```yaml
 server:
   httpPort: 8080                          # HTTP server port
-  managementPort: 9090                    # Optional. Moves /health and /metrics to their own
+  managementPort: 9090                    # Optional. Moves /health, /metrics AND /admin to their own
                                           # port, so an ingress can keep them off the data port.
                                           # Omit it and both stay on httpPort.
 

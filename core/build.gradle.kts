@@ -32,3 +32,20 @@ dependencies {
     testImplementation(libs.kotlinx.coroutines.test)
     testImplementation(libs.mockk)
 }
+
+// Eleventh review gate B3. These tests read files that Gradle cannot infer as inputs: documents
+// under `docs/`, migration resources and the sources of another module. Without the declaration
+// the task stays UP-TO-DATE, and a change that breaks the check passes CI in silence. This is the
+// third instance of that shape in this effort, so the rule is now applied wherever a test reads
+// outside its own module.
+tasks.test {
+    inputs.files(
+        rootProject.fileTree("docs") { include("**/*.md") },
+        rootProject.files(
+            "postgres/src/main/kotlin",
+            "sqlserver/src/main/kotlin",
+            "postgres/src/main/resources/db",
+            "sqlserver/src/main/resources/db"
+        )
+    ).withPathSensitivity(PathSensitivity.RELATIVE)
+}

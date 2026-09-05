@@ -1,7 +1,8 @@
 # Example: an HTTP fan-out
 
-One producer, two HTTP consumers. Each consumer receives its own copy, with its own retries and
-its own dead-letter state.
+One producer, two HTTP consumers. The producer writes one message per consumer, and each message
+carries its own retries and its own dead-letter state. QueueBox does not copy one message to two
+destinations. The next section states the rule.
 
 ## How fan-out works in QueueBox
 

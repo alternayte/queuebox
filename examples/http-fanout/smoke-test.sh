@@ -45,7 +45,7 @@ echo "first=$first second=$second"
 [ "$first" = "202" ] || { echo "FAIL: a new event must return 202, got $first"; exit 1; }
 [ "$second" = "202" ] || { echo "FAIL: a new event must return 202, got $second"; exit 1; }
 
-echo "==> wait for BOTH destinations to receive the same message"
+echo "==> wait for each destination to receive ITS OWN message"
 for _ in $(seq 1 45); do
   a=$(docker compose -f docker-compose.yml -p "$PROJECT" logs analytics 2>&1 | grep -c "evt_smoke_001-analytics" || true)
   b=$(docker compose -f docker-compose.yml -p "$PROJECT" logs audit 2>&1 | grep -c "evt_smoke_001-audit" || true)
