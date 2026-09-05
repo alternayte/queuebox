@@ -118,6 +118,10 @@ abstract class SqlServerTestBase {
                 it[SqlServerOutboxTable.payload] = payload.toString()
                 it[SqlServerOutboxTable.headers] = headers
                 it[SqlServerOutboxTable.state] = state
+                if (state == "processing") {
+                    it[SqlServerOutboxTable.claimToken] = UUID.randomUUID()
+                    it[SqlServerOutboxTable.leaseExpiresAt] = Clock.System.now() + kotlin.time.Duration.parse("5m")
+                }
                 it[SqlServerOutboxTable.attempt] = attempt
                 it[SqlServerOutboxTable.scheduledAt] = scheduledAt
                 it[createdAt] = now
@@ -144,6 +148,10 @@ abstract class SqlServerTestBase {
                 it[SqlServerInboxTable.aggregateId] = aggregateId
                 it[SqlServerInboxTable.payload] = payload.toString()
                 it[SqlServerInboxTable.state] = state
+                if (state == "processing") {
+                    it[SqlServerInboxTable.claimToken] = UUID.randomUUID()
+                    it[SqlServerInboxTable.leaseExpiresAt] = Clock.System.now() + kotlin.time.Duration.parse("5m")
+                }
                 it[createdAt] = now
             }
         }
@@ -182,16 +190,38 @@ abstract class SqlServerTestBase {
             .single()[SqlServerOutboxTable.claimedAt]
     }
 
+    protected fun getOutboxClaimToken(id: UUID): UUID? = transaction {
+        SqlServerOutboxTable.selectAll()
+            .where { SqlServerOutboxTable.id eq id }
+            .single()[SqlServerOutboxTable.claimToken]
+    }
+
     protected fun getInboxClaimedAt(id: UUID): Instant? = transaction {
         SqlServerInboxTable.selectAll()
             .where { SqlServerInboxTable.id eq id }
             .single()[SqlServerInboxTable.claimedAt]
     }
 
+    protected fun getInboxClaimToken(id: UUID): UUID? = transaction {
+        SqlServerInboxTable.selectAll()
+            .where { SqlServerInboxTable.id eq id }
+            .single()[SqlServerInboxTable.claimToken]
+    }
+
     protected fun setOutboxClaimedAt(id: UUID, claimedAt: Instant) {
         transaction {
             SqlServerOutboxTable.update({ SqlServerOutboxTable.id eq id }) {
                 it[SqlServerOutboxTable.claimedAt] = claimedAt
+                it[SqlServerOutboxTable.leaseExpiresAt] = object : org.jetbrains.exposed.sql.Expression<Instant>() {
+                    override fun toQueryBuilder(queryBuilder: org.jetbrains.exposed.sql.QueryBuilder) {
+                        val remaining = (
+                            claimedAt + kotlin.time.Duration.parse(
+                                "5m"
+                            ) - Clock.System.now()
+                            ).inWholeMilliseconds
+                        queryBuilder.append("DATEADD(millisecond, $remaining, SYSUTCDATETIME())")
+                    }
+                }
             }
         }
     }
@@ -200,6 +230,16 @@ abstract class SqlServerTestBase {
         transaction {
             SqlServerInboxTable.update({ SqlServerInboxTable.id eq id }) {
                 it[SqlServerInboxTable.claimedAt] = claimedAt
+                it[SqlServerInboxTable.leaseExpiresAt] = object : org.jetbrains.exposed.sql.Expression<Instant>() {
+                    override fun toQueryBuilder(queryBuilder: org.jetbrains.exposed.sql.QueryBuilder) {
+                        val remaining = (
+                            claimedAt + kotlin.time.Duration.parse(
+                                "5m"
+                            ) - Clock.System.now()
+                            ).inWholeMilliseconds
+                        queryBuilder.append("DATEADD(millisecond, $remaining, SYSUTCDATETIME())")
+                    }
+                }
             }
         }
     }

@@ -79,7 +79,8 @@ class InboxHandler(
             aggregateId = aggregateId,
             eventType = eventType,
             payload = transformedPayload,
-            correlationId = correlationId
+            correlationId = correlationId,
+            consumption = sourceConfig.consumption
         )
 
         // Store with deduplication

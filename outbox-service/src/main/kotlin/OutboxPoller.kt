@@ -2,7 +2,6 @@ package org.nxtspec
 
 import kotlinx.coroutines.*
 import kotlinx.coroutines.sync.Semaphore
-import kotlinx.coroutines.sync.withPermit
 import org.nxtspec.logging.CORRELATION_ID_HEADER
 import org.nxtspec.logging.LogKeys
 import org.nxtspec.logging.logger
@@ -22,11 +21,14 @@ class OutboxPoller(
     private val publishers: List<Publisher>,
     private val retryStrategy: RetryStrategy,
     private val metricsCollector: MetricsCollectorInterface? = null,
-    private val transformPipeline: TransformPipeline? = null
+    private val transformPipeline: TransformPipeline? = null,
+    private val signal: DeliverySignal = DeliverySignal()
 ) {
     private val log = logger<OutboxPoller>()
     private val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
     private val running = AtomicBoolean(true)
+
+    private val capacity = Semaphore(config.concurrency)
 
     // F-015: the moment of the last pending count query.
     private var lastPendingGaugeAtMs = 0L
@@ -51,7 +53,20 @@ class OutboxPoller(
                     // Log error but continue polling
                     log.error("The poll cycle failed. The next cycle retries. Reason: {}", ErrorSanitizer.sanitize(e))
                 }
-                delay(config.pollIntervalMs)
+                val waitMs = if (config.capture.mode == "polling") {
+                    config.pollIntervalMs
+                } else {
+                    try {
+                        repository.nextWakeDelayMs(config.capture.reconciliationIntervalMs)
+                    } catch (
+                        e: CancellationException
+                    ) {
+                        throw e
+                    } catch (_: Exception) {
+                        config.capture.reconciliationIntervalMs
+                    }
+                }
+                signal.await(waitMs)
             }
         }
     }
@@ -59,25 +74,27 @@ class OutboxPoller(
     private suspend fun processBatch() {
         reclaimStaleClaims()
 
-        val messages = repository.claimBatch(config.batchSize)
-
+        val available = capacity.availablePermits
+        if (available == 0) return
+        val messages = repository.claimBatch(minOf(config.batchSize, available), config.claimTimeoutMs)
         updatePendingGauge()
-
-        if (messages.isEmpty()) return
-
-        // F-014: publish up to `concurrency` messages at the same time. One slow destination no
-        // longer stalls the whole batch.
-        val semaphore = Semaphore(config.concurrency)
-        coroutineScope {
-            messages.forEach { message ->
-                launch {
-                    semaphore.withPermit {
-                        // F-013: one failing message must not abort the rest of the batch.
+        messages.forEach { message ->
+            capacity.acquire()
+            scope.launch {
+                try {
+                    withClaimLease(
+                        config.claimTimeoutMs,
+                        { repository.renewClaim(message.id, message.claimToken, config.claimTimeoutMs) }
+                    ) {
                         processMessageSafely(message)
                     }
+                } finally {
+                    capacity.release()
+                    signal.wake()
                 }
             }
         }
+        if (messages.isNotEmpty() && capacity.availablePermits > 0) signal.wake()
     }
 
     /**
@@ -150,7 +167,7 @@ class OutboxPoller(
         val routingResult = router.route(message.topic, message.payload)
         if (routingResult == null) {
             // No route found, mark as dead
-            if (repository.markDead(message.id, message.claimedAt, "No route matches topic '${message.topic}'")) {
+            if (repository.markDead(message.id, message.claimToken, "No route matches topic '${message.topic}'")) {
                 metricsCollector?.recordMessageDead()
             } else {
                 reportLostClaim(message, "mark the message dead, because no route matches the topic")
@@ -164,7 +181,7 @@ class OutboxPoller(
             // No publisher supports this destination, mark as dead
             val won = repository.markDead(
                 message.id,
-                message.claimedAt,
+                message.claimToken,
                 "No publisher supports destination '${routingResult.destination}'"
             )
             if (won) {
@@ -202,7 +219,7 @@ class OutboxPoller(
                     return
                 }
                 is TransformResult.DeadLetter -> {
-                    if (repository.markDead(message.id, message.claimedAt, "Transform dead-lettered the message")) {
+                    if (repository.markDead(message.id, message.claimToken, "Transform dead-lettered the message")) {
                         metricsCollector?.recordMessageDead()
                     } else {
                         reportLostClaim(message, "mark the message dead after the transform dead-lettered it")
@@ -219,13 +236,14 @@ class OutboxPoller(
         val destinationName = destinationName(routingResult.destination)
         metricsCollector?.changeQueueDepth(destinationName, 1)
         try {
+            currentCoroutineContext().ensureActive()
             publisher.publish(
                 messageToPublish,
                 routingResult.destination,
                 PublishContext(routingKey = routingResult.routingKey)
             ).fold(
                 onSuccess = {
-                    if (repository.markSent(message.id, message.claimedAt)) {
+                    if (repository.markSent(message.id, message.claimToken)) {
                         metricsCollector?.recordMessageSent()
                         metricsCollector?.recordDestinationSuccess(destinationName)
                     } else {
@@ -283,7 +301,7 @@ class OutboxPoller(
                 delay,
                 lastError
             )
-            if (repository.scheduleRetry(message.id, delay, message.claimedAt, lastError)) {
+            if (repository.scheduleRetry(message.id, delay, message.claimToken, lastError)) {
                 metricsCollector?.recordMessageFailed()
             } else {
                 reportLostClaim(message, "schedule the retry")
@@ -295,7 +313,7 @@ class OutboxPoller(
                 message.maxAttempts,
                 lastError
             )
-            if (repository.markDead(message.id, message.claimedAt, lastError)) {
+            if (repository.markDead(message.id, message.claimToken, lastError)) {
                 metricsCollector?.recordMessageDead()
             } else {
                 reportLostClaim(message, "mark the message dead")
@@ -337,6 +355,7 @@ class OutboxPoller(
      */
     suspend fun shutdown() {
         running.set(false)
+        signal.wake()
         val finished = withTimeoutOrNull(config.shutdownTimeoutMs) {
             scope.coroutineContext.job.children.forEach { it.join() }
             true

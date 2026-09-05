@@ -88,19 +88,13 @@ class TransformEngine(private val maxCacheSize: Int = 1000) {
      * inside a mapping function.
      */
     private fun getOrCompile(expression: String): Jsonata {
-        val cached = expressionCache[expression]
-        if (cached != null) {
-            return cached
-        }
-        val compiled = Jsonata.jsonata(expression)
         synchronized(expressionCache) {
-            val existing = expressionCache[expression]
-            if (existing != null) {
-                return existing
-            }
-            expressionCache[expression] = compiled
+            val cached = expressionCache[expression]
+            if (cached != null) return cached
+            // JSONata compilation is not guaranteed thread-safe; serialize cache misses as well
+            // as insertion, while keeping evaluation outside this critical section.
+            return Jsonata.jsonata(expression).also { expressionCache[expression] = it }
         }
-        return compiled
     }
 
     /**

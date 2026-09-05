@@ -92,16 +92,20 @@ class InboxRelay(
     suspend fun relayBatch(): Int {
         reclaimStaleClaims()
 
-        val messages = inboxRepository.claimPending(config.batchSize)
         var forwarded = 0
-
-        messages.forEach { message ->
+        repeat(config.batchSize) {
+            val message = inboxRepository.claimPending(1, config.claimTimeoutMs).firstOrNull() ?: return forwarded
             val moved = withLogContext(
                 LogKeys.MESSAGE_ID to message.id,
                 LogKeys.SOURCE to message.source,
                 LogKeys.CORRELATION_ID to message.correlationId
             ) {
-                forward(message)
+                withClaimLease(
+                    config.claimTimeoutMs,
+                    { inboxRepository.renewClaim(message.id, message.claimToken, config.claimTimeoutMs) }
+                ) {
+                    forward(message)
+                }
             }
             if (moved) forwarded++
         }
@@ -128,7 +132,7 @@ class InboxRelay(
                 message.id,
                 message.source
             )
-            if (inboxRepository.markDead(message.id, message.claimedAt)) {
+            if (inboxRepository.markDead(message.id, message.claimToken)) {
                 metricsCollector?.recordInboxRelayError()
             } else {
                 reportLostClaim(message, "mark the message dead")
@@ -146,7 +150,7 @@ class InboxRelay(
                     // must not commit. A second forward creates a second outbox row with a new
                     // identifier, so the two copies carry a different 'X-Message-Id' and a
                     // consumer cannot deduplicate them. The exception rolls the insert back.
-                    if (!inboxRepository.markProcessed(message.id, message.claimedAt)) {
+                    if (!inboxRepository.markProcessed(message.id, message.claimToken)) {
                         throw ClaimLostException(message.id)
                     }
                 }

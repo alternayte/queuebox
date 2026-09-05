@@ -57,6 +57,9 @@ tasks.test {
         rootProject.files(
             "postgres/src/main/resources/db",
             "sqlserver/src/main/resources/db"
-        )
+        ),
+        // `PullLeaseTest` executes the published example SQL, so a change to those files
+        // must re-run this task.
+        rootProject.fileTree("examples/pull/sql") { include("**/*.sql") }
     ).withPathSensitivity(PathSensitivity.RELATIVE)
 }

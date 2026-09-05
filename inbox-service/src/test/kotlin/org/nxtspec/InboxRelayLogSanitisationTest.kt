@@ -45,29 +45,31 @@ class InboxRelayLogSanitisationTest {
         InboxRepositoryInterface {
         override suspend fun store(message: InboxMessage): InboxResult = InboxResult.Stored
         override suspend fun storeDead(message: InboxMessage): InboxResult = InboxResult.Stored
-        override suspend fun claimPending(batchSize: Int): List<InboxMessage> {
+        override suspend fun claimPending(batchSize: Int, leaseMs: Long): List<InboxMessage> {
             val claimed = pending.take(batchSize)
             pending.removeAll(claimed)
             return claimed
         }
 
-        override suspend fun markProcessed(id: UUID, claimedAt: Instant?): Boolean = true
-        override suspend fun markDead(id: UUID, claimedAt: Instant?): Boolean = true
+        override suspend fun markProcessed(id: UUID, claimToken: UUID?): Boolean = true
+        override suspend fun markDead(id: UUID, claimToken: UUID?): Boolean = true
+        override suspend fun renewClaim(id: UUID, claimToken: UUID?, leaseMs: Long): Boolean = true
         override suspend fun countByState(state: String): Long = 0
         override suspend fun reclaimStale(olderThan: Duration): Int = 0
         override suspend fun deleteOlderThan(state: String, cutoff: Instant, limit: Int): Int = 0
     }
 
     private class SecretLeakingOutbox : OutboxRepositoryInterface {
-        override suspend fun claimBatch(batchSize: Int): List<OutboxMessage> = emptyList()
+        override suspend fun claimBatch(batchSize: Int, leaseMs: Long): List<OutboxMessage> = emptyList()
         override suspend fun insert(message: OutboxMessage): Unit = throw IllegalStateException(
             "insert failed",
             IllegalStateException("Authorization: Bearer super-secret-token")
         )
 
-        override suspend fun markSent(id: UUID, claimedAt: Instant?): Boolean = true
-        override suspend fun scheduleRetry(id: UUID, delayMs: Long, claimedAt: Instant?, error: String?): Boolean = true
-        override suspend fun markDead(id: UUID, claimedAt: Instant?, error: String?): Boolean = true
+        override suspend fun markSent(id: UUID, claimToken: UUID?): Boolean = true
+        override suspend fun scheduleRetry(id: UUID, delayMs: Long, claimToken: UUID?, error: String?): Boolean = true
+        override suspend fun markDead(id: UUID, claimToken: UUID?, error: String?): Boolean = true
+        override suspend fun renewClaim(id: UUID, claimToken: UUID?, leaseMs: Long): Boolean = true
         override suspend fun countByState(state: String): Long = 0
         override suspend fun reclaimStale(olderThan: Duration): Int = 0
         override suspend fun deleteOlderThan(state: String, cutoff: Instant, limit: Int): Int = 0

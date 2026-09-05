@@ -5,6 +5,7 @@ import kotlinx.datetime.Instant
 import kotlinx.serialization.json.Json
 import org.jetbrains.exposed.sql.ResultRow
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
+import org.jetbrains.exposed.sql.SqlExpressionBuilder.greater
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.inList
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.isNull
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.less
@@ -33,13 +34,6 @@ class SqlServerInboxRepository(
 
     override suspend fun store(message: InboxMessage): InboxResult = insert(message, "pending")
 
-    /**
-     * Third review gate, defect 1: stores the row already in state 'dead', in ONE transaction.
-     *
-     * A store in state 'pending' followed by a mark dead commits a claimable row first. The
-     * relay polls in its own coroutine, so it can claim that row and forward a payload that the
-     * transform rejected. One transaction closes the window.
-     */
     override suspend fun storeDead(message: InboxMessage): InboxResult = insert(message, "dead")
 
     private suspend fun insert(message: InboxMessage, initialState: String): InboxResult = joinOrNewTransaction {
@@ -65,14 +59,16 @@ class SqlServerInboxRepository(
             // Keep the inserted column list in one value so the statement text stays unchanged.
             val insertColumns =
                 "$idCol, $sourceCol, $idempotencyKeyCol, $aggregateIdCol, $eventTypeCol, " +
-                    "$payloadCol, $stateCol, $createdAtCol, $correlationIdCol"
+                    "$payloadCol, $stateCol, $createdAtCol, $correlationIdCol, ${quoteSqlServerIdentifier(
+                        columnMapping.consumption
+                    )}, ${quoteSqlServerIdentifier(columnMapping.scheduledAt)}"
             val sql = """
-                MERGE ${quoteSqlServerIdentifier(tableName)} AS target
+                MERGE ${quoteSqlServerIdentifier(tableName)} WITH (HOLDLOCK) AS target
                 USING (SELECT ? AS source, ? AS idempotency_key) AS src
                 ON target.$sourceCol = src.source AND target.$idempotencyKeyCol = src.idempotency_key
                 WHEN NOT MATCHED THEN
                     INSERT ($insertColumns)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, SYSUTCDATETIME());
             """.trimIndent()
 
             val conn = TransactionManager.current().connection.connection as java.sql.Connection
@@ -93,6 +89,7 @@ class SqlServerInboxRepository(
                 nextString(initialState)
                 stmt.setTimestamp(++index, nowTimestamp)
                 nextString(message.correlationId)
+                nextString(message.consumption)
                 stmt.executeUpdate()
             }
 
@@ -108,29 +105,9 @@ class SqlServerInboxRepository(
         }
     }
 
-    /**
-     * F-001 and F-006: claims pending inbox messages in one statement against the base table.
-     *
-     * The common table expression takes the row locks with ROWLOCK, UPDLOCK and READPAST, and
-     * the UPDATE runs through the same expression, so the claim and the mark are atomic.
-     *
-     * Choice recorded for the one message per aggregate rule: the claim takes one application
-     * lock, so only one claim runs at a time against this inbox table. The rule itself is
-     * applied in two parts. The SQL excludes an aggregate that already has a committed row in
-     * state 'processing'. The Kotlin step then keeps the oldest message per aggregate inside
-     * the claimed batch and releases the rest to state 'pending' in the same transaction.
-     *
-     * The application lock is necessary. Without it a second replica cannot see the uncommitted
-     * claim of the first replica, so both replicas claim a different message of one aggregate.
-     * The lock owner is the session, because the driver runs the claim without an open
-     * transaction count that sp_getapplock accepts. The release runs in a finally block, and
-     * the connection pool resets the session as a second safety net.
-     *
-     * Resulting guarantee: at most one message per aggregate identifier is in state
-     * 'processing' at any time, across every replica. The claim itself does not run in
-     * parallel, which is the cost of the guarantee. The claim is one short statement.
-     */
-    override suspend fun claimPending(batchSize: Int): List<InboxMessage> = joinOrNewTransaction {
+    @Suppress("LongMethod")
+    override suspend fun claimPending(batchSize: Int, leaseMs: Long): List<InboxMessage> = joinOrNewTransaction {
+        require(batchSize > 0 && leaseMs in 1..Int.MAX_VALUE.toLong())
         val t = quoteSqlServerIdentifier(tableName)
         val idCol = quoteSqlServerIdentifier(columnMapping.id)
         val aggregateIdCol = quoteSqlServerIdentifier(columnMapping.aggregateId)
@@ -140,8 +117,9 @@ class SqlServerInboxRepository(
 
         val conn = TransactionManager.current().connection.connection as java.sql.Connection
 
-        // Serialise the claim against every other replica. The lock is session scoped, so the
-        // release runs in a finally block.
+        // Hold the aggregate exclusion lock through the full claim-and-filter operation.
+        // Exposed can run this repository with JDBC auto-commit enabled, so a transaction-owned
+        // application lock is not available reliably on every connection.
         acquireClaimLock(conn)
         try {
             // The aggregate exclusion runs as its own statement. Inside the claim statement the
@@ -159,14 +137,20 @@ class SqlServerInboxRepository(
 
             val sql = """
             WITH candidates AS (
-                SELECT TOP (?) $idCol, $stateCol, $claimedAtCol
+                SELECT TOP (?) ${quoteSqlServerIdentifier(
+                columnMapping.claimToken
+            )}, ${quoteSqlServerIdentifier(columnMapping.leaseExpiresAt)}, $idCol, $stateCol, $claimedAtCol
                 FROM $t WITH (ROWLOCK, UPDLOCK, READPAST)
-                WHERE $stateCol = 'pending'
+                WHERE $stateCol = 'pending' AND ${quoteSqlServerIdentifier(columnMapping.consumption)} = 'push'
                 $exclusion
                 ORDER BY $createdAtCol ASC
             )
             UPDATE candidates
-            SET $stateCol = 'processing', $claimedAtCol = ?
+            SET $stateCol = 'processing', $claimedAtCol = ?, ${quoteSqlServerIdentifier(
+                columnMapping.claimToken
+            )} = NEWID(), ${quoteSqlServerIdentifier(
+                columnMapping.leaseExpiresAt
+            )} = DATEADD(millisecond, $leaseMs, SYSUTCDATETIME())
             OUTPUT INSERTED.$idCol AS $idCol
             """.trimIndent()
 
@@ -213,11 +197,6 @@ class SqlServerInboxRepository(
         }
     }
 
-    /**
-     * Takes the exclusive application lock that serialises the claim.
-     *
-     * @throws IllegalStateException when the lock is not granted inside the timeout
-     */
     private fun acquireClaimLock(conn: java.sql.Connection) {
         val sql = """
             DECLARE @result int;
@@ -242,19 +221,13 @@ class SqlServerInboxRepository(
         }
     }
 
-    /**
-     * Releases the application lock that serialises the claim.
-     */
     private fun releaseClaimLock(conn: java.sql.Connection) {
-        conn.prepareStatement("EXEC sp_releaseapplock @Resource = ?, @LockOwner = 'Session';").use { stmt ->
+        conn.prepareStatement("EXEC sp_releaseapplock @Resource=?, @LockOwner='Session';").use { stmt ->
             stmt.setString(1, claimLockResource)
             stmt.execute()
         }
     }
 
-    /**
-     * Reads the aggregate identifiers that already have a message in state 'processing'.
-     */
     private fun readLockedAggregates(
         conn: java.sql.Connection,
         table: String,
@@ -278,10 +251,6 @@ class SqlServerInboxRepository(
         }
     }
 
-    /**
-     * Keeps the oldest claimed message per aggregate identifier and returns the rest for
-     * release. A message without an aggregate identifier is independent and is always kept.
-     */
     private fun applyAggregateRule(claimed: List<InboxMessage>): Pair<List<InboxMessage>, List<InboxMessage>> {
         val kept = mutableListOf<InboxMessage>()
         val released = mutableListOf<InboxMessage>()
@@ -299,50 +268,54 @@ class SqlServerInboxRepository(
         return kept to released
     }
 
-    /**
-     * Seventh review gate: the write is fenced on the state and on the claim token, so a
-     * worker that lost the claim cannot overwrite the row of the new owner.
-     */
-    override suspend fun markProcessed(id: UUID, claimedAt: Instant?): Boolean = joinOrNewTransaction {
+    override suspend fun markProcessed(id: UUID, claimToken: UUID?): Boolean = joinOrNewTransaction {
         val now = Clock.System.now()
-        table.update({ claimFence(id, claimedAt) }) {
+        table.update({ claimFence(id, claimToken) }) {
             it[state] = "processed"
             it[processedAt] = now
         } > 0
     }
 
-    override suspend fun markDead(id: UUID, claimedAt: Instant?): Boolean = joinOrNewTransaction {
-        table.update({ claimFence(id, claimedAt) }) {
+    override suspend fun markDead(id: UUID, claimToken: UUID?): Boolean = joinOrNewTransaction {
+        table.update({ claimFence(id, claimToken) }) {
             it[state] = "dead"
             it[this.claimedAt] = null
         } > 0
     }
 
-    /**
-     * Seventh review gate: the predicate of every terminal write.
-     *
-     * The row must still be in state 'processing', and it must still carry the claim that the
-     * caller holds. A null token matches any claim, which serves an operator tool that holds
-     * no claim of its own.
-     */
-    private fun claimFence(id: UUID, claimedAt: Instant?): org.jetbrains.exposed.sql.Op<Boolean> {
+    private fun claimFence(id: UUID, claimToken: UUID?): org.jetbrains.exposed.sql.Op<Boolean> {
         val base = (table.id eq id) and (table.state eq "processing")
-        return if (claimedAt == null) base else base and (table.claimedAt eq claimedAt)
+        return if (claimToken == null) {
+            org.jetbrains.exposed.sql.Op.FALSE
+        } else {
+            base and (table.claimToken eq claimToken) and (table.leaseExpiresAt greater databaseNow)
+        }
     }
 
-    /**
-     * F-006: returns rows that stay in state 'processing' longer than the visibility timeout
-     * back to state 'pending'.
-     */
     override suspend fun reclaimStale(olderThan: Duration): Int = joinOrNewTransaction {
-        val cutoff = Clock.System.now() - olderThan
         table.update({
             (table.state eq "processing") and
-                ((table.claimedAt lessEq cutoff) or table.claimedAt.isNull())
+                ((table.leaseExpiresAt lessEq databaseNow) or table.leaseExpiresAt.isNull())
         }) {
             it[state] = "pending"
             it[claimedAt] = null
         }
+    }
+
+    private val databaseNow = object : org.jetbrains.exposed.sql.Expression<Instant>() {
+        override fun toQueryBuilder(queryBuilder: org.jetbrains.exposed.sql.QueryBuilder) {
+            queryBuilder.append("SYSUTCDATETIME()")
+        }
+    }
+
+    override suspend fun renewClaim(id: UUID, claimToken: UUID?, leaseMs: Long): Boolean = joinOrNewTransaction {
+        require(leaseMs > 0)
+        val expires = object : org.jetbrains.exposed.sql.Expression<Instant>() {
+            override fun toQueryBuilder(queryBuilder: org.jetbrains.exposed.sql.QueryBuilder) {
+                queryBuilder.append("DATEADD(millisecond, $leaseMs, SYSUTCDATETIME())")
+            }
+        }
+        table.update({ claimFence(id, claimToken) }) { it[leaseExpiresAt] = expires } > 0
     }
 
     override suspend fun countByState(state: String): Long = joinOrNewTransaction {
@@ -352,20 +325,20 @@ class SqlServerInboxRepository(
             .count()
     }
 
-    /**
-     * F-008: deletes at most `limit` rows per statement.
-     */
-    override suspend fun deleteOlderThan(state: String, cutoff: Instant, limit: Int): Int = joinOrNewTransaction {
-        val ids = table
-            .select(table.id)
-            .where { (table.state eq state) and (table.createdAt less cutoff) }
-            .limit(limit)
-            .map { it[table.id] }
+    override suspend fun deleteOlderThan(state: String, cutoff: Instant, limit: Int): Int {
+        require(state in setOf("sent", "processed", "dead")) { "Cannot delete active work" }
+        return joinOrNewTransaction {
+            val ids = table
+                .select(table.id)
+                .where { (table.state eq state) and (table.createdAt less cutoff) }
+                .limit(limit)
+                .map { it[table.id] }
 
-        if (ids.isEmpty()) {
-            0
-        } else {
-            table.deleteWhere { table.id inList ids }
+            if (ids.isEmpty()) {
+                0
+            } else {
+                table.deleteWhere { (table.id inList ids) and (table.state eq state) }
+            }
         }
     }
 
@@ -380,6 +353,8 @@ class SqlServerInboxRepository(
         createdAt = this[table.createdAt],
         processedAt = this[table.processedAt],
         correlationId = this[table.correlationId],
+        claimToken = this[table.claimToken],
+        leaseExpiresAt = this[table.leaseExpiresAt],
         claimedAt = this[table.claimedAt]
     )
 

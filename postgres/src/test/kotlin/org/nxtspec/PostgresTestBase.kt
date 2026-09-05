@@ -119,6 +119,10 @@ abstract class PostgresTestBase {
                 it[OutboxTable.payload] = payload
                 it[OutboxTable.headers] = headers
                 it[OutboxTable.state] = state
+                if (state == "processing") {
+                    it[OutboxTable.claimToken] = UUID.randomUUID()
+                    it[OutboxTable.leaseExpiresAt] = Clock.System.now() + kotlin.time.Duration.parse("5m")
+                }
                 it[OutboxTable.attempt] = attempt
                 it[OutboxTable.scheduledAt] = scheduledAt
                 it[OutboxTable.createdAt] = createdAt
@@ -145,6 +149,10 @@ abstract class PostgresTestBase {
                 it[InboxTable.aggregateId] = aggregateId
                 it[InboxTable.payload] = payload
                 it[InboxTable.state] = state
+                if (state == "processing") {
+                    it[InboxTable.claimToken] = UUID.randomUUID()
+                    it[InboxTable.leaseExpiresAt] = Clock.System.now() + kotlin.time.Duration.parse("5m")
+                }
                 it[InboxTable.createdAt] = createdAt
             }
         }
@@ -183,21 +191,39 @@ abstract class PostgresTestBase {
             .single()[OutboxTable.claimedAt]
     }
 
+    protected fun getOutboxClaimToken(id: UUID): UUID? = transaction {
+        OutboxTable.selectAll()
+            .where { OutboxTable.id eq id }
+            .single()[OutboxTable.claimToken]
+    }
+
     protected fun getInboxClaimedAt(id: UUID): Instant? = transaction {
         InboxTable.selectAll()
             .where { InboxTable.id eq id }
             .single()[InboxTable.claimedAt]
     }
 
+    protected fun getInboxClaimToken(id: UUID): UUID? = transaction {
+        InboxTable.selectAll()
+            .where { InboxTable.id eq id }
+            .single()[InboxTable.claimToken]
+    }
+
     protected fun setOutboxClaimedAt(id: UUID, claimedAt: Instant) {
         transaction {
-            OutboxTable.update({ OutboxTable.id eq id }) { it[OutboxTable.claimedAt] = claimedAt }
+            OutboxTable.update({ OutboxTable.id eq id }) {
+                it[OutboxTable.claimedAt] = claimedAt
+                it[OutboxTable.leaseExpiresAt] = claimedAt + kotlin.time.Duration.parse("5m")
+            }
         }
     }
 
     protected fun setInboxClaimedAt(id: UUID, claimedAt: Instant) {
         transaction {
-            InboxTable.update({ InboxTable.id eq id }) { it[InboxTable.claimedAt] = claimedAt }
+            InboxTable.update({ InboxTable.id eq id }) {
+                it[InboxTable.claimedAt] = claimedAt
+                it[InboxTable.leaseExpiresAt] = claimedAt + kotlin.time.Duration.parse("5m")
+            }
         }
     }
 

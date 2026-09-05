@@ -23,6 +23,7 @@ object ConfigValidator {
      * @return The validated configuration
      * @throws IllegalArgumentException if validation fails
      */
+    @Suppress("CyclomaticComplexMethod", "LongMethod")
     fun validate(config: QueueBoxConfig): QueueBoxConfig {
         // Validate database URL format matches declared type
         val validUrlPrefixes = mapOf(
@@ -35,6 +36,29 @@ object ConfigValidator {
         require(config.database.url.startsWith(expectedPrefix)) {
             "Database URL must match type '${config.database.type}' with prefix '$expectedPrefix'. " +
                 setVia("database.url")
+        }
+
+        val capture = config.outbox.capture
+        require(capture.mode in setOf("polling", "postgres-logical", "sqlserver-cdc")) { "Invalid outbox.capture.mode" }
+        require(capture.mode != "postgres-logical" || config.database.type == "postgresql") {
+            "postgres-logical requires PostgreSQL"
+        }
+        require(capture.mode != "sqlserver-cdc" || config.database.type == "sqlserver") {
+            "sqlserver-cdc requires SQL Server"
+        }
+        require(capture.reconciliationIntervalMs > 0) { "Capture reconciliation interval must be positive" }
+        require(!capture.enabled || capture.mode != "polling") { "Capture requires a CDC mode" }
+        if (capture.enabled) {
+            require(capture.stateDirectory.isNotBlank()) { "Capture requires a persistent stateDirectory" }
+            require(Regex("[a-z][a-z0-9_]{0,62}").matches(capture.identity)) { "Invalid capture identity" }
+            require(Regex("[a-z][a-z0-9_]{0,62}").matches(capture.slot)) { "Invalid capture slot" }
+            require(Regex("[a-z][a-z0-9_]{0,62}").matches(capture.publication)) { "Invalid capture publication" }
+            require(capture.schema == null || Regex("[A-Za-z_][A-Za-z0-9_]{0,62}").matches(capture.schema)) {
+                "Invalid capture schema"
+            }
+            require(capture.connection.port == null || capture.connection.port in 1..65535) {
+                "Invalid capture connection port"
+            }
         }
 
         // Validate port ranges
@@ -145,7 +169,8 @@ object ConfigValidator {
         // Validate source transforms and auth
         config.sources.forEach { (name, source) ->
             validateTransform(source.transform, "Source '$name'", "sources.$name.transform")
-            validateSourceTopic(name, source)
+            require(source.consumption in setOf("push", "pull")) { "sources.$name.consumption must be push or pull" }
+            if (source.consumption == "push") validateSourceTopic(name, source)
             validateExtractionPaths(name, source)
             source.rateLimit?.let {
                 require(it.requestsPerMinute > 0) {
@@ -354,63 +379,63 @@ object ConfigValidator {
      * This prevents SQL injection since column names are interpolated into raw SQL strings.
      */
     private fun validateColumnMapping(mapping: ColumnMappingConfig) {
-        val sqlIdentifierRegex = SQL_IDENTIFIER_REGEX
-
-        // Validate outbox column names
-        val outboxColumns = listOf(
-            "id" to mapping.outbox.id,
-            "topic" to mapping.outbox.topic,
-            "key" to mapping.outbox.key,
-            "payload" to mapping.outbox.payload,
-            "headers" to mapping.outbox.headers,
-            "state" to mapping.outbox.state,
-            "attempt" to mapping.outbox.attempt,
-            "maxAttempts" to mapping.outbox.maxAttempts,
-            "scheduledAt" to mapping.outbox.scheduledAt,
-            "createdAt" to mapping.outbox.createdAt,
-            "updatedAt" to mapping.outbox.updatedAt,
-            "claimedAt" to mapping.outbox.claimedAt,
-            "lastError" to mapping.outbox.lastError
+        validateMappedColumns(
+            "Outbox",
+            "database.columnMapping.outbox",
+            listOf(
+                "id" to mapping.outbox.id,
+                "topic" to mapping.outbox.topic,
+                "key" to mapping.outbox.key,
+                "payload" to mapping.outbox.payload,
+                "headers" to mapping.outbox.headers,
+                "state" to mapping.outbox.state,
+                "attempt" to mapping.outbox.attempt,
+                "maxAttempts" to mapping.outbox.maxAttempts,
+                "scheduledAt" to mapping.outbox.scheduledAt,
+                "createdAt" to mapping.outbox.createdAt,
+                "updatedAt" to mapping.outbox.updatedAt,
+                "claimedAt" to mapping.outbox.claimedAt,
+                "claimToken" to mapping.outbox.claimToken,
+                "leaseExpiresAt" to mapping.outbox.leaseExpiresAt,
+                "lastError" to mapping.outbox.lastError
+            )
         )
+        validateMappedColumns(
+            "Inbox",
+            "database.columnMapping.inbox",
+            listOf(
+                "id" to mapping.inbox.id,
+                "source" to mapping.inbox.source,
+                "idempotencyKey" to mapping.inbox.idempotencyKey,
+                "aggregateId" to mapping.inbox.aggregateId,
+                "eventType" to mapping.inbox.eventType,
+                "payload" to mapping.inbox.payload,
+                "state" to mapping.inbox.state,
+                "createdAt" to mapping.inbox.createdAt,
+                "processedAt" to mapping.inbox.processedAt,
+                "claimedAt" to mapping.inbox.claimedAt,
+                "claimToken" to mapping.inbox.claimToken,
+                "leaseExpiresAt" to mapping.inbox.leaseExpiresAt,
+                "consumption" to mapping.inbox.consumption,
+                "scheduledAt" to mapping.inbox.scheduledAt,
+                "attempt" to mapping.inbox.attempt,
+                "lastError" to mapping.inbox.lastError,
+                "correlationId" to mapping.inbox.correlationId
+            )
+        )
+    }
 
-        outboxColumns.forEach { (fieldName, columnName) ->
+    private fun validateMappedColumns(kind: String, yamlPath: String, columns: List<Pair<String, String>>) {
+        columns.forEach { (fieldName, columnName) ->
             require(columnName.isNotBlank()) {
-                "Outbox column name for '$fieldName' cannot be blank. " +
-                    setVia("database.columnMapping.outbox.$fieldName")
+                "$kind column name for '$fieldName' cannot be blank. " +
+                    setVia("$yamlPath.$fieldName")
             }
-            require(sqlIdentifierRegex.matches(columnName)) {
-                "Invalid outbox column name '$columnName' for '$fieldName'. " +
+            require(SQL_IDENTIFIER_REGEX.matches(columnName)) {
+                "Invalid ${kind.lowercase()} column name '$columnName' for '$fieldName'. " +
                     "Column names must start with a letter or underscore and contain only " +
                     "alphanumeric characters and underscores. " +
-                    setVia("database.columnMapping.outbox.$fieldName")
-            }
-        }
-
-        // Validate inbox column names
-        val inboxColumns = listOf(
-            "id" to mapping.inbox.id,
-            "source" to mapping.inbox.source,
-            "idempotencyKey" to mapping.inbox.idempotencyKey,
-            "aggregateId" to mapping.inbox.aggregateId,
-            "eventType" to mapping.inbox.eventType,
-            "payload" to mapping.inbox.payload,
-            "state" to mapping.inbox.state,
-            "createdAt" to mapping.inbox.createdAt,
-            "processedAt" to mapping.inbox.processedAt,
-            "claimedAt" to mapping.inbox.claimedAt,
-            "correlationId" to mapping.inbox.correlationId
-        )
-
-        inboxColumns.forEach { (fieldName, columnName) ->
-            require(columnName.isNotBlank()) {
-                "Inbox column name for '$fieldName' cannot be blank. " +
-                    setVia("database.columnMapping.inbox.$fieldName")
-            }
-            require(sqlIdentifierRegex.matches(columnName)) {
-                "Invalid inbox column name '$columnName' for '$fieldName'. " +
-                    "Column names must start with a letter or underscore and contain only " +
-                    "alphanumeric characters and underscores. " +
-                    setVia("database.columnMapping.inbox.$fieldName")
+                    setVia("$yamlPath.$fieldName")
             }
         }
     }

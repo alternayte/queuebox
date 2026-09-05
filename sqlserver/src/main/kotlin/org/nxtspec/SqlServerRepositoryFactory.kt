@@ -31,6 +31,8 @@ class SqlServerRepositoryFactory(
         createdAt = columnMapping.outbox.createdAt,
         updatedAt = columnMapping.outbox.updatedAt,
         claimedAt = columnMapping.outbox.claimedAt,
+        claimToken = columnMapping.outbox.claimToken,
+        leaseExpiresAt = columnMapping.outbox.leaseExpiresAt,
         lastError = columnMapping.outbox.lastError
     )
 
@@ -45,6 +47,12 @@ class SqlServerRepositoryFactory(
         createdAt = columnMapping.inbox.createdAt,
         processedAt = columnMapping.inbox.processedAt,
         claimedAt = columnMapping.inbox.claimedAt,
+        claimToken = columnMapping.inbox.claimToken,
+        leaseExpiresAt = columnMapping.inbox.leaseExpiresAt,
+        consumption = columnMapping.inbox.consumption,
+        scheduledAt = columnMapping.inbox.scheduledAt,
+        attempt = columnMapping.inbox.attempt,
+        lastError = columnMapping.inbox.lastError,
         correlationId = columnMapping.inbox.correlationId
     )
 

@@ -84,6 +84,37 @@ class HttpPublisherTest {
     }
 
     @Test
+    fun `every 2xx status completes the delivery, including 202`() = runTest {
+        // A 202 transfers durable responsibility to the receiver. See docs/delivery-semantics.md.
+        val statuses = listOf(
+            HttpStatusCode.OK,
+            HttpStatusCode.Created,
+            HttpStatusCode.Accepted,
+            HttpStatusCode.NoContent,
+            HttpStatusCode.PartialContent
+        )
+        for (status in statuses) {
+            val mockEngine = MockEngine { _ -> respond(content = "", status = status) }
+            val result = HttpPublisher(createClientWithEngine(mockEngine))
+                .publish(createTestMessage(), createTestDestination())
+            assertTrue(result.isSuccess, "status ${'$'}{status.value} must complete the delivery")
+        }
+    }
+
+    @Test
+    fun `a slow but successful answer inside the timeout completes the delivery`() = runTest {
+        val mockEngine = MockEngine { _ ->
+            kotlinx.coroutines.delay(2000)
+            respond(content = "", status = HttpStatusCode.Accepted)
+        }
+
+        val result = HttpPublisher(createClientWithEngine(mockEngine, timeoutMs = 30000))
+            .publish(createTestMessage(), createTestDestination())
+
+        assertTrue(result.isSuccess)
+    }
+
+    @Test
     fun `should include correct standard headers when publishing`() = runTest {
         var capturedHeaders: Headers? = null
         val mockEngine = MockEngine { request ->

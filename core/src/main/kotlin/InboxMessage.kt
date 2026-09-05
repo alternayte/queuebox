@@ -20,11 +20,12 @@ data class InboxMessage(
     val processedAt: Instant? = null,
     /** Identifier that follows the message across the system. See F-047. */
     val correlationId: String? = null,
-    /**
-     * The moment of the claim that this copy of the message belongs to. It is the fence token
-     * of the seventh review gate. A terminal write carries the token back, so a worker that
-     * lost the claim cannot overwrite the row of the new owner. The value is null for a row
-     * that no worker holds.
-     */
-    val claimedAt: Instant? = null
+    val claimedAt: Instant? = null,
+    @Serializable(with = UUIDSerializer::class)
+    val claimToken: UUID? = null,
+    val leaseExpiresAt: Instant? = null,
+    val consumption: String = "push",
+    val scheduledAt: Instant = Clock.System.now(),
+    val attempt: Int = 0,
+    val lastError: String? = null
 )

@@ -51,12 +51,12 @@ class SqlServerCustomColumnTest : SqlServerTestBase() {
         assertEquals("order.created", claimed.single().topic)
         assertEquals("order-1", claimed.single().key)
 
-        repository.scheduleRetry(claimed.single().id, 0, claimed.single().claimedAt, "HTTP 500")
+        repository.scheduleRetry(claimed.single().id, 0, claimed.single().claimToken, "HTTP 500")
         assertEquals(1L, repository.countByState("pending"))
 
         val reclaimed = repository.claimBatch(10)
         assertEquals(1, reclaimed.size)
-        repository.markDead(reclaimed.single().id, reclaimed.single().claimedAt, "gave up")
+        repository.markDead(reclaimed.single().id, reclaimed.single().claimToken, "gave up")
         assertEquals(1L, repository.countByState("dead"))
     }
 
@@ -83,7 +83,7 @@ class SqlServerCustomColumnTest : SqlServerTestBase() {
         assertEquals("cus_1", claimed.single().aggregateId)
         assertEquals("payment.succeeded", claimed.single().eventType)
 
-        repository.markProcessed(claimed.single().id, claimed.single().claimedAt)
+        repository.markProcessed(claimed.single().id, claimed.single().claimToken)
         assertEquals(1L, repository.countByState("processed"))
 
         assertEquals(0, repository.reclaimStale(kotlin.time.Duration.ZERO))

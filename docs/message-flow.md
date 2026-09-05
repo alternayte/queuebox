@@ -38,7 +38,12 @@ diagrams. `docs/integration.md` holds the contract that an adopter writes agains
 QueueBox forwards an inbox message onward. It never interprets the payload, because it does not
 know the intent of the message.
 
-The full path of an inbox message is: receive, deduplicate, transform, store, forward, route,
+This path applies to a source with `consumption: push`, which is the default. The relay
+claims push rows only. A source with `consumption: pull` stops after the store step, and
+the application claims the row itself. See
+[the delivery semantics](delivery-semantics.md).
+
+The full path of a push message is: receive, deduplicate, transform, store, forward, route,
 deliver.
 
 1. **Receive.** An HTTP source or a RabbitMQ source accepts the message.

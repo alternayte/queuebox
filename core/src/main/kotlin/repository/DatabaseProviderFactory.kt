@@ -38,6 +38,8 @@ data class OutboxColumnMappingData(
     val createdAt: String = "created_at",
     val updatedAt: String = "updated_at",
     val claimedAt: String = "claimed_at",
+    val claimToken: String = "claim_token",
+    val leaseExpiresAt: String = "lease_expires_at",
     val lastError: String = "last_error"
 )
 
@@ -55,7 +57,13 @@ data class InboxColumnMappingData(
     val createdAt: String = "created_at",
     val processedAt: String = "processed_at",
     val claimedAt: String = "claimed_at",
-    val correlationId: String = "correlation_id"
+    val claimToken: String = "claim_token",
+    val leaseExpiresAt: String = "lease_expires_at",
+    val correlationId: String = "correlation_id",
+    val consumption: String = "consumption",
+    val scheduledAt: String = "scheduled_at",
+    val attempt: String = "attempt",
+    val lastError: String = "last_error"
 )
 
 /**

@@ -72,7 +72,7 @@ class OutboxPollerClaimLostTest {
         val message = message()
         val destination = Destination.Http(name = "test-dest", baseUrl = "http://example.com", path = "/webhook")
 
-        coEvery { repository.claimBatch(any()) } returns listOf(message) andThen emptyList()
+        coEvery { repository.claimBatch(any(), any()) } returns listOf(message) andThen emptyList()
         coEvery { repository.countByState("pending") } returns 0L
         coEvery { repository.markSent(any(), any()) } returns false
         every { router.route(any(), any()) } returns RoutingResult(destination, "test.topic")
@@ -97,7 +97,7 @@ class OutboxPollerClaimLostTest {
         val message = message()
         val destination = Destination.Http(name = "test-dest", baseUrl = "http://example.com", path = "/webhook")
 
-        coEvery { repository.claimBatch(any()) } returns listOf(message) andThen emptyList()
+        coEvery { repository.claimBatch(any(), any()) } returns listOf(message) andThen emptyList()
         coEvery { repository.countByState("pending") } returns 0L
         coEvery { repository.scheduleRetry(any(), any(), any(), any()) } returns false
         every { router.route(any(), any()) } returns RoutingResult(destination, "test.topic")
@@ -119,7 +119,7 @@ class OutboxPollerClaimLostTest {
 
         val message = message()
 
-        coEvery { repository.claimBatch(any()) } returns listOf(message) andThen emptyList()
+        coEvery { repository.claimBatch(any(), any()) } returns listOf(message) andThen emptyList()
         coEvery { repository.countByState("pending") } returns 0L
         coEvery { repository.markDead(any(), any(), any()) } returns false
         every { router.route(any(), any()) } returns null
@@ -140,7 +140,7 @@ class OutboxPollerClaimLostTest {
         val message = message()
         val destination = Destination.Http(name = "test-dest", baseUrl = "http://example.com", path = "/webhook")
 
-        coEvery { repository.claimBatch(any()) } returns listOf(message) andThen emptyList()
+        coEvery { repository.claimBatch(any(), any()) } returns listOf(message) andThen emptyList()
         coEvery { repository.countByState("pending") } returns 0L
         coEvery { repository.markSent(any(), any()) } returns true
         every { router.route(any(), any()) } returns RoutingResult(destination, "test.topic")

@@ -64,3 +64,21 @@ lists every file that ships.
 The SQL Server set once held one file, `V1__create_tables.sql`, that created both tables. Finding
 F-031 split it, so the two sets correspond one to one. The split happened before QueueBox applied
 any migration automatically, so no deployment carried a Flyway checksum for the old file.
+
+## Upgrading to the claim contract of V6
+
+`V6__add_consumption_and_leases.sql` adds `consumption`, `claim_token` and
+`lease_expires_at`, plus the inbox schedule, attempt and error columns. Every change is
+additive, so the old columns keep their meaning and no data is rewritten.
+
+The old worker fences a claim on a timestamp; the new worker fences it on an opaque token
+and an unexpired lease. The two contracts must not run at the same time, because an old
+worker can complete a row that a new worker owns. Upgrade in this order:
+
+1. Stop every QueueBox worker of the old version.
+2. Apply `V6__add_consumption_and_leases.sql`.
+3. Start the workers of the new version.
+
+Existing inbox rows migrate as `push`, which keeps the previous behaviour. A custom schema
+must add and map the new columns by hand; see the column mapping in
+[the configuration reference](../configuration.md).

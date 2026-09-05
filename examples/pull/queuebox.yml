@@ -1,0 +1,11 @@
+database:
+  type: postgresql
+  url: jdbc:postgresql://postgres:5432/queuebox
+  username: queuebox
+  password: queuebox
+sources:
+  orders:
+    type: http
+    path: /orders
+    idempotencyKeyPath: $.id
+    consumption: pull

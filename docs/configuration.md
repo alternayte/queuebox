@@ -87,7 +87,6 @@ outbox:
   claimTimeoutMs: 300000                  # A claim older than this returns to pending
   pendingGaugeIntervalMs: 5000            # Minimum interval between pending count queries
   shutdownTimeoutMs: 30000                # Maximum wait for the in-flight messages
-
 inbox:
   basePath: /inbox                        # Base path for inbox HTTP endpoints
   relay:
@@ -149,6 +148,10 @@ sources:
     type: http
     path: /stripe                         # Endpoint: POST /inbox/stripe
     idempotencyKeyPath: $.id              # JSONPath to extract idempotency key
+    consumption: push                     # 'push': the relay forwards the row into the outbox.
+                                          # 'pull': your worker claims the row itself, and the
+                                          # source needs no topic, route or destination.
+                                          # See docs/delivery-semantics.md.
     topic: "{{ eventType }}"              # Outbox topic template for the relay
     eventTypePath: $.type                 # Extract the event type. The default topic template
                                           # needs it.

@@ -7,6 +7,7 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonPrimitive
 import org.jetbrains.exposed.sql.ResultRow
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
+import org.jetbrains.exposed.sql.SqlExpressionBuilder.greater
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.inList
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.isNull
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.less
@@ -39,21 +40,16 @@ class OutboxRepository(
         return "\"$identifier\""
     }
 
-    /**
-     * F-009 and F-006: claims the oldest scheduled messages in one statement.
-     *
-     * The inner SELECT takes the row locks with FOR UPDATE SKIP LOCKED, so a second replica
-     * takes different work instead of waiting. The UPDATE marks the rows and returns them, so
-     * the claim and the mark are atomic. claimed_at lets the reclaim step recover a crashed
-     * claim.
-     */
-    override suspend fun claimBatch(batchSize: Int): List<OutboxMessage> = joinOrNewTransaction {
+    override suspend fun claimBatch(batchSize: Int, leaseMs: Long): List<OutboxMessage> = joinOrNewTransaction {
+        require(batchSize > 0 && leaseMs in 1..Int.MAX_VALUE.toLong())
         val t = q(tableName)
         val sql = """
             UPDATE $t AS target
             SET ${q(columnMapping.state)} = 'processing',
                 ${q(columnMapping.updatedAt)} = ?,
-                ${q(columnMapping.claimedAt)} = ?
+                ${q(columnMapping.claimedAt)} = ?,
+                ${q(columnMapping.claimToken)} = gen_random_uuid(),
+                ${q(columnMapping.leaseExpiresAt)} = clock_timestamp() + INTERVAL '1 millisecond' * $leaseMs
             FROM (
                 SELECT ${q(columnMapping.id)} AS claim_id
                 FROM $t
@@ -69,7 +65,11 @@ class OutboxRepository(
                       target.${q(columnMapping.headers)}, target.${q(columnMapping.state)},
                       target.${q(columnMapping.attempt)}, target.${q(columnMapping.maxAttempts)},
                       target.${q(columnMapping.scheduledAt)}, target.${q(columnMapping.createdAt)},
-                      target.${q(columnMapping.updatedAt)}, target.${q(columnMapping.claimedAt)}
+                      target.${q(
+            columnMapping.updatedAt
+        )}, target.${q(
+            columnMapping.claimedAt
+        )}, target.${q(columnMapping.claimToken)}, target.${q(columnMapping.leaseExpiresAt)}
         """.trimIndent()
 
         val now = Clock.System.now()
@@ -112,23 +112,19 @@ class OutboxRepository(
         Unit
     }
 
-    /**
-     * Seventh review gate: the write is fenced on the state and on the claim token, so a
-     * worker that lost the claim cannot overwrite the row of the new owner.
-     */
-    override suspend fun markSent(id: UUID, claimedAt: Instant?): Boolean = joinOrNewTransaction {
+    override suspend fun markSent(id: UUID, claimToken: UUID?): Boolean = joinOrNewTransaction {
         val now = Clock.System.now()
-        table.update({ claimFence(id, claimedAt) }) {
+        table.update({ claimFence(id, claimToken) }) {
             it[table.state] = "sent"
             it[table.updatedAt] = now
         } > 0
     }
 
-    override suspend fun scheduleRetry(id: UUID, delayMs: Long, claimedAt: Instant?, error: String?): Boolean =
+    override suspend fun scheduleRetry(id: UUID, delayMs: Long, claimToken: UUID?, error: String?): Boolean =
         joinOrNewTransaction {
             val now = Clock.System.now()
             val scheduledTime = now + delayMs.milliseconds
-            table.update({ claimFence(id, claimedAt) }) {
+            table.update({ claimFence(id, claimToken) }) {
                 it[table.scheduledAt] = scheduledTime
                 it[table.state] = "pending"
                 it[table.attempt] = table.attempt + 1
@@ -138,9 +134,9 @@ class OutboxRepository(
             } > 0
         }
 
-    override suspend fun markDead(id: UUID, claimedAt: Instant?, error: String?): Boolean = joinOrNewTransaction {
+    override suspend fun markDead(id: UUID, claimToken: UUID?, error: String?): Boolean = joinOrNewTransaction {
         val now = Clock.System.now()
-        table.update({ claimFence(id, claimedAt) }) {
+        table.update({ claimFence(id, claimToken) }) {
             it[table.state] = "dead"
             it[table.updatedAt] = now
             it[table.claimedAt] = null
@@ -148,16 +144,52 @@ class OutboxRepository(
         } > 0
     }
 
-    /**
-     * Seventh review gate: the predicate of every terminal write.
-     *
-     * The row must still be in state 'processing', and it must still carry the claim that the
-     * caller holds. A null token matches any claim, which serves an operator tool that holds
-     * no claim of its own.
-     */
-    private fun claimFence(id: UUID, claimedAt: Instant?): org.jetbrains.exposed.sql.Op<Boolean> {
+    private fun claimFence(id: UUID, claimToken: UUID?): org.jetbrains.exposed.sql.Op<Boolean> {
         val base = (table.id eq id) and (table.state eq "processing")
-        return if (claimedAt == null) base else base and (table.claimedAt eq claimedAt)
+        return if (claimToken == null) {
+            org.jetbrains.exposed.sql.Op.FALSE
+        } else {
+            base and (table.claimToken eq claimToken) and (table.leaseExpiresAt greater databaseNow)
+        }
+    }
+
+    private val databaseNow = object : org.jetbrains.exposed.sql.Expression<Instant>() {
+        override fun toQueryBuilder(queryBuilder: org.jetbrains.exposed.sql.QueryBuilder) {
+            queryBuilder.append("clock_timestamp()")
+        }
+    }
+
+    override suspend fun renewClaim(id: UUID, claimToken: UUID?, leaseMs: Long): Boolean = joinOrNewTransaction {
+        require(leaseMs > 0)
+        val expires = object : org.jetbrains.exposed.sql.Expression<Instant>() {
+            override fun toQueryBuilder(queryBuilder: org.jetbrains.exposed.sql.QueryBuilder) {
+                queryBuilder.append("clock_timestamp() + INTERVAL '1 millisecond' * $leaseMs")
+            }
+        }
+        table.update({ claimFence(id, claimToken) }) { it[leaseExpiresAt] = expires } > 0
+    }
+
+    override suspend fun nextWakeDelayMs(maxWaitMs: Long): Long = joinOrNewTransaction {
+        val sql = """
+            SELECT EXTRACT(EPOCH FROM (MIN(due) - clock_timestamp())) * 1000 FROM (
+                SELECT ${q(columnMapping.scheduledAt)} AS due FROM ${q(tableName)}
+                WHERE ${q(columnMapping.state)} = 'pending' AND ${q(columnMapping.scheduledAt)} > clock_timestamp()
+                UNION ALL
+                SELECT ${q(columnMapping.leaseExpiresAt)} AS due FROM ${q(tableName)}
+                WHERE ${q(
+            columnMapping.state
+        )} = 'processing' AND ${q(columnMapping.leaseExpiresAt)} > clock_timestamp()
+            ) AS deadlines
+        """.trimIndent()
+        val conn = org.jetbrains.exposed.sql.transactions.TransactionManager.current()
+            .connection.connection as java.sql.Connection
+        conn.createStatement().use { stmt ->
+            stmt.executeQuery(sql).use { rows ->
+                rows.next()
+                val delay = rows.getLong(1)
+                if (rows.wasNull()) maxWaitMs else delay.coerceIn(1, maxWaitMs)
+            }
+        }
     }
 
     override suspend fun countByState(state: String): Long = joinOrNewTransaction {
@@ -167,17 +199,11 @@ class OutboxRepository(
             .count()
     }
 
-    /**
-     * F-006: returns rows that stay in state 'processing' longer than the visibility timeout
-     * back to state 'pending'. The attempt count does not change, because the message was
-     * never delivered.
-     */
     override suspend fun reclaimStale(olderThan: Duration): Int = joinOrNewTransaction {
-        val cutoff = Clock.System.now() - olderThan
         val now = Clock.System.now()
         table.update({
             (table.state eq "processing") and
-                ((table.claimedAt lessEq cutoff) or table.claimedAt.isNull())
+                ((table.leaseExpiresAt lessEq databaseNow) or table.leaseExpiresAt.isNull())
         }) {
             it[table.state] = "pending"
             it[table.updatedAt] = now
@@ -185,42 +211,44 @@ class OutboxRepository(
         }
     }
 
-    /**
-     * F-008: deletes at most `limit` rows per statement, so a cleanup never holds locks on the
-     * whole table.
-     */
-    override suspend fun deleteOlderThan(state: String, cutoff: Instant, limit: Int): Int = joinOrNewTransaction {
-        val ids = table
-            .select(table.id)
-            .where { (table.state eq state) and (table.updatedAt less cutoff) }
-            .limit(limit)
-            .map { it[table.id] }
+    override suspend fun deleteOlderThan(state: String, cutoff: Instant, limit: Int): Int {
+        require(state in setOf("sent", "processed", "dead")) { "Cannot delete active work" }
+        return joinOrNewTransaction {
+            val ids = table
+                .select(table.id)
+                .where { (table.state eq state) and (table.updatedAt less cutoff) }
+                .limit(limit)
+                .map { it[table.id] }
 
-        if (ids.isEmpty()) {
-            0
-        } else {
-            table.deleteWhere { table.id inList ids }
+            if (ids.isEmpty()) {
+                0
+            } else {
+                table.deleteWhere { (table.id inList ids) and (table.state eq state) }
+            }
         }
     }
 
-    override suspend fun deleteExceptMostRecent(state: String, keepCount: Int, limit: Int): Int = joinOrNewTransaction {
-        val idsToKeep = table
-            .select(table.id)
-            .where { table.state eq state }
-            .orderBy(table.updatedAt, org.jetbrains.exposed.sql.SortOrder.DESC)
-            .limit(keepCount)
-            .map { it[table.id] }
+    override suspend fun deleteExceptMostRecent(state: String, keepCount: Int, limit: Int): Int {
+        require(state in setOf("sent", "dead")) { "Cannot delete active work" }
+        return joinOrNewTransaction {
+            val idsToKeep = table
+                .select(table.id)
+                .where { table.state eq state }
+                .orderBy(table.updatedAt, org.jetbrains.exposed.sql.SortOrder.DESC)
+                .limit(keepCount)
+                .map { it[table.id] }
 
-        val ids = table
-            .select(table.id)
-            .where { (table.state eq state) and (table.id notInList idsToKeep) }
-            .limit(limit)
-            .map { it[table.id] }
+            val ids = table
+                .select(table.id)
+                .where { (table.state eq state) and (table.id notInList idsToKeep) }
+                .limit(limit)
+                .map { it[table.id] }
 
-        if (ids.isEmpty()) {
-            0
-        } else {
-            table.deleteWhere { table.id inList ids }
+            if (ids.isEmpty()) {
+                0
+            } else {
+                table.deleteWhere { (table.id inList ids) and (table.state eq state) }
+            }
         }
     }
 
@@ -243,6 +271,10 @@ class OutboxRepository(
             scheduledAt = getTimestamp(columnMapping.scheduledAt).toKotlinInstant(),
             createdAt = getTimestamp(columnMapping.createdAt).toKotlinInstant(),
             updatedAt = getTimestamp(columnMapping.updatedAt).toKotlinInstant(),
+            claimToken = getString(columnMapping.claimToken)?.let(UUID::fromString),
+            leaseExpiresAt = getTimestamp(columnMapping.leaseExpiresAt)?.toInstant()?.let {
+                Instant.fromEpochSeconds(it.epochSecond, it.nano)
+            },
             claimedAt = getTimestamp(columnMapping.claimedAt)?.toKotlinInstant()
         )
     }
@@ -270,6 +302,8 @@ class OutboxRepository(
             scheduledAt = this[table.scheduledAt],
             createdAt = this[table.createdAt],
             updatedAt = this[table.updatedAt],
+            claimToken = this[table.claimToken],
+            leaseExpiresAt = this[table.leaseExpiresAt],
             claimedAt = this[table.claimedAt]
         )
     }

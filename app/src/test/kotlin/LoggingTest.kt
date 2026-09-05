@@ -74,7 +74,7 @@ class LoggingTest {
         val destination = Destination.Http(name = "dest", baseUrl = "https://example.com", path = "/h")
 
         val repository = mockk<OutboxRepositoryInterface>(relaxed = true)
-        coEvery { repository.claimBatch(any()) } returns listOf(message) andThen emptyList()
+        coEvery { repository.claimBatch(any(), any()) } returns listOf(message) andThen emptyList()
         coEvery { repository.reclaimStale(any()) } returns 0
 
         val router = mockk<MessageRouter>()
@@ -119,7 +119,7 @@ class LoggingTest {
         val destination = Destination.Http(name = "dest", baseUrl = "https://example.com", path = "/h")
 
         val repository = mockk<OutboxRepositoryInterface>(relaxed = true)
-        coEvery { repository.claimBatch(any()) } returns listOf(message) andThen emptyList()
+        coEvery { repository.claimBatch(any(), any()) } returns listOf(message) andThen emptyList()
         coEvery { repository.reclaimStale(any()) } returns 0
 
         val router = mockk<MessageRouter>()

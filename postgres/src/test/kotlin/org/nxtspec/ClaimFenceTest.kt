@@ -34,7 +34,7 @@ class ClaimFenceTest : PostgresTestBase() {
         val id = insertOutboxMessage(state = "pending")
         outboxRepository.claimBatch(1)
         setOutboxClaimedAt(id, Clock.System.now() - 10.minutes)
-        val staleClaim = getOutboxClaimedAt(id)
+        val staleClaim = getOutboxClaimToken(id)
 
         outboxRepository.reclaimStale(5.minutes)
         outboxRepository.claimBatch(1)
@@ -51,7 +51,7 @@ class ClaimFenceTest : PostgresTestBase() {
         val id = insertOutboxMessage(state = "pending")
         outboxRepository.claimBatch(1)
         setOutboxClaimedAt(id, Clock.System.now() - 10.minutes)
-        val staleClaim = getOutboxClaimedAt(id)
+        val staleClaim = getOutboxClaimToken(id)
 
         outboxRepository.reclaimStale(5.minutes)
         outboxRepository.claimBatch(1)
@@ -70,7 +70,7 @@ class ClaimFenceTest : PostgresTestBase() {
         val id = insertOutboxMessage(state = "pending")
         outboxRepository.claimBatch(1)
         setOutboxClaimedAt(id, Clock.System.now() - 10.minutes)
-        val staleClaim = getOutboxClaimedAt(id)
+        val staleClaim = getOutboxClaimToken(id)
 
         outboxRepository.reclaimStale(5.minutes)
         outboxRepository.claimBatch(1)
@@ -87,7 +87,7 @@ class ClaimFenceTest : PostgresTestBase() {
         val id = insertInboxMessage(source = "stripe", idempotencyKey = "evt_1")
         inboxRepository.claimPending(1)
         setInboxClaimedAt(id, Clock.System.now() - 10.minutes)
-        val staleClaim = getInboxClaimedAt(id)
+        val staleClaim = getInboxClaimToken(id)
 
         inboxRepository.reclaimStale(5.minutes)
         inboxRepository.claimPending(1)
@@ -104,7 +104,7 @@ class ClaimFenceTest : PostgresTestBase() {
         val id = insertInboxMessage(source = "stripe", idempotencyKey = "evt_2")
         inboxRepository.claimPending(1)
         setInboxClaimedAt(id, Clock.System.now() - 10.minutes)
-        val staleClaim = getInboxClaimedAt(id)
+        val staleClaim = getInboxClaimToken(id)
 
         inboxRepository.reclaimStale(5.minutes)
         inboxRepository.claimPending(1)
@@ -121,7 +121,7 @@ class ClaimFenceTest : PostgresTestBase() {
         val id = insertOutboxMessage(state = "pending")
         outboxRepository.claimBatch(1)
         setOutboxClaimedAt(id, Clock.System.now() - 10.minutes)
-        val staleClaim = getOutboxClaimedAt(id)
+        val staleClaim = getOutboxClaimToken(id)
 
         outboxRepository.reclaimStale(5.minutes)
 
@@ -136,7 +136,7 @@ class ClaimFenceTest : PostgresTestBase() {
     fun `the owner of a claim still marks an outbox row sent`() = runBlocking {
         val id = insertOutboxMessage(state = "pending")
         outboxRepository.claimBatch(1)
-        val claim = getOutboxClaimedAt(id)
+        val claim = getOutboxClaimToken(id)
 
         val won = outboxRepository.markSent(id, claim)
 
@@ -149,7 +149,7 @@ class ClaimFenceTest : PostgresTestBase() {
     fun `the owner of a claim still marks an inbox row processed`() = runBlocking {
         val id = insertInboxMessage(source = "stripe", idempotencyKey = "evt_3")
         inboxRepository.claimPending(1)
-        val claim = getInboxClaimedAt(id)
+        val claim = getInboxClaimToken(id)
 
         val won = inboxRepository.markProcessed(id, claim)
 

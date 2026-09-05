@@ -58,7 +58,7 @@ class OutboxPollerTest {
         val destination = createHttpDestination()
         val routingResult = RoutingResult(destination, "test.topic")
 
-        coEvery { repository.claimBatch(any()) } returns listOf(message) andThen emptyList()
+        coEvery { repository.claimBatch(any(), any()) } returns listOf(message) andThen emptyList()
 
         // Seventh review gate: the terminal write reports that the claim still holds.
 
@@ -85,7 +85,12 @@ class OutboxPollerTest {
         delay(150)
         poller.shutdown()
 
-        coVerify { repository.claimBatch(defaultConfig.batchSize) }
+        coVerify {
+            repository.claimBatch(
+                minOf(defaultConfig.batchSize, defaultConfig.concurrency),
+                defaultConfig.claimTimeoutMs
+            )
+        }
         coVerify { publisher.publish(message, destination, any()) }
     }
 
@@ -98,7 +103,7 @@ class OutboxPollerTest {
 
         val message = createTestMessage()
 
-        coEvery { repository.claimBatch(any()) } returns listOf(message) andThen emptyList()
+        coEvery { repository.claimBatch(any(), any()) } returns listOf(message) andThen emptyList()
 
         // Seventh review gate: the terminal write reports that the claim still holds.
 
@@ -139,7 +144,7 @@ class OutboxPollerTest {
         val destination = createHttpDestination()
         val routingResult = RoutingResult(destination, "test.topic")
 
-        coEvery { repository.claimBatch(any()) } returns listOf(message) andThen emptyList()
+        coEvery { repository.claimBatch(any(), any()) } returns listOf(message) andThen emptyList()
 
         // Seventh review gate: the terminal write reports that the claim still holds.
 
@@ -180,7 +185,7 @@ class OutboxPollerTest {
         val destination = createHttpDestination()
         val routingResult = RoutingResult(destination, "test.topic")
 
-        coEvery { repository.claimBatch(any()) } returns listOf(message) andThen emptyList()
+        coEvery { repository.claimBatch(any(), any()) } returns listOf(message) andThen emptyList()
 
         // Seventh review gate: the terminal write reports that the claim still holds.
 
@@ -222,7 +227,7 @@ class OutboxPollerTest {
         val destination = createHttpDestination()
         val routingResult = RoutingResult(destination, "test.topic")
 
-        coEvery { repository.claimBatch(any()) } returns listOf(message) andThen emptyList()
+        coEvery { repository.claimBatch(any(), any()) } returns listOf(message) andThen emptyList()
 
         // Seventh review gate: the terminal write reports that the claim still holds.
 
@@ -264,7 +269,7 @@ class OutboxPollerTest {
         val destination = createHttpDestination()
         val routingResult = RoutingResult(destination, "test.topic")
 
-        coEvery { repository.claimBatch(any()) } returns listOf(message) andThen emptyList()
+        coEvery { repository.claimBatch(any(), any()) } returns listOf(message) andThen emptyList()
 
         // Seventh review gate: the terminal write reports that the claim still holds.
 
@@ -308,7 +313,7 @@ class OutboxPollerTest {
         val routingResult = RoutingResult(destination, "test.topic", routeTransform = transformConfig)
         val contexts = mutableListOf<org.nxtspec.transform.TransformContext>()
 
-        coEvery { repository.claimBatch(any()) } returns listOf(message) andThen emptyList()
+        coEvery { repository.claimBatch(any(), any()) } returns listOf(message) andThen emptyList()
 
         // Seventh review gate: the terminal write reports that the claim still holds.
 
@@ -355,7 +360,7 @@ class OutboxPollerTest {
         val routingResult = RoutingResult(destination, "test.topic", routeTransform = transformConfig)
         val transformedPayload = JsonObject(mapOf("transformed" to JsonPrimitive(true)))
 
-        coEvery { repository.claimBatch(any()) } returns listOf(message) andThen emptyList()
+        coEvery { repository.claimBatch(any(), any()) } returns listOf(message) andThen emptyList()
 
         // Seventh review gate: the terminal write reports that the claim still holds.
 
@@ -403,7 +408,7 @@ class OutboxPollerTest {
         val routingResult = RoutingResult(destination, "test.topic", routeTransform = transformConfig)
         val transformedPayload = JsonObject(mapOf("transformed" to JsonPrimitive(true)))
 
-        coEvery { repository.claimBatch(any()) } returns listOf(message) andThen emptyList()
+        coEvery { repository.claimBatch(any(), any()) } returns listOf(message) andThen emptyList()
 
         // Seventh review gate: the terminal write reports that the claim still holds.
 
@@ -450,7 +455,7 @@ class OutboxPollerTest {
         val transformConfig = TransformConfig(expression = "{ invalid }")
         val routingResult = RoutingResult(destination, "test.topic", routeTransform = transformConfig)
 
-        coEvery { repository.claimBatch(any()) } returns listOf(message) andThen emptyList()
+        coEvery { repository.claimBatch(any(), any()) } returns listOf(message) andThen emptyList()
 
         // Seventh review gate: the terminal write reports that the claim still holds.
 
@@ -496,7 +501,7 @@ class OutboxPollerTest {
         val transformConfig = TransformConfig(expression = "{ invalid }")
         val routingResult = RoutingResult(destination, "test.topic", routeTransform = transformConfig)
 
-        coEvery { repository.claimBatch(any()) } returns listOf(message) andThen emptyList()
+        coEvery { repository.claimBatch(any(), any()) } returns listOf(message) andThen emptyList()
 
         // Seventh review gate: the terminal write reports that the claim still holds.
 
@@ -541,7 +546,7 @@ class OutboxPollerTest {
         val transformConfig = TransformConfig(expression = "{ transformed: true }")
         val routingResult = RoutingResult(destination, "test.topic", routeTransform = transformConfig)
 
-        coEvery { repository.claimBatch(any()) } returns listOf(message) andThen emptyList()
+        coEvery { repository.claimBatch(any(), any()) } returns listOf(message) andThen emptyList()
 
         // Seventh review gate: the terminal write reports that the claim still holds.
 
@@ -581,7 +586,7 @@ class OutboxPollerTest {
         val publisher = mockk<Publisher>()
         val metricsCollector = mockk<MetricsCollectorInterface>(relaxed = true)
 
-        coEvery { repository.claimBatch(any()) } returns emptyList()
+        coEvery { repository.claimBatch(any(), any()) } returns emptyList()
 
         // Seventh review gate: the terminal write reports that the claim still holds.
 
@@ -619,7 +624,7 @@ class OutboxPollerTest {
         val destination = createHttpDestination()
         val routingResult = RoutingResult(destination, "test.topic")
 
-        coEvery { repository.claimBatch(any()) } returns listOf(message) andThen emptyList()
+        coEvery { repository.claimBatch(any(), any()) } returns listOf(message) andThen emptyList()
 
         // Seventh review gate: the terminal write reports that the claim still holds.
 
@@ -663,7 +668,7 @@ class OutboxPollerTest {
 
         // First call throws exception, second call returns message
         coEvery {
-            repository.claimBatch(any())
+            repository.claimBatch(any(), any())
         } throws RuntimeException("Database error") andThen listOf(message) andThen
             emptyList()
         coEvery { repository.countByState("pending") } returns 0L
@@ -694,7 +699,7 @@ class OutboxPollerTest {
         val router = mockk<MessageRouter>()
         val publisher = mockk<Publisher>()
 
-        coEvery { repository.claimBatch(any()) } returns emptyList()
+        coEvery { repository.claimBatch(any(), any()) } returns emptyList()
 
         // Seventh review gate: the terminal write reports that the claim still holds.
 
@@ -737,7 +742,7 @@ class OutboxPollerTest {
         // Initially running is true (set at construction)
         assertTrue(poller.isRunning())
 
-        coEvery { repository.claimBatch(any()) } returns emptyList()
+        coEvery { repository.claimBatch(any(), any()) } returns emptyList()
 
         // Seventh review gate: the terminal write reports that the claim still holds.
 
@@ -769,7 +774,7 @@ class OutboxPollerTest {
         val routingResult = RoutingResult(destination, "test.topic", destinationTransform = destTransformConfig)
         val transformedPayload = JsonObject(mapOf("fromDest" to JsonPrimitive(true)))
 
-        coEvery { repository.claimBatch(any()) } returns listOf(message) andThen emptyList()
+        coEvery { repository.claimBatch(any(), any()) } returns listOf(message) andThen emptyList()
 
         // Seventh review gate: the terminal write reports that the claim still holds.
 
@@ -814,7 +819,7 @@ class OutboxPollerTest {
         val destination = createHttpDestination()
         val routingResult = RoutingResult(destination, "test.topic")
 
-        coEvery { repository.claimBatch(any()) } returns listOf(message1, message2) andThen emptyList()
+        coEvery { repository.claimBatch(any(), any()) } returns listOf(message1, message2) andThen emptyList()
 
         // Seventh review gate: the terminal write reports that the claim still holds.
 
@@ -858,7 +863,7 @@ class OutboxPollerTest {
         // No transforms configured
         val routingResult = RoutingResult(destination, "test.topic", routeTransform = null, destinationTransform = null)
 
-        coEvery { repository.claimBatch(any()) } returns listOf(message) andThen emptyList()
+        coEvery { repository.claimBatch(any(), any()) } returns listOf(message) andThen emptyList()
 
         // Seventh review gate: the terminal write reports that the claim still holds.
 
@@ -900,7 +905,7 @@ class OutboxPollerTest {
         val router = mockk<MessageRouter>(relaxed = true)
         val metricsCollector = mockk<MetricsCollectorInterface>(relaxed = true)
 
-        coEvery { repository.claimBatch(any()) } returns emptyList()
+        coEvery { repository.claimBatch(any(), any()) } returns emptyList()
 
         // Seventh review gate: the terminal write reports that the claim still holds.
 
@@ -933,7 +938,7 @@ class OutboxPollerTest {
         val repository = mockk<OutboxRepositoryInterface>(relaxed = true)
         val router = mockk<MessageRouter>(relaxed = true)
 
-        coEvery { repository.claimBatch(any()) } returns emptyList()
+        coEvery { repository.claimBatch(any(), any()) } returns emptyList()
 
         // Seventh review gate: the terminal write reports that the claim still holds.
 
@@ -959,7 +964,7 @@ class OutboxPollerTest {
         poller.shutdown()
 
         coVerify(exactly = 1) { repository.reclaimStale(any()) }
-        coVerify(atLeast = 2) { repository.claimBatch(any()) }
+        coVerify(atLeast = 2) { repository.claimBatch(any(), any()) }
     }
 
     // --- F-004: the route routing key reaches the publisher ---
@@ -974,7 +979,7 @@ class OutboxPollerTest {
         val destination = createHttpDestination()
         val routingResult = RoutingResult(destination, "eu.high.order.created")
 
-        coEvery { repository.claimBatch(any()) } returns listOf(message) andThen emptyList()
+        coEvery { repository.claimBatch(any(), any()) } returns listOf(message) andThen emptyList()
 
         // Seventh review gate: the terminal write reports that the claim still holds.
 
@@ -1016,7 +1021,7 @@ class OutboxPollerTest {
         val message = createTestMessage()
         val destination = createHttpDestination()
 
-        coEvery { repository.claimBatch(any()) } returns listOf(message) andThen emptyList()
+        coEvery { repository.claimBatch(any(), any()) } returns listOf(message) andThen emptyList()
 
         // Seventh review gate: the terminal write reports that the claim still holds.
 
@@ -1069,7 +1074,7 @@ class OutboxPollerTest {
         val failing = messages[2]
         val destination = createHttpDestination()
 
-        coEvery { repository.claimBatch(any()) } returns messages andThen emptyList()
+        coEvery { repository.claimBatch(any(), any()) } returns messages andThen emptyList()
 
         // Seventh review gate: the terminal write reports that the claim still holds.
 
@@ -1133,7 +1138,7 @@ class OutboxPollerTest {
         val destination = createHttpDestination()
         val publisher = SlowPublisher(latencyMs = 200)
 
-        coEvery { repository.claimBatch(any()) } returns messages andThen emptyList()
+        coEvery { repository.claimBatch(any(), any()) } returns messages andThen emptyList()
 
         // Seventh review gate: the terminal write reports that the claim still holds.
 
@@ -1175,7 +1180,7 @@ class OutboxPollerTest {
         val router = mockk<MessageRouter>(relaxed = true)
         val metricsCollector = mockk<MetricsCollectorInterface>(relaxed = true)
 
-        coEvery { repository.claimBatch(any()) } returns emptyList()
+        coEvery { repository.claimBatch(any(), any()) } returns emptyList()
 
         // Seventh review gate: the terminal write reports that the claim still holds.
 

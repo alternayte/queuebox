@@ -3,6 +3,7 @@ package org.nxtspec
 import kotlinx.datetime.Clock
 import kotlinx.datetime.Instant
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
+import org.jetbrains.exposed.sql.SqlExpressionBuilder.greater
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.inList
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.isNull
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.less
@@ -36,13 +37,6 @@ class InboxRepository(
     }
     override suspend fun store(message: InboxMessage): InboxResult = insert(message, "pending")
 
-    /**
-     * Third review gate, defect 1: stores the row already in state 'dead', in ONE transaction.
-     *
-     * A store in state 'pending' followed by a mark dead commits a claimable row first. The
-     * relay polls in its own coroutine, so it can claim that row and forward a payload that the
-     * transform rejected. One transaction closes the window.
-     */
     override suspend fun storeDead(message: InboxMessage): InboxResult = insert(message, "dead")
 
     private suspend fun insert(message: InboxMessage, initialState: String): InboxResult = joinOrNewTransaction {
@@ -58,6 +52,8 @@ class InboxRepository(
                 it[state] = initialState
                 it[createdAt] = now
                 it[correlationId] = message.correlationId
+                it[consumption] = message.consumption
+                it[scheduledAt] = databaseNow
             }
 
             if (inserted.insertedCount == 0) {
@@ -72,27 +68,9 @@ class InboxRepository(
         }
     }
 
-    /**
-     * F-001 and F-006: claims pending inbox messages in one statement against the base table.
-     *
-     * The previous query applied FOR UPDATE SKIP LOCKED to the output of a common table
-     * expression, so PostgreSQL took no row locks and two replicas claimed the same rows.
-     * The claim is now a single UPDATE driven by a locking SELECT over the base table.
-     *
-     * Choice recorded for the one message per aggregate rule: the claim takes one transaction
-     * advisory lock, so only one claim runs at a time against this inbox table. The rule itself
-     * is applied in two parts. The SQL excludes an aggregate that already has a committed row
-     * in state 'processing'. The Kotlin step then keeps the oldest message per aggregate inside
-     * the claimed batch and releases the rest to state 'pending' in the same transaction.
-     *
-     * The advisory lock is necessary. Without it a second replica cannot see the uncommitted
-     * claim of the first replica, so both replicas claim a different message of one aggregate.
-     *
-     * Resulting guarantee: at most one message per aggregate identifier is in state
-     * 'processing' at any time, across every replica. The claim itself does not run in
-     * parallel, which is the cost of the guarantee. The claim is one short statement.
-     */
-    override suspend fun claimPending(batchSize: Int): List<InboxMessage> = joinOrNewTransaction {
+    @Suppress("LongMethod")
+    override suspend fun claimPending(batchSize: Int, leaseMs: Long): List<InboxMessage> = joinOrNewTransaction {
+        require(batchSize > 0 && leaseMs in 1..Int.MAX_VALUE.toLong())
         val t = q(tableName)
         val conn0 = org.jetbrains.exposed.sql.transactions.TransactionManager.current()
             .connection.connection as java.sql.Connection
@@ -111,11 +89,13 @@ class InboxRepository(
         val sql = """
             UPDATE $t AS target
             SET $stateCol = 'processing',
-                ${q(columnMapping.claimedAt)} = ?
+                ${q(columnMapping.claimedAt)} = ?,
+                ${q(columnMapping.claimToken)} = gen_random_uuid(),
+                ${q(columnMapping.leaseExpiresAt)} = clock_timestamp() + INTERVAL '1 millisecond' * $leaseMs
             FROM (
                 SELECT $idCol AS claim_id
                 FROM $t
-                WHERE $stateCol = 'pending'
+                WHERE $stateCol = 'pending' AND ${q(columnMapping.consumption)} = 'push'
                   AND ( $aggregateCol IS NULL
                         OR $aggregateCol NOT IN (
                             SELECT DISTINCT $aggregateCol FROM $t
@@ -130,7 +110,11 @@ class InboxRepository(
                       target.${q(columnMapping.idempotencyKey)}, target.$aggregateCol,
                       target.${q(columnMapping.eventType)}, target.${q(columnMapping.payload)},
                       target.$stateCol, target.$createdAtCol, target.${q(columnMapping.processedAt)},
-                      target.${q(columnMapping.correlationId)}, target.${q(columnMapping.claimedAt)}
+                      target.${q(
+            columnMapping.correlationId
+        )}, target.${q(
+            columnMapping.claimedAt
+        )}, target.${q(columnMapping.claimToken)}, target.${q(columnMapping.leaseExpiresAt)}
         """.trimIndent()
 
         val now = Clock.System.now()
@@ -164,10 +148,6 @@ class InboxRepository(
         kept
     }
 
-    /**
-     * Keeps the oldest claimed message per aggregate identifier and returns the rest for
-     * release. A message without an aggregate identifier is independent and is always kept.
-     */
     private fun applyAggregateRule(claimed: List<InboxMessage>): Pair<List<InboxMessage>, List<InboxMessage>> {
         val kept = mutableListOf<InboxMessage>()
         val released = mutableListOf<InboxMessage>()
@@ -185,50 +165,54 @@ class InboxRepository(
         return kept to released
     }
 
-    /**
-     * Seventh review gate: the write is fenced on the state and on the claim token, so a
-     * worker that lost the claim cannot overwrite the row of the new owner.
-     */
-    override suspend fun markProcessed(id: UUID, claimedAt: Instant?): Boolean = joinOrNewTransaction {
+    override suspend fun markProcessed(id: UUID, claimToken: UUID?): Boolean = joinOrNewTransaction {
         val now = Clock.System.now()
-        table.update({ claimFence(id, claimedAt) }) {
+        table.update({ claimFence(id, claimToken) }) {
             it[state] = "processed"
             it[processedAt] = now
         } > 0
     }
 
-    override suspend fun markDead(id: UUID, claimedAt: Instant?): Boolean = joinOrNewTransaction {
-        table.update({ claimFence(id, claimedAt) }) {
+    override suspend fun markDead(id: UUID, claimToken: UUID?): Boolean = joinOrNewTransaction {
+        table.update({ claimFence(id, claimToken) }) {
             it[state] = "dead"
             it[this.claimedAt] = null
         } > 0
     }
 
-    /**
-     * Seventh review gate: the predicate of every terminal write.
-     *
-     * The row must still be in state 'processing', and it must still carry the claim that the
-     * caller holds. A null token matches any claim, which serves an operator tool that holds
-     * no claim of its own.
-     */
-    private fun claimFence(id: UUID, claimedAt: Instant?): org.jetbrains.exposed.sql.Op<Boolean> {
+    private fun claimFence(id: UUID, claimToken: UUID?): org.jetbrains.exposed.sql.Op<Boolean> {
         val base = (table.id eq id) and (table.state eq "processing")
-        return if (claimedAt == null) base else base and (table.claimedAt eq claimedAt)
+        return if (claimToken == null) {
+            org.jetbrains.exposed.sql.Op.FALSE
+        } else {
+            base and (table.claimToken eq claimToken) and (table.leaseExpiresAt greater databaseNow)
+        }
     }
 
-    /**
-     * F-006: returns rows that stay in state 'processing' longer than the visibility timeout
-     * back to state 'pending'.
-     */
     override suspend fun reclaimStale(olderThan: Duration): Int = joinOrNewTransaction {
-        val cutoff = Clock.System.now() - olderThan
         table.update({
             (table.state eq "processing") and
-                ((table.claimedAt lessEq cutoff) or table.claimedAt.isNull())
+                ((table.leaseExpiresAt lessEq databaseNow) or table.leaseExpiresAt.isNull())
         }) {
             it[state] = "pending"
             it[claimedAt] = null
         }
+    }
+
+    private val databaseNow = object : org.jetbrains.exposed.sql.Expression<Instant>() {
+        override fun toQueryBuilder(queryBuilder: org.jetbrains.exposed.sql.QueryBuilder) {
+            queryBuilder.append("clock_timestamp()")
+        }
+    }
+
+    override suspend fun renewClaim(id: UUID, claimToken: UUID?, leaseMs: Long): Boolean = joinOrNewTransaction {
+        require(leaseMs > 0)
+        val expires = object : org.jetbrains.exposed.sql.Expression<Instant>() {
+            override fun toQueryBuilder(queryBuilder: org.jetbrains.exposed.sql.QueryBuilder) {
+                queryBuilder.append("clock_timestamp() + INTERVAL '1 millisecond' * $leaseMs")
+            }
+        }
+        table.update({ claimFence(id, claimToken) }) { it[leaseExpiresAt] = expires } > 0
     }
 
     override suspend fun countByState(state: String): Long = joinOrNewTransaction {
@@ -238,20 +222,20 @@ class InboxRepository(
             .count()
     }
 
-    /**
-     * F-008: deletes at most `limit` rows per statement.
-     */
-    override suspend fun deleteOlderThan(state: String, cutoff: Instant, limit: Int): Int = joinOrNewTransaction {
-        val ids = table
-            .select(table.id)
-            .where { (table.state eq state) and (table.createdAt less cutoff) }
-            .limit(limit)
-            .map { it[table.id] }
+    override suspend fun deleteOlderThan(state: String, cutoff: Instant, limit: Int): Int {
+        require(state in setOf("sent", "processed", "dead")) { "Cannot delete active work" }
+        return joinOrNewTransaction {
+            val ids = table
+                .select(table.id)
+                .where { (table.state eq state) and (table.createdAt less cutoff) }
+                .limit(limit)
+                .map { it[table.id] }
 
-        if (ids.isEmpty()) {
-            0
-        } else {
-            table.deleteWhere { table.id inList ids }
+            if (ids.isEmpty()) {
+                0
+            } else {
+                table.deleteWhere { (table.id inList ids) and (table.state eq state) }
+            }
         }
     }
 
@@ -270,6 +254,10 @@ class InboxRepository(
             kotlinx.datetime.Instant.fromEpochSeconds(it.epochSecond, it.nano)
         },
         correlationId = getString(columnMapping.correlationId),
+        claimToken = getString(columnMapping.claimToken)?.let(UUID::fromString),
+        leaseExpiresAt = getTimestamp(columnMapping.leaseExpiresAt)?.toInstant()?.let {
+            Instant.fromEpochSeconds(it.epochSecond, it.nano)
+        },
         claimedAt = getTimestamp(columnMapping.claimedAt)?.toInstant()?.let {
             kotlinx.datetime.Instant.fromEpochSeconds(it.epochSecond, it.nano)
         }

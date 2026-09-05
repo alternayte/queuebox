@@ -97,6 +97,7 @@ class E2ECrashRecoveryTest : E2ETestBase() {
         transaction {
             OutboxTable.update({ OutboxTable.id eq id }) {
                 it[OutboxTable.claimedAt] = Clock.System.now() - 10.minutes
+                it[OutboxTable.leaseExpiresAt] = Clock.System.now() - 5.minutes
             }
         }
     }

@@ -182,18 +182,14 @@ class E2EInboxRelayTest : E2ETestBase() {
         val inboxRepository = InboxRepository()
         val failingOutbox = org.nxtspec.repository.OutboxRepositoryInterface::class.java.let {
             object : org.nxtspec.repository.OutboxRepositoryInterface {
-                override suspend fun claimBatch(batchSize: Int) = emptyList<org.nxtspec.OutboxMessage>()
+                override suspend fun claimBatch(batchSize: Int, leaseMs: Long) = emptyList<org.nxtspec.OutboxMessage>()
                 override suspend fun insert(message: org.nxtspec.OutboxMessage) {
                     error("insert failed")
                 }
-                override suspend fun markSent(id: UUID, claimedAt: kotlinx.datetime.Instant?) = true
-                override suspend fun scheduleRetry(
-                    id: UUID,
-                    delayMs: Long,
-                    claimedAt: kotlinx.datetime.Instant?,
-                    error: String?
-                ) = true
-                override suspend fun markDead(id: UUID, claimedAt: kotlinx.datetime.Instant?, error: String?) = true
+                override suspend fun markSent(id: UUID, claimToken: UUID?) = true
+                override suspend fun scheduleRetry(id: UUID, delayMs: Long, claimToken: UUID?, error: String?) = true
+                override suspend fun markDead(id: UUID, claimToken: UUID?, error: String?) = true
+                override suspend fun renewClaim(id: UUID, claimToken: UUID?, leaseMs: Long): Boolean = true
                 override suspend fun countByState(state: String): Long = 0
                 override suspend fun reclaimStale(olderThan: kotlin.time.Duration): Int = 0
                 override suspend fun deleteOlderThan(state: String, cutoff: kotlinx.datetime.Instant, limit: Int): Int =
@@ -224,6 +220,11 @@ class E2EInboxRelayTest : E2ETestBase() {
         assertEquals("processing", getInboxMessage("stripe", "evt_fail_1")!!.state)
 
         // The F-006 reclaim returns it to 'pending' after the visibility timeout.
+        org.jetbrains.exposed.sql.transactions.transaction {
+            exec(
+                "UPDATE inbox SET lease_expires_at = clock_timestamp() - INTERVAL '1 second' WHERE state = 'processing'"
+            )
+        }
         assertEquals(1, inboxRepository.reclaimStale(kotlin.time.Duration.ZERO))
         assertEquals("pending", getInboxMessage("stripe", "evt_fail_1")!!.state)
     }

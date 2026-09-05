@@ -405,10 +405,10 @@ class E2EMetricsFlowTest : E2ETestBase() {
         // Start poller and wait for delivery
         poller?.start()
 
-        repeat(50) {
-            delay(50)
-            if (mockServer.receivedRequests.size >= 3) return@repeat
-        }
+        // `return@repeat` continues the loop, so the old wait always ran to its end and could
+        // count a redelivery that a reclaim started under load. `awaitUntil` leaves as soon as
+        // the three deliveries arrived.
+        awaitUntil { mockServer.receivedRequests.size >= 3 }
 
         assertEquals(3, mockServer.receivedRequests.size)
 

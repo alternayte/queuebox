@@ -117,6 +117,8 @@ data class OutboxColumnMapping(
     val createdAt: String = "created_at",
     val updatedAt: String = "updated_at",
     val claimedAt: String = "claimed_at",
+    val claimToken: String = "claim_token",
+    val leaseExpiresAt: String = "lease_expires_at",
     val lastError: String = "last_error"
 )
 
@@ -136,11 +138,18 @@ data class InboxColumnMapping(
     val createdAt: String = "created_at",
     val processedAt: String = "processed_at",
     val claimedAt: String = "claimed_at",
-    val correlationId: String = "correlation_id"
+    val claimToken: String = "claim_token",
+    val leaseExpiresAt: String = "lease_expires_at",
+    val correlationId: String = "correlation_id",
+    val consumption: String = "consumption",
+    val scheduledAt: String = "scheduled_at",
+    val attempt: String = "attempt",
+    val lastError: String = "last_error"
 )
 
 @Serializable
 data class OutboxConfig(
+    val capture: CaptureConfig = CaptureConfig(),
     val pollIntervalMs: Long = 100,
     val batchSize: Int = 100,
     val retryBaseDelayMs: Long = 1000,
@@ -246,6 +255,7 @@ data class RouteConfig(
 @Serializable
 sealed class SourceConfig {
     abstract val transform: TransformConfig?
+    abstract val consumption: String
 
     /**
      * Template for the outbox topic that the relay writes. Supports `{{ source }}` and
@@ -265,6 +275,7 @@ sealed class SourceConfig {
         val eventTypePath: String? = null,
         override val transform: TransformConfig? = null,
         override val topic: String = "{{ eventType }}",
+        override val consumption: String = "push",
         override val rateLimit: RateLimitConfig? = null,
         val auth: InboxAuthConfig? = null
     ) : SourceConfig()
@@ -296,6 +307,7 @@ sealed class SourceConfig {
          * uses `{{ eventType }}` needs `eventTypePath` or `eventTypeFromHeader`.
          */
         override val topic: String = "{{ source }}",
+        override val consumption: String = "push",
         override val rateLimit: RateLimitConfig? = null
     ) : SourceConfig() {
         /**
@@ -309,3 +321,27 @@ sealed class SourceConfig {
             "rateLimit=$rateLimit)"
     }
 }
+
+@Serializable
+data class CaptureConfig(
+    val mode: String = "polling",
+    val enabled: Boolean = false,
+    val identity: String = "queuebox",
+    val stateDirectory: String = "",
+    val schema: String? = null,
+    val publication: String = "queuebox_outbox",
+    val slot: String = "queuebox_outbox",
+    val reconciliationIntervalMs: Long = 1000,
+    val connection: CaptureConnection = CaptureConnection()
+)
+
+@Serializable
+data class CaptureConnection(
+    val hostname: String? = null,
+    val port: Int? = null,
+    val database: String? = null,
+    val username: String? = null,
+    val password: Secret? = null,
+    val encrypt: Boolean = true,
+    val trustServerCertificate: Boolean = false
+)

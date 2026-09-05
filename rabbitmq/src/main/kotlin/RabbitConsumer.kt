@@ -28,6 +28,7 @@ import java.util.UUID
 
 @Serializable
 data class RabbitConsumerConfig(
+    val consumption: String = "push",
     val queueName: String,
     val sourceName: String,
     val prefetchCount: Int = 10,
@@ -210,6 +211,7 @@ class RabbitConsumer(
                         // The message is preserved, not destroyed. The original payload reaches
                         // the inbox, and the row becomes dead.
                         val rejected = InboxMessage(
+                            consumption = config.consumption,
                             id = messageId,
                             source = config.sourceName,
                             idempotencyKey = idempotencyKey,
@@ -227,6 +229,7 @@ class RabbitConsumer(
             }
 
             val message = InboxMessage(
+                consumption = config.consumption,
                 id = messageId,
                 source = config.sourceName,
                 idempotencyKey = idempotencyKey,

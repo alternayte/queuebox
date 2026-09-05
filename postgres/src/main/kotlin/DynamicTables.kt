@@ -15,7 +15,8 @@ import org.jetbrains.exposed.sql.kotlin.datetime.timestamp
  * @param mapping The column name mapping configuration
  * @param tableName The name of the table (defaults to "outbox")
  */
-class DynamicOutboxTable(mapping: OutboxColumnMapping, tableName: String = "outbox") : UUIDTable(tableName) {
+class DynamicOutboxTable(mapping: OutboxColumnMapping, tableName: String = "outbox") :
+    UUIDTable(tableName, mapping.id) {
     val topic: Column<String> = varchar(mapping.topic, 255)
     val key: Column<String?> = varchar(mapping.key, 255).nullable()
     val payload: Column<JsonElement> = jsonb(mapping.payload, Json.Default)
@@ -27,6 +28,8 @@ class DynamicOutboxTable(mapping: OutboxColumnMapping, tableName: String = "outb
     val createdAt = timestamp(mapping.createdAt)
     val updatedAt = timestamp(mapping.updatedAt)
     val claimedAt = timestamp(mapping.claimedAt).nullable()
+    val claimToken = uuid(mapping.claimToken).nullable()
+    val leaseExpiresAt = timestamp(mapping.leaseExpiresAt).nullable()
     val lastError: Column<String?> = text(mapping.lastError).nullable()
 
     init {
@@ -41,7 +44,8 @@ class DynamicOutboxTable(mapping: OutboxColumnMapping, tableName: String = "outb
  * @param mapping The column name mapping configuration
  * @param tableName The name of the table (defaults to "inbox")
  */
-class DynamicInboxTable(private val mapping: InboxColumnMapping, tableName: String = "inbox") : UUIDTable(tableName) {
+class DynamicInboxTable(private val mapping: InboxColumnMapping, tableName: String = "inbox") :
+    UUIDTable(tableName, mapping.id) {
     val messageSrc: Column<String> = varchar(mapping.source, 255)
     val idempotencyKey: Column<String> = varchar(mapping.idempotencyKey, 255)
     val aggregateId: Column<String?> = varchar(mapping.aggregateId, 255).nullable()
@@ -51,7 +55,13 @@ class DynamicInboxTable(private val mapping: InboxColumnMapping, tableName: Stri
     val createdAt = timestamp(mapping.createdAt)
     val processedAt = timestamp(mapping.processedAt).nullable()
     val claimedAt = timestamp(mapping.claimedAt).nullable()
+    val claimToken = uuid(mapping.claimToken).nullable()
+    val leaseExpiresAt = timestamp(mapping.leaseExpiresAt).nullable()
     val correlationId: Column<String?> = varchar(mapping.correlationId, 128).nullable()
+    val consumption = varchar(mapping.consumption, 4).default("push")
+    val scheduledAt = timestamp(mapping.scheduledAt).clientDefault { kotlinx.datetime.Clock.System.now() }
+    val attempt = integer(mapping.attempt).default(0)
+    val lastError = text(mapping.lastError).nullable()
 
     init {
         uniqueIndex(messageSrc, idempotencyKey)

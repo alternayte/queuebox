@@ -41,3 +41,11 @@ dependencies {
     testImplementation(libs.kotlinx.coroutines.test)
     testImplementation(libs.bundles.testContainersMssqlserver)
 }
+
+// `SqlServerPullLeaseTest` executes the published example SQL. Without this declaration the
+// task stays UP-TO-DATE when a contract file changes, and a broken example passes CI.
+tasks.test {
+    inputs.files(
+        rootProject.fileTree("examples/pull/sql") { include("**/*.sql") }
+    ).withPathSensitivity(PathSensitivity.RELATIVE)
+}

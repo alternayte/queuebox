@@ -186,7 +186,7 @@ class InboxRepositoryTest : PostgresTestBase() {
     fun `markProcessed should set state to processed`() = runBlocking {
         val id = insertInboxMessage("stripe", "evt_123", state = "processing")
 
-        repository.markProcessed(id, null)
+        repository.markProcessed(id, getInboxClaimToken(id))
 
         val state = getInboxMessageState(id)
         assertEquals("processed", state)
@@ -197,7 +197,7 @@ class InboxRepositoryTest : PostgresTestBase() {
         val id = insertInboxMessage("stripe", "evt_123", state = "processing")
         val before = Clock.System.now()
 
-        repository.markProcessed(id, null)
+        repository.markProcessed(id, getInboxClaimToken(id))
 
         val processedAt = getInboxProcessedAt(id)
         assertNotNull(processedAt)
@@ -208,7 +208,7 @@ class InboxRepositoryTest : PostgresTestBase() {
     @Test
     fun `markProcessed message should not be claimed again`() = runBlocking {
         val id = insertInboxMessage("stripe", "evt_123", state = "processing")
-        repository.markProcessed(id, null)
+        repository.markProcessed(id, getInboxClaimToken(id))
 
         val claimed = repository.claimPending(10)
 
@@ -284,7 +284,7 @@ class InboxRepositoryTest : PostgresTestBase() {
         assertEquals("key1", batch1[0].idempotencyKey)
 
         // Mark first as processed
-        repository.markProcessed(id1, null)
+        repository.markProcessed(id1, getInboxClaimToken(id1))
 
         // Now second message should be claimable
         val batch2 = repository.claimPending(10)

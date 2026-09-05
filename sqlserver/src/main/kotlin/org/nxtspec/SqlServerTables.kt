@@ -21,6 +21,8 @@ object SqlServerOutboxTable : UUIDTable("outbox") {
     val createdAt = timestamp("created_at")
     val updatedAt = timestamp("updated_at")
     val claimedAt = timestamp("claimed_at").nullable()
+    val claimToken = uuid("claim_token").nullable()
+    val leaseExpiresAt = timestamp("lease_expires_at").nullable()
     val lastError: Column<String?> = text("last_error").nullable()
 
     init {
@@ -43,7 +45,13 @@ object SqlServerInboxTable : UUIDTable("inbox") {
     val createdAt = timestamp("created_at")
     val processedAt = timestamp("processed_at").nullable()
     val claimedAt = timestamp("claimed_at").nullable()
+    val claimToken = uuid("claim_token").nullable()
+    val leaseExpiresAt = timestamp("lease_expires_at").nullable()
     val correlationId: Column<String?> = varchar("correlation_id", 128).nullable()
+    val consumption = varchar("consumption", 4).default("push")
+    val scheduledAt = timestamp("scheduled_at").clientDefault { kotlinx.datetime.Clock.System.now() }
+    val attempt = integer("attempt").default(0)
+    val lastError = text("last_error").nullable()
 
     init {
         uniqueIndex(messageSrc, idempotencyKey)
