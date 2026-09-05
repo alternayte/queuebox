@@ -27,11 +27,11 @@ abstract class SqlServerTestBase {
         // Singleton container pattern. A per-class container stops after the first test class
         // and the shared data source then points at a dead port. Ryuk removes the container
         // when the JVM exits.
-        // The image comes from `QUEUEBOX_TEST_SQLSERVER_IMAGE`, so the continuous integration
+        // The image comes from `TESTCONTAINERS_SQLSERVER_IMAGE`, so the continuous integration
         // matrix can run the same tests against more than one SQL Server release. The default
         // is the release that the documentation names.
         private val sqlServerImage: String =
-            System.getenv("QUEUEBOX_TEST_SQLSERVER_IMAGE") ?: "mcr.microsoft.com/mssql/server:2022-latest"
+            System.getenv("TESTCONTAINERS_SQLSERVER_IMAGE") ?: "mcr.microsoft.com/mssql/server:2022-latest"
 
         @JvmStatic
         val sqlserver: MSSQLServerContainer<*> = MSSQLServerContainer(sqlServerImage)

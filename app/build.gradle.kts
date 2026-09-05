@@ -111,7 +111,11 @@ tasks.test {
             "docker-compose.override.yml",
             "docker-compose.release.yml",
             ".env.example"
-        )
+        ),
+        // `DocumentedExamplesTest` reads the workflow files, so a workflow edit must re-run this
+        // task. Without the declaration the guard that keeps a test-harness variable out of the
+        // configuration namespace stays UP-TO-DATE and never sees the change.
+        rootProject.fileTree(".github/workflows") { include("**/*.yml", "**/*.yaml") }
     ).withPathSensitivity(PathSensitivity.RELATIVE)
 }
 

@@ -30,7 +30,7 @@ class MetricsDocTest {
 
     companion object {
         private val postgres: PostgreSQLContainer<*> =
-            PostgreSQLContainer(System.getenv("QUEUEBOX_TEST_POSTGRES_IMAGE") ?: "postgres:16")
+            PostgreSQLContainer(System.getenv("TESTCONTAINERS_POSTGRES_IMAGE") ?: "postgres:16")
                 .withDatabaseName("queuebox_docs")
                 .withUsername("test")
                 .withPassword("test")

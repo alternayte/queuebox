@@ -523,7 +523,14 @@ class E2EOutboxFlowTest : E2ETestBase() {
         )
 
         poller!!.start()
-        awaitUntil { getOutboxLastError(messageId) != null }
+        // The wait must cover both facts that the assertions below need. Waiting for the error
+        // alone ends on a first attempt that never reached the destination, for example a
+        // connection that was refused while the server was still binding its port. The retry
+        // then delivers the secret a moment after the assertion already read an empty list.
+        awaitUntil {
+            getOutboxLastError(messageId) != null &&
+                mockServer.receivedRequests.any { it.headers["Authorization"] == secret }
+        }
 
         val lastError = getOutboxLastError(messageId)
         assertTrue(lastError != null, "The failure reason must be persisted")

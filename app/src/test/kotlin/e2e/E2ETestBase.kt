@@ -57,11 +57,11 @@ abstract class E2ETestBase {
         // Singleton container pattern. A per-class container stops after the first test class,
         // and the next class then talks to a dead port. Ryuk removes the containers when the
         // JVM exits.
-        // The image comes from `QUEUEBOX_TEST_POSTGRES_IMAGE`, so the continuous integration
+        // The image comes from `TESTCONTAINERS_POSTGRES_IMAGE`, so the continuous integration
         // matrix can run the same tests against more than one PostgreSQL release. The default
         // is the release that the documentation names.
         private val postgresImage: String =
-            System.getenv("QUEUEBOX_TEST_POSTGRES_IMAGE") ?: "postgres:16"
+            System.getenv("TESTCONTAINERS_POSTGRES_IMAGE") ?: "postgres:16"
 
         @JvmStatic
         val postgres: PostgreSQLContainer<*> = PostgreSQLContainer(postgresImage)

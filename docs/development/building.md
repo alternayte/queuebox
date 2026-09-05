@@ -32,8 +32,8 @@ Two environment variables select the database image. The continuous integration 
 run the same tests against more than one database release.
 
 ```bash
-QUEUEBOX_TEST_POSTGRES_IMAGE=postgres:14 ./gradlew :postgres:test
-QUEUEBOX_TEST_SQLSERVER_IMAGE=mcr.microsoft.com/mssql/server:2019-latest ./gradlew :sqlserver:test
+TESTCONTAINERS_POSTGRES_IMAGE=postgres:14 ./gradlew :postgres:test
+TESTCONTAINERS_SQLSERVER_IMAGE=mcr.microsoft.com/mssql/server:2019-latest ./gradlew :sqlserver:test
 ```
 
 The defaults are `postgres:16` and `mcr.microsoft.com/mssql/server:2022-latest`.

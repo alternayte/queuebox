@@ -54,7 +54,7 @@ class IntegrationDocSqlTest {
         private const val DELIVERY_TIMEOUT_MS = 30_000L
 
         private val postgres: PostgreSQLContainer<*> =
-            PostgreSQLContainer(System.getenv("QUEUEBOX_TEST_POSTGRES_IMAGE") ?: "postgres:16")
+            PostgreSQLContainer(System.getenv("TESTCONTAINERS_POSTGRES_IMAGE") ?: "postgres:16")
                 .withDatabaseName("queuebox_docs")
                 .withUsername("test")
                 .withPassword("test")
@@ -62,7 +62,7 @@ class IntegrationDocSqlTest {
 
         private val sqlServer: MSSQLServerContainer<*> =
             MSSQLServerContainer(
-                System.getenv("QUEUEBOX_TEST_SQLSERVER_IMAGE") ?: "mcr.microsoft.com/mssql/server:2022-latest"
+                System.getenv("TESTCONTAINERS_SQLSERVER_IMAGE") ?: "mcr.microsoft.com/mssql/server:2022-latest"
             )
                 .withPassword("StrongP@ssw0rd!")
                 .acceptLicense()
