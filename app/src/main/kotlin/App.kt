@@ -341,9 +341,22 @@ fun main() {
             ErrorSanitizer.sanitize(e)
         )
         runBlocking { shutdownSequence.run() }
-        throw e
+        // Eighth review gate N1. The line above redacts the failure, and `throw e` then handed
+        // the RAW throwable to the JVM default handler, which prints every cause message to the
+        // container log. Nothing sits above `main` to catch it. The replacement carries the
+        // sanitised text and no cause, so the exit code and the operator message both survive.
+        throw StartupFailedException("QueueBox did not start. Reason: ${ErrorSanitizer.sanitize(e)}")
     }
 }
+
+/**
+ * The start failed.
+ *
+ * It carries NO cause. A driver, a pool and a migration tool all put the JDBC URL, and therefore
+ * the database password, in the message of the failure that causes one. Nothing above `main`
+ * catches this, so the JVM prints the whole chain to the container log.
+ */
+class StartupFailedException(message: String) : RuntimeException(message)
 
 /**
  * Builds the AMQP connection of one inbox source.

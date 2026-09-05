@@ -116,8 +116,9 @@ processed
 dead
 ```
 
-`dead` reaches the inbox by one route only: `storeDead` writes it in one transaction when a source
-transform rejects an AMQP message. The relay never writes it, and `claimPending` selects `pending`
+`dead` reaches the inbox by two routes. `storeDead` writes it in one transaction when a source
+transform rejects an AMQP message. The relay writes it when the topic template of the source
+renders empty, because such a message can reach no destination. `claimPending` selects `pending`
 rows, so no read path in the shipped code returns a dead inbox row. The row exists for an operator
 to read with SQL. See [operations/dead-letter.md](operations/dead-letter.md).
 

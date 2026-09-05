@@ -63,7 +63,11 @@ object CredentialMasking {
     // Every shape ends at the LAST at sign of the authority. The alternation is deliberate. An
     // optional group makes the Java engine keep the FIRST at sign, and a password with an at sign
     // then leaks its tail.
-    private const val SCHEME = "([a-zA-Z][a-zA-Z0-9+.-]*://)"
+    // Eighth review gate B3. The pattern demanded `://`. A URI reaches an error text BECAUSE it
+    // is malformed, and a missing slash is the commonest malformation, so `amqp:/host:pass@broker`
+    // escaped the mask. One or two slashes are accepted now. At least one slash is still
+    // mandatory, so ordinary prose of the form `note:see me@example.com` does not match.
+    private const val SCHEME = "([a-zA-Z][a-zA-Z0-9+.-]*:/{1,2})"
 
     private const val USER = "[^\\s/?#@]*:"
 

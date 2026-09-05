@@ -75,8 +75,19 @@ tasks.test {
     // check that guards the documentation did not re-run. That is the same shape as the coverage
     // gate defect: the check is wired, and the input that must trigger it is invisible to Gradle.
     // The tree covers a document that somebody adds tomorrow as well.
+    // Eighth review gate N6. `GuaranteesTest` resolves a test class of another module by reading
+    // its SOURCE file, so those sources are inputs too. A renamed test method there left this
+    // task UP-TO-DATE and the guarantee check did not re-run.
     inputs.files(
         rootProject.fileTree("docs") { include("**/*.md") },
+        rootProject.files(
+            "postgres/src/test/kotlin",
+            "sqlserver/src/test/kotlin",
+            "outbox-service/src/test/kotlin",
+            "inbox-service/src/test/kotlin",
+            "core/src/test/kotlin",
+            "rabbitmq/src/test/kotlin"
+        ),
         rootProject.files(
             "README.md",
             "docker-compose.yml",

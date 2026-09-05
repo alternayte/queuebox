@@ -36,7 +36,16 @@ object ErrorSanitizer {
         "refresh_token",
         "client_secret",
         "secret",
-        "password"
+        "password",
+        // Eighth review gate B1 and B2. `PGPASSWORD` was redacted and `PGPASSWD` was not, and a
+        // destination error body that names `credentials` passed through untouched. The key
+        // pattern matches a prefix, so one entry covers `db_pwd`, `PGPASSWD` and `credentials`.
+        "pwd",
+        "passwd",
+        "credential",
+        "credentials",
+        "passphrase",
+        "private_key"
     )
 
     private const val REDACTED = "[REDACTED]"

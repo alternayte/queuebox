@@ -410,4 +410,47 @@ class ErrorSanitizerTest {
 
         assertEquals(text, ErrorSanitizer.sanitize(text))
     }
+
+    /**
+     * Eighth review gate, B1 and B2. `PGPASSWORD` was redacted and `PGPASSWD` was not, and a
+     * destination error body that names `credentials` passed through untouched. Both reach the
+     * log and the `outbox.last_error` column.
+     */
+    @Test
+    fun `sanitize redacts every common abbreviation of a secret key`() {
+        for (text in listOf(
+            "Connection refused for db_pwd=hunter2",
+            "PGPASSWD=hunter2 failed",
+            """{"credentials":"sk_live_51H8xQz"}""",
+            "passphrase=hunter2",
+            "private_key=hunter2"
+        )) {
+            val result = ErrorSanitizer.sanitize(text)!!
+            assertFalse(result.contains("hunter2"), "the secret printed: $result")
+            assertFalse(result.contains("sk_live_51H8xQz"), "the secret printed: $result")
+        }
+    }
+
+    /**
+     * Eighth review gate, B3. A URI reaches an error text BECAUSE it is malformed, and a missing
+     * slash is the commonest malformation. `ConfigValidator` does not validate a RabbitMQ URL, so
+     * one typo put the broker password in the log and in the database on every publish attempt.
+     */
+    @Test
+    fun `sanitize masks the user information of a malformed uri with one slash`() {
+        val result = ErrorSanitizer.sanitize(
+            "Expected authority at index 6: amqp:/broker:hunter2@rabbit:5672"
+        )!!
+
+        assertFalse(result.contains("hunter2"), "the broker password printed: $result")
+        assertTrue(result.contains("rabbit:5672"), "the host and the port must survive: $result")
+    }
+
+    /** A colon with no slash is ordinary prose, and it must not be masked. */
+    @Test
+    fun `sanitize keeps prose that holds a colon and a mail address`() {
+        val text = "note:see me@example.com for details"
+
+        assertEquals(text, ErrorSanitizer.sanitize(text))
+    }
 }

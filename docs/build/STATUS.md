@@ -559,12 +559,19 @@ This is a deviation, recorded, not an oversight.
    loop, so the documented quick start passes `-f docker-compose.yml`. `hardening-doc.md` treats
    the override as a legitimate file, and a rename is a redesign.
 
-### Known flake
+### Known flakes
 
-`IntegrationDocSqlTest > every postgres statement runs...` failed once in a full build and passed
-on the two full runs that followed, and in isolation. The failing run happened while a manual
-`./gradlew run` instance and its database container were being torn down on the same host. The
-cause is not proven. It is recorded here rather than hidden. Watch it in CI.
+Recorded rather than hidden. Each one passed on a rerun and in isolation, and each failed only
+under the load of a full build that starts many containers at once.
+
+- `IntegrationDocSqlTest > every postgres statement runs...` failed once. The diagnostic now
+  reports the `processing` count and the insert block count, so a repeat is diagnosable.
+- `E2EShutdownTest` failed once on a 10 second latch. The latch is the right signal and the budget
+  was too tight, so the budget is 60 seconds. The assertion is unchanged.
+- `E2EDeadLetterReplayTest` and `E2EInboxFlowTest` failed once together. The second reported
+  uncaught exceptions BEFORE the test started, which is a test-infrastructure symptom rather than
+  an assertion failure. Watch both in CI.
+
 
 ---
 
@@ -627,8 +634,9 @@ part of the whole effort.
 | 4 | 3 | **A fix from pass 2 destroyed healthy messages.** An indefinite JSONPath lost every message silently. The documented manual schema rejected every inbox insert. |
 | 5 | 1 | A default AMQP source destroyed every message whose publisher omitted an undocumented header. |
 | 6 | 3 | **The aggregated coverage gate had never run.** The startup validator printed a destination password. The database retry line printed the database password on every slow start. |
+| 7 | 4 | **The pass 6 coverage fix was wrong, and so was my proof of it.** No terminal write was fenced, so a stale owner could complete another replica's claim. The database password still reached the log through the exception cause. The pool opened outside the guarded path. Plus fifteen documentation claims the code does not perform. |
 
-**Twenty-four confirmed blocking defects, every one reproduced before it was acted on.**
+**Twenty-eight confirmed blocking defects, every one reproduced before it was acted on.**
 
 ### What the gate teaches
 
@@ -643,13 +651,20 @@ part of the whole effort.
 3. **A comment is not evidence.** `InboxHandler` carried a comment saying the rejection reason is
    never the path, above code that put the path in the reason. `ExposedTransactionRunner` claimed a
    nested repository call joins its transaction. Neither was true.
-4. **A gate that nobody runs is not a gate.** Pass 6 found that `check` never ran the aggregated
+4. **A proof is only as good as the state it ran in.** I wired the coverage gate into `check` in
+   pass 6 and proved it with a mutation that failed the build. Pass 7 showed the proof was
+   worthless: it ran on a WARM tree. The root build collected the exec files eagerly at
+   configuration time, so the list held the PREVIOUS build. On a clean checkout, which is every CI
+   run, the list is empty and JaCoCo skips a report with no data. The reviewer was right and I was
+   wrong, and it was right for a reason I had not tested rather than a claim it repeated. The
+   collections are lazy now, and the proof runs from zero exec files.
+5. **A gate that nobody runs is not a gate.** Pass 6 found that `check` never ran the aggregated
    coverage rules, although `README.md` and `TESTING.md` both said it did, and the CI job ran the
    report rather than the verification. Every earlier "check passes" line in this file therefore
    proved less than it appeared to. The numbers were real, because the verification task was run
    by hand several times, but the claim about `check` was false. The task is wired in now, and the
    proof is a mutation: raise the floor to 0.99 and the build fails.
-5. **Redaction needs an adversary.** The sanitiser was defeated three times: on a URL password, on
+6. **Redaction needs an adversary.** The sanitiser was defeated three times: on a URL password, on
    an underscore key, on a bare `Basic` scheme, on a nested cause, on two spaces and a tab, and on
    a slash inside a password. Each round added a test.
 
