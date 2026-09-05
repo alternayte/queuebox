@@ -30,8 +30,8 @@ detekt = "1.23.8"
 jacoco = "0.8.13"
 
 # Testing
-testcontainers = "1.20.4"
-mockk = "1.13.13"
+testcontainers = "1.21.4"
+mockk = "1.14.11"
 
 [libraries]
 kotlinGradlePlugin = { module = "org.jetbrains.kotlin:kotlin-gradle-plugin", version.ref = "kotlin" }
