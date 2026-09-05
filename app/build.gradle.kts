@@ -69,18 +69,19 @@ dependencies {
 // that a Markdown file is an input of the test task, so an edit to a document alone left the task
 // UP-TO-DATE and the samples went unchecked. Declare the documents that the tests read.
 tasks.test {
+    // Seventh review gate, second finding. The list named eight documents while
+    // `DocumentedExamplesTest` walks README.md and EVERY Markdown file under `docs/`, which is 24
+    // today. An edit to one of the sixteen undeclared files left this task UP-TO-DATE, so the
+    // check that guards the documentation did not re-run. That is the same shape as the coverage
+    // gate defect: the check is wired, and the input that must trigger it is invisible to Gradle.
+    // The tree covers a document that somebody adds tomorrow as well.
     inputs.files(
+        rootProject.fileTree("docs") { include("**/*.md") },
         rootProject.files(
             "README.md",
-            "docs/integration.md",
-            "docs/operations/metrics.md",
-            "docs/architecture.md",
-            "docs/getting-started.md",
-            "docs/configuration.md",
-            "docs/transforms.md",
-            "docs/message-flow.md",
             "docker-compose.yml",
             "docker-compose.override.yml",
+            "docker-compose.release.yml",
             ".env.example"
         )
     ).withPathSensitivity(PathSensitivity.RELATIVE)

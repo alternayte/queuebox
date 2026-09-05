@@ -143,6 +143,14 @@ val aggregatedExecutionData: FileCollection =
 val aggregatedSourceDirectories: FileCollection =
     files(subprojects.map { "${it.projectDir}/src/main/kotlin" }).filter { it.exists() }
 
+/**
+ * The compiled classes of every module.
+ *
+ * `builtBy` names the producing tasks. Without it the collection works only because both
+ * aggregate tasks depend on every subproject `test`, and `test` depends on `classes`. A future
+ * change to those edges would empty the class directories and the gate would go quiet with no
+ * error, which is the failure this whole finding is about.
+ */
 val aggregatedClassDirectories: FileCollection =
     files(
         subprojects.map { subproject ->
@@ -160,7 +168,7 @@ val aggregatedClassDirectories: FileCollection =
                 }
             }
         }
-    )
+    ).builtBy(subprojects.map { "${it.path}:classes" })
 
 jacocoAggregatedReport.configure {
     executionData.setFrom(aggregatedExecutionData)
