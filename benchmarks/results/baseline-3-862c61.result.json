@@ -1,0 +1,23 @@
+{
+  "batch": 1000,
+  "cpu_seconds": 159.39,
+  "duplicates": 0,
+  "events": 100000,
+  "events_committed": 100000,
+  "events_received": 100000,
+  "idle_transactions_per_minute": 1147.0,
+  "latency_ms": {
+    "max": 195781.0,
+    "p50": 97059.0,
+    "p95": 182432.0,
+    "p99": 189950.0
+  },
+  "peak_rss_mib": 222.6,
+  "produce_and_deliver_seconds": 208.986,
+  "received": 100000,
+  "receiver_delay_ms": 0,
+  "run": 3,
+  "throughput_per_second": 482.4,
+  "variant": "baseline",
+  "wall_seconds": 207.287
+}

@@ -82,3 +82,8 @@ node_modules/
 .claude/
 .mcp.json
 CLAUDE.md
+
+# Benchmark output. The small per-run result files are committed; the raw event files,
+# logs, configurations and capture state of a run are not.
+benchmarks/results/*
+!benchmarks/results/*.result.json
