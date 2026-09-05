@@ -6,6 +6,10 @@ on:
   push:
     branches: [main]
   pull_request:
+  # The full matrix runs nightly as well, so a leg that a pull request skips still runs every
+  # day against the default branch.
+  schedule:
+    - cron: "0 3 * * *"
 
 permissions:
   contents: read
@@ -28,7 +32,9 @@ jobs:
       matrix:
         # F-062: 21 is the supported release. The build target is Java 21 bytecode.
         # The build also runs on 22 and 23 to prove that a newer JDK compiles the code.
-        java: ["21", "22", "23"]
+        # A pull request builds on the shipped toolchain only. The image ships Java 21, so 22 and
+        # 23 prove forward compatibility, which is a nightly and main-branch concern.
+        java: ${{ github.event_name == 'pull_request' && fromJSON('["21"]') || fromJSON('["21","22","23"]') }}
     steps:
       - name: Check out the repository
         uses: actions/checkout@v4
@@ -55,27 +61,12 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - database: postgres
-            version: "14"
-            image_env: QUEUEBOX_TEST_POSTGRES_IMAGE
-            image: postgres:14
-          - database: postgres
-            version: "15"
-            image_env: QUEUEBOX_TEST_POSTGRES_IMAGE
-            image: postgres:15
-          - database: postgres
-            version: "16"
-            image_env: QUEUEBOX_TEST_POSTGRES_IMAGE
-            image: postgres:16
-          - database: sqlserver
-            version: "2019"
-            image_env: QUEUEBOX_TEST_SQLSERVER_IMAGE
-            image: mcr.microsoft.com/mssql/server:2019-latest
-          - database: sqlserver
-            version: "2022"
-            image_env: QUEUEBOX_TEST_SQLSERVER_IMAGE
-            image: mcr.microsoft.com/mssql/server:2022-latest
+        # A pull request runs the NEWEST version of each database. That keeps both dialects, and
+        # therefore the claim fence and the migration set of each, proven on every change. The
+        # older versions back the compatibility range in README.md, so they run nightly and on
+        # main. Do NOT reduce this to one database: several defects of this effort appeared in one
+        # dialect only.
+        include: ${{ github.event_name == 'pull_request' && fromJSON('[{"database":"postgres","version":"16","image_env":"QUEUEBOX_TEST_POSTGRES_IMAGE","image":"postgres:16"},{"database":"sqlserver","version":"2022","image_env":"QUEUEBOX_TEST_SQLSERVER_IMAGE","image":"mcr.microsoft.com/mssql/server:2022-latest"}]') || fromJSON('[{"database":"postgres","version":"14","image_env":"QUEUEBOX_TEST_POSTGRES_IMAGE","image":"postgres:14"},{"database":"postgres","version":"15","image_env":"QUEUEBOX_TEST_POSTGRES_IMAGE","image":"postgres:15"},{"database":"postgres","version":"16","image_env":"QUEUEBOX_TEST_POSTGRES_IMAGE","image":"postgres:16"},{"database":"sqlserver","version":"2019","image_env":"QUEUEBOX_TEST_SQLSERVER_IMAGE","image":"mcr.microsoft.com/mssql/server:2019-latest"},{"database":"sqlserver","version":"2022","image_env":"QUEUEBOX_TEST_SQLSERVER_IMAGE","image":"mcr.microsoft.com/mssql/server:2022-latest"}]') }}
     steps:
       - name: Check out the repository
         uses: actions/checkout@v4
@@ -285,6 +276,9 @@ jobs:
   examples:
     name: Examples
     runs-on: ubuntu-latest
+    # The `compose` job proves the HTTP and the RabbitMQ delivery path on every pull
+    # request. Three more configurations are a nightly and main-branch concern.
+    if: github.event_name != 'pull_request'
     # F-081: every example ships a smoke test, and the smoke test is the proof that the example
     # works. An example that nobody runs rots.
     strategy:
@@ -303,6 +297,9 @@ jobs:
   manual-setup:
     name: Manual setup
     runs-on: ubuntu-latest
+    # `DocumentedExamplesTest` guards the document on every pull request, and the steps
+    # change rarely.
+    if: github.event_name != 'pull_request'
     # F-075: the Manual Setup steps of docs/getting-started.md must work. This job runs them
     # verbatim. A change to that section that breaks a step fails this job.
     services:
