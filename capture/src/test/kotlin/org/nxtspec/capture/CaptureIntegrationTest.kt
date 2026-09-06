@@ -3,6 +3,8 @@ package org.nxtspec.capture
 import com.microsoft.sqlserver.jdbc.SQLServerDataSource
 import kotlinx.coroutines.*
 import kotlinx.serialization.json.JsonObject
+import org.jetbrains.exposed.sql.Database
+import org.jetbrains.exposed.sql.transactions.TransactionManager
 import org.junit.jupiter.api.Tag
 import org.junit.jupiter.api.Test
 import org.nxtspec.*
@@ -47,6 +49,7 @@ class CaptureIntegrationTest {
                 it.createStatement().use { stmt -> stmt.execute("CREATE PUBLICATION queuebox_outbox FOR TABLE outbox") }
             }
             DatabaseFactory.init(source)
+            bindDefaultDatabase(source)
             exercise(config, source, OutboxRepository())
         }
     }
@@ -79,8 +82,23 @@ class CaptureIntegrationTest {
                     }
                 }
                 SqlServerDatabaseFactory.init(source)
+                bindDefaultDatabase(source)
                 exercise(config, source, SqlServerOutboxRepository())
             }
+    }
+
+    /**
+     * Binds the database of this test as the default of the JVM.
+     *
+     * Exposed resolves a transaction against one global default. Both tests of this class run in
+     * one JVM and each connects its own dialect, so the one that connects last owns the default.
+     * The PostgreSQL poller then issued its claims against a SQL Server container that the other
+     * test had already stopped, and the log said so:
+     * "The poll cycle failed. Reason: SQLServerException: The TCP/IP connection ... has failed".
+     * No delivery followed, and the test failed on a timeout that looked like slowness.
+     */
+    private fun bindDefaultDatabase(source: DataSource) {
+        TransactionManager.defaultDatabase = Database.connect(source)
     }
 
     private suspend fun exercise(database: DatabaseConfig, source: DataSource, repository: OutboxRepositoryInterface) {
@@ -152,7 +170,11 @@ class CaptureIntegrationTest {
             // for a state change that has already been decided. Five seconds was too tight on a
             // two-core runner.
             withTimeout(STATE_TIMEOUT_MS) { while (repository.countByState("sent") != 1L) delay(20) }
-            assertNull(withTimeoutOrNull(1000) { received.receive() }, "State updates must not create deliveries")
+            assertNull(
+                withTimeoutOrNull(1000) { received.receive() }?.id,
+                "State updates must not create deliveries. The first delivery was ${message.id}, " +
+                    "so an identical identifier here means the row was published twice."
+            )
 
             // A scheduled retry has no capture event of its own, because the retry only updates
             // the row. The scheduled deadline must therefore wake delivery well inside the

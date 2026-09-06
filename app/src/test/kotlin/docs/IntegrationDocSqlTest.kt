@@ -120,7 +120,9 @@ class IntegrationDocSqlTest {
 
     @AfterAll
     fun stopInfrastructure() {
-        TransactionManager.defaultDatabase = previousDefaultDatabase
+        // Only restore a default that actually existed. Setting null makes Exposed fall back to
+        // the first database it ever registered, which is the pool the next lines close.
+        previousDefaultDatabase?.let { TransactionManager.defaultDatabase = it }
         postgresConnection.close()
         sqlServerConnection.close()
         postgresDataSource?.close()

@@ -1,0 +1,14 @@
+<configuration>
+    <appender name="text" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>%d{HH:mm:ss.SSS} %-5level %logger{20} - %msg%n</pattern>
+        </encoder>
+    </appender>
+    <!-- The delivery decisions of the poller explain a duplicate or a lost claim. -->
+    <logger name="org.nxtspec" level="INFO"/>
+    <logger name="io.debezium" level="WARN"/>
+    <logger name="org.apache.kafka" level="WARN"/>
+    <root level="WARN">
+        <appender-ref ref="text"/>
+    </root>
+</configuration>

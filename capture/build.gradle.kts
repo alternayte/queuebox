@@ -15,6 +15,8 @@ dependencies {
     implementation("io.debezium:debezium-storage-file:$debeziumVersion")
     testImplementation(libs.kotlin.test)
     testImplementation(libs.kotlinx.coroutines.test)
+    // Without a binding the module's tests are silent, so a delivery decision leaves no trace.
+    testImplementation(libs.logback.classic)
     testImplementation(libs.testcontainers.postgresql)
     testImplementation(libs.testcontainers.mssqlserver)
     testImplementation(libs.testcontainers.junit)

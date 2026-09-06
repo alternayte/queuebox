@@ -12,16 +12,19 @@ import kotlinx.datetime.Clock
 import kotlinx.datetime.Instant
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
+import org.jetbrains.exposed.sql.Database
 import org.jetbrains.exposed.sql.SchemaUtils
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
 import org.jetbrains.exposed.sql.and
 import org.jetbrains.exposed.sql.deleteAll
 import org.jetbrains.exposed.sql.insert
 import org.jetbrains.exposed.sql.selectAll
+import org.jetbrains.exposed.sql.transactions.TransactionManager
 import org.jetbrains.exposed.sql.transactions.transaction
 import org.junit.jupiter.api.AfterAll
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeAll
+import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Tag
 import org.junit.jupiter.api.TestInstance
 import org.nxtspec.DatabaseConfig
@@ -90,6 +93,17 @@ abstract class E2ETestBase {
         // One data source for the whole JVM.
         private var sharedDataSource: HikariDataSource? = null
 
+        /**
+         * The Exposed database of that data source.
+         *
+         * Exposed resolves a transaction against one global default database, and several test
+         * classes in this module connect their own. A class that closes its pool can leave the
+         * default pointing at it, and every later class then fails with "HikariDataSource has
+         * been closed". Holding this reference lets every E2E class bind the default back to the
+         * shared pool before its own tests run, whatever ran before it.
+         */
+        private var sharedDatabase: Database? = null
+
         @JvmStatic
         fun sharedDataSource(): HikariDataSource = synchronized(this) {
             sharedDataSource ?: run {
@@ -100,7 +114,7 @@ abstract class E2ETestBase {
                     poolSize = 10
                 )
                 val created = DatabaseFactory.create(config)
-                DatabaseFactory.init(created)
+                sharedDatabase = Database.connect(created)
                 sharedDataSource = created
                 created
             }
@@ -119,7 +133,8 @@ abstract class E2ETestBase {
     @BeforeAll
     fun setupDatabase() {
         dataSource = sharedDataSource()
-        DatabaseFactory.init(dataSource)
+        // Bind the default explicitly rather than rely on what the previous class left behind.
+        TransactionManager.defaultDatabase = sharedDatabase
         createTables()
     }
 
@@ -128,8 +143,24 @@ abstract class E2ETestBase {
         // The shared data source stays open for the remaining test classes.
     }
 
+    /**
+     * Binds the shared database before every test.
+     *
+     * Binding once per class is not enough. `E2EStartupTest` and `E2EShutdownTest` let the
+     * application connect its own pool and then close it, which leaves the global default
+     * pointing at a closed pool. The next thing to open a transaction fails with
+     * "HikariDataSource has been closed", and that is usually a later test rather than the one
+     * that closed the pool.
+     */
+    @BeforeEach
+    fun bindSharedDatabase() {
+        TransactionManager.defaultDatabase = sharedDatabase
+    }
+
     @AfterEach
     fun cleanupData() {
+        // The test itself may have replaced the default, so bind again before the truncate.
+        TransactionManager.defaultDatabase = sharedDatabase
         truncateTables()
         mockHttpServer?.stop()
         mockHttpServer = null
