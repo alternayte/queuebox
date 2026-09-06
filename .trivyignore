@@ -6,5 +6,10 @@
 # 3. Review every entry when the security workflow runs its weekly schedule.
 # 4. Never suppress an advisory that a dependency upgrade can fix. Upgrade instead.
 #
-# Example, kept as a template. Remove it when the first real entry arrives.
-# CVE-0000-00000  # Reason. Reviewed 2026-09-04. Recheck 2026-12-04.
+# The image scan reads the version from the jar manifest, which says `12.8.2`, and drops the
+# `.jre11` qualifier that the coordinate carries. It then compares `12.8.2` against a fixed list
+# whose entries all carry the qualifier, and reports the fixed release as vulnerable. QueueBox
+# resolves `com.microsoft.sqlserver:mssql-jdbc:12.8.2.jre11`, which IS the fixed release, and
+# the dependency scan of the bill of materials reports nothing for it. Rule 4 does not apply:
+# there is no upgrade to make. Remove this line when the scanner compares the qualifier.
+CVE-2025-59250  # mssql-jdbc 12.8.2.jre11 is the fixed release. Reviewed 2026-09-06. Recheck 2026-12-06.

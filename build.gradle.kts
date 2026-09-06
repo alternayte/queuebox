@@ -45,6 +45,17 @@ version = (findProperty("queueboxVersion") as String?) ?: gitVersion()
  * release publishes. The plugin does not support the configuration cache, so the command is
  * `./gradlew sbom --no-configuration-cache`.
  */
+/**
+ * The bill of materials describes what a release SHIPS. The plugin defaults to every
+ * configuration, which pulls the whole test harness into the document: Kafka Connect runtime,
+ * Jetty, Testcontainers and the rest. A scan of that document then blocks a release on a
+ * vulnerability in code that never leaves the build machine, and it hides the shipped set in the
+ * noise. Only the runtime class path ships.
+ */
+tasks.named<org.cyclonedx.gradle.CycloneDxTask>("cyclonedxBom") {
+    includeConfigs = listOf("runtimeClasspath")
+}
+
 val sbom by tasks.registering(Copy::class) {
     group = "documentation"
     description = "Builds the software bill of materials under the released name"

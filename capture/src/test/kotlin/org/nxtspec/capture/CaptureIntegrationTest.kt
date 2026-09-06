@@ -73,7 +73,11 @@ class CaptureIntegrationTest {
             enabled = true,
             identity = "capture_test",
             stateDirectory = directory.toString(),
-            reconciliationIntervalMs = 60000,
+            // Five minutes. The assertions below allow one minute, so a delivery inside that
+            // minute cannot have come from reconciliation, whatever the load on the machine.
+            // A tighter timer would make the proof depend on how busy the runner is, which is
+            // how this test failed on a loaded workstation and on a two-core runner.
+            reconciliationIntervalMs = 300000,
             connection = CaptureConnection(trustServerCertificate = true)
         )
         val signal = DeliverySignal()
@@ -122,27 +126,24 @@ class CaptureIntegrationTest {
             delay(1500)
             val message = OutboxMessage(topic = "test", payload = JsonObject(emptyMap()))
             repository.insert(message)
-            // The reconciliation timer is 60 seconds, so any delivery inside 30 came from a
-            // capture wake. The margin is wide because a two-core continuous integration runner
-            // needs longer than a workstation to start the connector and read the log.
             assertEquals(
                 message.id,
-                withTimeout(30000) { received.receive() }.id,
-                "Delivery must beat the 60-second reconciliation timer"
+                withTimeout(60000) { received.receive() }.id,
+                "Delivery must beat the five-minute reconciliation timer"
             )
             withTimeout(5000) { while (repository.countByState("sent") != 1L) delay(20) }
             assertNull(withTimeoutOrNull(1000) { received.receive() }, "State updates must not create deliveries")
 
             // A scheduled retry has no capture event of its own, because the retry only updates
             // the row. The scheduled deadline must therefore wake delivery well inside the
-            // 60-second reconciliation timer.
+            // reconciliation timer.
             val retried = OutboxMessage(topic = "test", payload = JsonObject(emptyMap()))
             failOnce.add(retried.id)
             repository.insert(retried)
             assertEquals(
                 retried.id,
-                withTimeout(30000) { received.receive() }.id,
-                "The scheduled retry must beat the 60-second reconciliation timer"
+                withTimeout(60000) { received.receive() }.id,
+                "The scheduled retry must beat the five-minute reconciliation timer"
             )
             withTimeout(5000) { while (repository.countByState("sent") != 2L) delay(20) }
 
@@ -169,7 +170,7 @@ class CaptureIntegrationTest {
             }
             val afterRestart = OutboxMessage(topic = "test", payload = JsonObject(emptyMap()))
             repository.insert(afterRestart)
-            assertEquals(afterRestart.id, withTimeout(30000) { received.receive() }.id)
+            assertEquals(afterRestart.id, withTimeout(60000) { received.receive() }.id)
             capture.shutdown()
 
             // Changed capture settings must never reuse the offsets of the previous settings.

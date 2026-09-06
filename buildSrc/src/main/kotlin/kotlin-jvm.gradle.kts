@@ -148,6 +148,70 @@ if (project.name == "core") {
     }
 }
 
+/**
+ * Raises every transitive artifact that the security scan reports to the lowest release with no
+ * HIGH or CRITICAL advisory. A constraint is not a dependency: it changes the version of an
+ * artifact that something else already pulls in, and adds nothing to a module that pulls in
+ * nothing. Most of these arrive through the embedded capture connector, which brings the Kafka
+ * Connect runtime, and that runtime brings Jetty.
+ *
+ * The floors live in `gradle/libs.versions.toml`, so no version is written here. See F-067.
+ */
+dependencies {
+    constraints {
+        // `jackson-annotations` carries its own version line and publishes no matching release,
+        // so it stays out. The advisories name the core and the databind artifacts, and the
+        // databind release chooses the annotations version it needs.
+        listOf(
+            "com.fasterxml.jackson.core:jackson-core",
+            "com.fasterxml.jackson.core:jackson-databind"
+        ).forEach { add("implementation", "$it:${catalogVersion("jacksonFloor")}") }
+
+        listOf(
+            "io.netty:netty-buffer",
+            "io.netty:netty-codec-base",
+            "io.netty:netty-codec-compression",
+            "io.netty:netty-codec-http",
+            "io.netty:netty-codec-http2",
+            "io.netty:netty-common",
+            "io.netty:netty-handler",
+            "io.netty:netty-resolver",
+            "io.netty:netty-transport",
+            "io.netty:netty-transport-classes-epoll",
+            "io.netty:netty-transport-classes-kqueue",
+            "io.netty:netty-transport-native-epoll",
+            "io.netty:netty-transport-native-kqueue",
+            "io.netty:netty-transport-native-unix-common"
+        ).forEach { add("implementation", "$it:${catalogVersion("nettyFloor")}") }
+
+        listOf(
+            "org.apache.kafka:kafka-clients",
+            "org.apache.kafka:connect-api",
+            "org.apache.kafka:connect-file",
+            "org.apache.kafka:connect-json",
+            "org.apache.kafka:connect-runtime",
+            "org.apache.kafka:connect-transforms"
+        ).forEach { add("implementation", "$it:${catalogVersion("kafkaFloor")}") }
+
+        listOf(
+            "org.eclipse.jetty:jetty-alpn-client",
+            "org.eclipse.jetty:jetty-client",
+            "org.eclipse.jetty:jetty-http",
+            "org.eclipse.jetty:jetty-io",
+            "org.eclipse.jetty:jetty-security",
+            "org.eclipse.jetty:jetty-server",
+            "org.eclipse.jetty:jetty-session",
+            "org.eclipse.jetty:jetty-util",
+            "org.eclipse.jetty.ee10:jetty-ee10-servlet",
+            "org.eclipse.jetty.ee10:jetty-ee10-servlets"
+        ).forEach { add("implementation", "$it:${catalogVersion("jettyFloor")}") }
+
+        add("implementation", "net.minidev:json-smart:${catalogVersion("jsonSmartFloor")}")
+        add("implementation", "org.lz4:lz4-java:${catalogVersion("lz4Floor")}")
+        add("implementation", "org.codehaus.plexus:plexus-utils:${catalogVersion("plexusUtilsFloor")}")
+    }
+}
+
 tasks.withType<Test>().configureEach {
     // Configure all test Gradle tasks to use JUnitPlatform.
     useJUnitPlatform()

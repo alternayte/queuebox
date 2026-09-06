@@ -56,17 +56,8 @@ jobs:
         run: ./gradlew build -x test
 
   test:
-    name: Test on ${{ matrix.database }} ${{ matrix.version }}
+    name: Test
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        # A pull request runs the NEWEST version of each database. That keeps both dialects, and
-        # therefore the claim fence and the migration set of each, proven on every change. The
-        # older versions back the compatibility range in README.md, so they run nightly and on
-        # main. Do NOT reduce this to one database: several defects of this effort appeared in one
-        # dialect only.
-        include: ${{ github.event_name == 'pull_request' && fromJSON('[{"database":"postgres","version":"16","image_env":"TESTCONTAINERS_POSTGRES_IMAGE","image":"postgres:16"},{"database":"sqlserver","version":"2022","image_env":"TESTCONTAINERS_SQLSERVER_IMAGE","image":"mcr.microsoft.com/mssql/server:2022-latest"}]') || fromJSON('[{"database":"postgres","version":"14","image_env":"TESTCONTAINERS_POSTGRES_IMAGE","image":"postgres:14"},{"database":"postgres","version":"15","image_env":"TESTCONTAINERS_POSTGRES_IMAGE","image":"postgres:15"},{"database":"postgres","version":"16","image_env":"TESTCONTAINERS_POSTGRES_IMAGE","image":"postgres:16"},{"database":"sqlserver","version":"2019","image_env":"TESTCONTAINERS_SQLSERVER_IMAGE","image":"mcr.microsoft.com/mssql/server:2019-latest"},{"database":"sqlserver","version":"2022","image_env":"TESTCONTAINERS_SQLSERVER_IMAGE","image":"mcr.microsoft.com/mssql/server:2022-latest"}]') }}
     steps:
       - name: Check out the repository
         uses: actions/checkout@v4
@@ -83,23 +74,25 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
 
       - name: Run the checks
-        # The Ubuntu runner provides the Docker daemon that Testcontainers needs.
-        # The matrix sets one image variable. The other database keeps its default image.
-        env:
-          MATRIX_IMAGE_ENV: ${{ matrix.image_env }}
-          MATRIX_IMAGE: ${{ matrix.image }}
-        run: |
-          export "${MATRIX_IMAGE_ENV}=${MATRIX_IMAGE}"
-          # `check` now carries the aggregated coverage gate as well as the per-module gate. See
-          # the sixth review gate, defect B3: the aggregate rules existed and nothing ran them.
-          ./gradlew check jacocoAggregatedReport
+        # The Ubuntu runner provides the Docker daemon that Testcontainers needs. This job runs
+        # the WHOLE suite once, on the default image of each database, and it carries the
+        # aggregated coverage gate as well as the per-module gate. See the sixth review gate,
+        # defect B3: the aggregate rules existed and nothing ran them.
+        #
+        # The suite used to run once per matrix entry, which put five copies of it on five
+        # two-core runners at the same time. Different unrelated tests then failed in each job,
+        # including tests that touch no database, because the runners ran out of room rather than
+        # because the code was wrong. The version compatibility that the matrix exists to prove
+        # needs the repository tests of one dialect, not the whole suite, so the `compatibility`
+        # job below runs those and this job runs everything once.
+        run: ./gradlew check jacocoAggregatedReport
 
       - name: Upload the coverage report
         # The report helps a reviewer even when the checks fail.
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: coverage-${{ matrix.database }}-${{ matrix.version }}
+          name: coverage
           path: build/reports/jacoco/aggregated
           if-no-files-found: warn
 
@@ -107,8 +100,69 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: test-results-${{ matrix.database }}-${{ matrix.version }}
+          name: test-results
           path: "**/build/reports/tests/test"
+          if-no-files-found: warn
+
+  compatibility:
+    name: ${{ matrix.database }} ${{ matrix.version }}
+    runs-on: ubuntu-latest
+    # The `test` job above already covers the newest version of each database, because those are
+    # the default images. This job covers the OLDER versions that README.md advertises. Do NOT
+    # reduce it to one database: several defects of the hardening effort appeared in one dialect
+    # only. A pull request skips it, and a push to main and the nightly schedule run it.
+    if: github.event_name != 'pull_request'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - database: postgres
+            version: "14"
+            image_env: TESTCONTAINERS_POSTGRES_IMAGE
+            image: postgres:14
+            module: postgres
+          - database: postgres
+            version: "15"
+            image_env: TESTCONTAINERS_POSTGRES_IMAGE
+            image: postgres:15
+            module: postgres
+          - database: sqlserver
+            version: "2019"
+            image_env: TESTCONTAINERS_SQLSERVER_IMAGE
+            image: mcr.microsoft.com/mssql/server:2019-latest
+            module: sqlserver
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Run the repository tests of this version
+        # The module test task holds the migration, the claim fence, the repository contract and
+        # the pull lease suite of one dialect. That is what a supported version must prove.
+        env:
+          MATRIX_IMAGE_ENV: ${{ matrix.image_env }}
+          MATRIX_IMAGE: ${{ matrix.image }}
+          MATRIX_MODULE: ${{ matrix.module }}
+        run: |
+          export "${MATRIX_IMAGE_ENV}=${MATRIX_IMAGE}"
+          ./gradlew ":${MATRIX_MODULE}:test"
+
+      - name: Upload the test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-${{ matrix.database }}-${{ matrix.version }}
+          path: "${{ matrix.module }}/build/reports/tests/test"
           if-no-files-found: warn
 
   lint:

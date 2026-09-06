@@ -13,6 +13,12 @@ FROM eclipse-temurin@sha256:974b08960c5d96694c780e65b2d5705268ab1e1ca1a0dd0caf4b
 # eclipse-temurin:21-jre-alpine
 WORKDIR /app
 
+# The base image lags the Alpine security branch, and a released image must not carry a known
+# HIGH advisory that a patched package already fixes. This upgrades the TLS packages only, so
+# the rest of the image stays exactly as the pinned digest built it. Remove it once the pinned
+# Temurin digest ships the fixed packages itself.
+RUN apk --no-cache upgrade openssl libssl3 libcrypto3
+
 # Copy built application
 COPY --from=builder /app/app/build/install/app .
 
