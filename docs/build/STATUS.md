@@ -740,8 +740,9 @@ that this codebase rewards continued adversarial review rather than that it is n
 ## Post-hardening effort — the claim contract, capture and evidence
 
 This effort is not part of `hardening-doc.md`. It was requested separately and delivered in three
-commits on `main`: `6c546b3`, `f5258db` and `982ad9a`, with the continuous integration repairs in
-`cbb5876`.
+commits on `main`: `6c546b3`, `f5258db` and `982ad9a`. The repairs that the first live workflow
+runs then demanded follow in `cbb5876`, `f83b8f3`, `45cf371` and `5b9f544`, and `97ccdd0` prepared
+the release.
 
 ### What it added
 
@@ -775,6 +776,25 @@ commits on `main`: `6c546b3`, `f5258db` and `982ad9a`, with the continuous integ
    leaving it, so it always waited to the end and could count a redelivery. The other waited for a
    persisted error before asserting that the destination had received a secret, which a first
    attempt that never reached the destination satisfies.
+6. **The bill of materials described the test harness.** The document covered every configuration,
+   so a scan of it blocked a release on a vulnerability in code that never ships, and it hid the
+   shipped set in the noise. It now covers the runtime class path.
+7. **The shipped set carried 42 HIGH and CRITICAL advisories.** The scan had never run, so nobody
+   had seen them. Most arrived with the capture connector, which brings the Kafka Connect runtime,
+   and that runtime brings Jetty. Four direct dependencies moved to fixed releases and the rest are
+   raised by constraints, with the floors in the version catalogue. The base image still lagged the
+   Alpine security branch, so the runtime stage upgrades the three TLS packages.
+8. **A document test bound one dialect to the other's database.** Exposed resolves a suspended
+   transaction against one global default, and that test drives both dialects in one process. A
+   PostgreSQL repository reached a SQL Server connection and sent `clock_timestamp()` to it. The
+   delivery arrived, the terminal write failed, and the row went back to pending. The failure read
+   as a slow runner and was not.
+
+### The release
+
+`v0.1.0` was cut from `97ccdd0` after `ci` and `security` both passed on `main`. The release
+workflow published the image for both architectures, attached the bill of materials, and pushed
+the provenance attestation. See open question 2 below.
 
 ### What this effort did not prove
 
@@ -786,8 +806,8 @@ retry, dead-lettering, replay, retention and custom mappings are proved in polli
 
 ## Next phase
 
-**All six phases are complete, and the post-hardening effort above is delivered.** The remaining
-work is the maintainer's, below.
+**All six phases are complete, the post-hardening effort above is delivered, and `v0.1.0` is
+released.** The remaining work is the maintainer's, below.
 
 ## Open questions for the maintainer
 
@@ -796,15 +816,24 @@ carries the suggested description and the eleven suggested topics. The build, se
 license and coverage badges resolve. The coverage badge still states the gate that CI enforces
 rather than a measured figure, because the project has adopted no coverage service.
 
-**2. F-063 needs the GHCR permissions that only the maintainer can grant.** The release workflow
-stays unproven until then.
+**2. F-063 is closed. The release ran and needed no extra permission.** The `packages: write`
+that the job already declared was enough for the GHCR login, so no maintainer grant was needed.
+The tag `v0.1.0` published `ghcr.io/alternayte/queuebox` for `linux/amd64` and `linux/arm64` under
+the three tags `0.1.0`, `0.1` and `latest`, attached the bill of materials to the GitHub release,
+and pushed the provenance attestation to the registry.
 
-**3. The workflows have now run on `main`, except the release.** The first run exposed two defects
-that only a live run could show: the database matrix collided with the configuration namespace,
-and the trivy action reference never resolved. Both are fixed in `cbb5876`. The `compose`,
-`examples`, `manual-setup`, `docker`, lint, build and database matrix paths have all executed.
-**The release workflow has still never run**, so the tag path stays unproven. Treat the first tag
-as a deliberate test of the publish path rather than a routine release.
+The package is public. An anonymous pull of each of the three tags answers 200, so no visibility
+change was needed either.
+
+**3. Every workflow has now run on `main`, the release included.** Live runs exposed defects that
+no amount of reading could: the database matrix collided with the configuration namespace, the
+trivy action reference never resolved, the bill of materials described the test harness rather
+than the shipped set, and a document test bound a PostgreSQL repository to a SQL Server
+connection. Each is fixed in `cbb5876`, `45cf371` or `5b9f544`.
+
+The database matrix used to run the whole suite once per entry, which starved five two-core
+runners at the same time and failed different unrelated tests in each. The suite now runs once,
+and the compatibility jobs run the repository tests of one dialect against each older version.
 
 **4. `CODE_OF_CONDUCT.md` carries the GitHub noreply commit address**, which receives no mail. It
 needs a real inbox.
