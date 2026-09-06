@@ -49,7 +49,7 @@ jobs:
           java-version: ${{ matrix.java }}
 
       - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v4
+        uses: gradle/actions/setup-gradle@v6
 
       - name: Assemble the project
         # `-x test` keeps the container tests in the test job, which holds the database matrix.
@@ -71,7 +71,7 @@ jobs:
           java-version: "21"
 
       - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v4
+        uses: gradle/actions/setup-gradle@v6
 
       - name: Run the checks
         # The Ubuntu runner provides the Docker daemon that Testcontainers needs. This job runs
@@ -144,7 +144,7 @@ jobs:
           java-version: "21"
 
       - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v4
+        uses: gradle/actions/setup-gradle@v6
 
       - name: Run the repository tests of this version
         # The module test task holds the migration, the claim fence, the repository contract and
@@ -184,7 +184,7 @@ jobs:
           java-version: "21"
 
       - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v4
+        uses: gradle/actions/setup-gradle@v6
 
       - name: Run ktlint and detekt
         run: ./gradlew ktlintCheck detekt
