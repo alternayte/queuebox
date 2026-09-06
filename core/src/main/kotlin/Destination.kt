@@ -51,6 +51,33 @@ sealed interface Destination {
             "securityProtocol=$securityProtocol, saslMechanism=$saslMechanism, saslUsername=$saslUsername)"
     }
 
+    /**
+     * A NATS subject.
+     *
+     * `jetStream` decides what a successful publish means. With JetStream the broker answers
+     * with an acknowledgement, so the outbox marks the row sent only after the message is
+     * durable. Core NATS has no acknowledgement at all: the publish is fire and forget, and a
+     * message can vanish with no error. Keep JetStream unless the subject is genuinely a
+     * best-effort signal.
+     */
+    @Serializable
+    @SerialName("nats")
+    data class Nats(
+        val name: String,
+        val servers: String,
+        val subject: String,
+        val jetStream: Boolean = true,
+        val headers: Map<String, String> = emptyMap(),
+        val username: String? = null,
+        val password: Secret? = null,
+        val token: Secret? = null,
+        val timeoutMs: Long = 30000
+    ) : Destination {
+        override fun toString(): String = "Nats(name=$name, servers=${CredentialMasking.maskUrl(servers)}, " +
+            "subject=$subject, jetStream=$jetStream, headers=${CredentialMasking.maskHeaders(headers)}, " +
+            "username=$username, timeoutMs=$timeoutMs)"
+    }
+
     @Serializable
     @SerialName("rabbitmq")
     data class RabbitMQ(

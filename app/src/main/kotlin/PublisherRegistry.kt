@@ -37,5 +37,6 @@ fun validatePublisherCoverage(destinations: Map<String, Destination>, publishers
 private fun destinationTypeName(destination: Destination): String = when (destination) {
     is Destination.Http -> "http"
     is Destination.Kafka -> "kafka"
+    is Destination.Nats -> "nats"
     is Destination.RabbitMQ -> "rabbitmq"
 }

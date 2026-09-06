@@ -247,6 +247,25 @@ sealed class DestinationConfig {
     }
 
     @Serializable
+    @SerialName("nats")
+    data class Nats(
+        val servers: String,
+        val subject: String,
+        /** JetStream gives the publish a broker acknowledgement. Core NATS gives none. */
+        val jetStream: Boolean = true,
+        val headers: Map<String, String> = emptyMap(),
+        val username: String? = null,
+        val password: Secret? = null,
+        val token: Secret? = null,
+        val timeoutMs: Long = 30000,
+        override val transform: TransformConfig? = null
+    ) : DestinationConfig() {
+        override fun toString(): String = "Nats(servers=${CredentialMasking.maskUrl(servers)}, " +
+            "subject=$subject, jetStream=$jetStream, headers=${CredentialMasking.maskHeaders(headers)}, " +
+            "username=$username, timeoutMs=$timeoutMs, transform=$transform)"
+    }
+
+    @Serializable
     @SerialName("rabbitmq")
     data class RabbitMQ(
         val url: String,
@@ -351,6 +370,49 @@ sealed class SourceConfig {
             "securityProtocol=$securityProtocol, saslMechanism=$saslMechanism, " +
             "saslUsername=$saslUsername, transform=$transform, topic=$topic, " +
             "consumption=$consumption, rateLimit=$rateLimit)"
+    }
+
+    /**
+     * A NATS JetStream consumer that fills the inbox.
+     *
+     * The source is JetStream only. Core NATS delivers a message once, to whoever is listening
+     * at that moment, and it can acknowledge nothing. An inbox built on it would lose every
+     * message that arrives while QueueBox restarts, which is the opposite of what an inbox is
+     * for. JetStream keeps the message until this consumer acknowledges it.
+     */
+    @Serializable
+    @SerialName("nats")
+    data class Nats(
+        val servers: String,
+        /** The JetStream stream that holds the subject. QueueBox never creates it. */
+        val stream: String,
+        /** The durable consumer name. Two replicas that share it share the work. */
+        val durable: String,
+        /** Optional filter. The default consumes every subject of the stream. */
+        val filterSubject: String? = null,
+        val idempotencyKeyPath: String = "$.id",
+        val aggregateIdPath: String? = null,
+        val eventTypePath: String? = null,
+        /** Declares that every publisher sets the `x-event-type` message header. */
+        val eventTypeFromHeader: Boolean = false,
+        /** How long JetStream waits for the acknowledgement before it redelivers. */
+        val ackWaitMs: Long = 30000,
+        /** The largest number of messages that one fetch returns. */
+        val batchSize: Int = 100,
+        val username: String? = null,
+        val password: Secret? = null,
+        val token: Secret? = null,
+        override val transform: TransformConfig? = null,
+        override val topic: String = "{{ source }}",
+        override val consumption: String = "push",
+        override val rateLimit: RateLimitConfig? = null
+    ) : SourceConfig() {
+        override fun toString(): String = "Nats(servers=${CredentialMasking.maskUrl(servers)}, " +
+            "stream=$stream, durable=$durable, filterSubject=$filterSubject, " +
+            "idempotencyKeyPath=$idempotencyKeyPath, aggregateIdPath=$aggregateIdPath, " +
+            "eventTypePath=$eventTypePath, eventTypeFromHeader=$eventTypeFromHeader, " +
+            "ackWaitMs=$ackWaitMs, batchSize=$batchSize, username=$username, " +
+            "transform=$transform, topic=$topic, consumption=$consumption, rateLimit=$rateLimit)"
     }
 
     @Serializable

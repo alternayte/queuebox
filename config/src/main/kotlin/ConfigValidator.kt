@@ -199,11 +199,17 @@ object ConfigValidator {
             if (dest is DestinationConfig.Kafka) {
                 validateKafkaDestination(name, dest)
             }
+            if (dest is DestinationConfig.Nats) {
+                validateNatsDestination(name, dest)
+            }
         }
 
         config.sources.forEach { (name, source) ->
             if (source is SourceConfig.Kafka) {
                 validateKafkaSource(name, source)
+            }
+            if (source is SourceConfig.Nats) {
+                validateNatsSource(name, source)
             }
         }
 
@@ -300,6 +306,11 @@ object ConfigValidator {
                 "aggregateIdPath" to source.aggregateIdPath,
                 "eventTypePath" to source.eventTypePath
             )
+            is SourceConfig.Nats -> listOf(
+                "idempotencyKeyPath" to source.idempotencyKeyPath,
+                "aggregateIdPath" to source.aggregateIdPath,
+                "eventTypePath" to source.eventTypePath
+            )
         }
 
         paths.forEach { (field, path) ->
@@ -356,6 +367,20 @@ object ConfigValidator {
                         "'sources.$name.eventTypeFromHeader' to true when every producer sets the " +
                         "'x-event-type' record header, or set a 'sources.$name.topic' template that " +
                         "does not use eventType."
+                }
+
+            is SourceConfig.Nats ->
+                // A NATS message carries headers, so the event type has the same two sources as
+                // an AMQP or a Kafka one.
+                require(source.eventTypePath != null || source.eventTypeFromHeader) {
+                    "Source '$name' topic template '${source.topic}' uses eventType, but " +
+                        "'sources.$name.eventTypePath' is not set and " +
+                        "'sources.$name.eventTypeFromHeader' is false. The inbox relay would mark " +
+                        "every message with no event type as dead. Set " +
+                        "'sources.$name.eventTypePath', or set " +
+                        "'sources.$name.eventTypeFromHeader' to true when every publisher sets the " +
+                        "'x-event-type' message header, or set a 'sources.$name.topic' template " +
+                        "that does not use eventType."
                 }
 
             is SourceConfig.RabbitMQ ->

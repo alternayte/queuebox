@@ -279,6 +279,7 @@ class OutboxPoller(
     private fun destinationName(destination: Destination): String = when (destination) {
         is Destination.Http -> destination.name
         is Destination.Kafka -> destination.name
+        is Destination.Nats -> destination.name
         is Destination.RabbitMQ -> destination.name
     }
 

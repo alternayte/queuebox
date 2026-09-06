@@ -22,6 +22,7 @@ dependencies {
     implementation(project(":postgres"))
     implementation(project(":rabbitmq"))
     implementation(project(":kafka"))
+    implementation(project(":nats"))
     implementation(project(":outbox-service"))
     implementation(project(":inbox-service"))
 

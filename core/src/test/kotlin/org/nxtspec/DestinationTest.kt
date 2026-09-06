@@ -85,13 +85,15 @@ class DestinationTest {
         val destinations: List<Destination> = listOf(
             Destination.Http(name = "http", baseUrl = "https://example.com"),
             Destination.RabbitMQ(name = "rabbitmq", url = "amqp://localhost", exchange = "events"),
-            Destination.Kafka(name = "kafka", bootstrapServers = "localhost:9092", topic = "events")
+            Destination.Kafka(name = "kafka", bootstrapServers = "localhost:9092", topic = "events"),
+            Destination.Nats(name = "nats", servers = "nats://localhost:4222", subject = "events.created")
         )
 
         val results = destinations.map { destination ->
             when (destination) {
                 is Destination.Http -> "HTTP: ${destination.baseUrl}"
                 is Destination.Kafka -> "Kafka: ${destination.topic}"
+                is Destination.Nats -> "NATS: ${destination.subject}"
                 is Destination.RabbitMQ -> "RabbitMQ: ${destination.exchange}"
             }
         }
@@ -99,6 +101,7 @@ class DestinationTest {
         assertEquals("HTTP: https://example.com", results[0])
         assertEquals("RabbitMQ: events", results[1])
         assertEquals("Kafka: events", results[2])
+        assertEquals("NATS: events.created", results[3])
     }
 
     @Test

@@ -140,7 +140,28 @@ destinations:
     type: rabbitmq
     url: amqp://localhost:5672
     exchange: events
-    exchangeType: topic                   # 'topic', 'direct', 'fanout'
+    exchangeType: topic
+  events-topic:
+    type: kafka
+    bootstrapServers: broker-1:9092,broker-2:9092
+    topic: orders
+    keyTemplate: "{{ key }}"          # '{{ topic }}' also renders. An empty result sends no key.
+    timeoutMs: 30000                  # The whole publish budget, at least 2000
+    securityProtocol: PLAINTEXT       # PLAINTEXT, SSL, SASL_PLAINTEXT or SASL_SSL
+    saslMechanism: null               # Required by a SASL protocol, for example SCRAM-SHA-512
+    saslUsername: null
+    saslPassword: null
+    headers:
+      x-tenant: acme
+  events-subject:
+    type: nats
+    servers: nats://localhost:4222    # A comma separates several servers
+    subject: orders.created
+    jetStream: true                   # false publishes with no acknowledgement at all
+    timeoutMs: 30000
+    username: null                    # A username needs a password
+    password: null
+    token: null                       # A token replaces the username and password                   # 'topic', 'direct', 'fanout'
 
 # Routing rules - match topics to destinations
 routes:
@@ -181,6 +202,34 @@ sources:
       signaturePrefix: "v1="
     transform:                            # Optional: transform on ingestion
       expression: '{ "event": $, "receivedAt": $now() }'
+
+  orders-topic:
+    type: kafka
+    bootstrapServers: broker-1:9092
+    topics: [orders, orders-retry]    # One consumer reads every topic in the list
+    groupId: queuebox-orders          # Every replica shares it, so partitions are shared
+    idempotencyKeyPath: $.id
+    aggregateIdPath: $.customerId     # Optional: for ordered processing
+    eventTypePath: $.type             # Optional
+    eventTypeFromHeader: false        # Declares the 'x-event-type' record header
+    autoOffsetReset: earliest         # 'earliest' or 'latest'
+    maxPollRecords: 100
+    consumption: push
+    topic: "{{ source }}"
+
+  orders-stream:
+    type: nats
+    servers: nats://localhost:4222
+    stream: ORDERS                    # The JetStream stream. QueueBox never creates it.
+    durable: queuebox-orders          # The durable consumer name
+    filterSubject: orders.>           # Optional: the default reads every subject of the stream
+    idempotencyKeyPath: $.id
+    aggregateIdPath: $.customerId
+    eventTypePath: $.type
+    eventTypeFromHeader: false
+    ackWaitMs: 30000                  # How long JetStream waits before it redelivers
+    batchSize: 100
+    consumption: push
 
   orders-queue:
     type: rabbitmq

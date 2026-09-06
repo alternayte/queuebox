@@ -88,7 +88,8 @@ fun main() {
     // registered. Without it the poller marks every RabbitMQ message as dead.
     val rabbitPublisher = RabbitPublisher(metricsCollector = metricsCollector)
     val kafkaPublisher = KafkaPublisher(metricsCollector = metricsCollector)
-    val publishers = listOf(httpPublisher, rabbitPublisher, kafkaPublisher)
+    val natsPublisher = NatsPublisher(metricsCollector = metricsCollector)
+    val publishers = listOf(httpPublisher, rabbitPublisher, kafkaPublisher, natsPublisher)
 
     // F-003: fail fast when a destination has no publisher.
     validatePublisherCoverage(destinations, publishers)
@@ -202,6 +203,16 @@ fun main() {
         inboxTransformPipeline
     )
 
+    // NATS JetStream consumers for inbox sources. Every message is acknowledged only after the
+    // inbox row commits, so a crash redelivers it and the unique constraint rejects the repeat.
+    val natsConsumers = natsInboxConsumers(
+        config,
+        inboxRepository,
+        extractor,
+        metricsCollector,
+        inboxTransformPipeline
+    )
+
     // RabbitMQ consumers for inbox sources
     val rabbitConsumers = config.sources
         .filterValues { it is SourceConfig.RabbitMQ }
@@ -230,25 +241,16 @@ fun main() {
         .filterValues { it is SourceConfig.RabbitMQ }
         .keys
         .toList()
-    val healthContributors = buildList {
-        // Capture is advisory: it shortens the delivery delay, and SQL delivery continues
-        // without it, so a capture fault must not take a working instance out of service.
-        addAll(
-            optionalComponent("outbox-capture", config.outbox.capture.enabled, advisory = true) {
-                capture.healthy
-            }
-        )
-        add(SimpleHealthContributor("outbox-poller") { outboxPoller.isRunning() })
-        addAll(retentionHealthContributors(config.retention.enabled) { retentionService.isRunning() })
-        addAll(optionalComponent("inbox-relay", config.inbox.relay.enabled) { inboxRelay.isRunning() })
-        rabbitSourceNames.forEachIndexed { index, sourceName ->
-            val consumer = rabbitConsumers[index].first
-            add(SimpleHealthContributor("rabbitmq.$sourceName") { consumer.isChannelOpen })
-        }
-        kafkaConsumers.forEach { (sourceName, consumer) ->
-            add(SimpleHealthContributor("kafka.$sourceName") { consumer.isRunning })
-        }
-    }
+    val healthContributors = healthContributors(
+        config,
+        capture,
+        outboxPoller,
+        retentionService,
+        inboxRelay,
+        rabbitSourceNames.mapIndexed { index, name -> name to rabbitConsumers[index].first },
+        kafkaConsumers,
+        natsConsumers
+    )
     val healthManager = HealthManager(dataSource, healthContributors)
 
     // F-029: hold the server reference, so the shutdown can stop it first.
@@ -336,9 +338,13 @@ fun main() {
             kafkaConsumers.forEach { (name, consumer) ->
                 stopQuietly("the Kafka consumer of source '$name'") { consumer.stop() }
             }
+            natsConsumers.forEach { (name, consumer) ->
+                stopQuietly("the NATS consumer of source '$name'") { consumer.stop() }
+            }
             stopQuietly("capture") { capture.shutdown() }
             stopQuietly("the outbox poller") { outboxPoller.shutdown() }
             stopQuietly("the Kafka publisher") { kafkaPublisher.close() }
+            stopQuietly("the NATS publisher") { natsPublisher.close() }
             stopQuietly("the inbox relay") { inboxRelay.shutdown() }
             stopQuietly("the retention service") { retentionService.stop() }
         },
@@ -370,6 +376,7 @@ fun main() {
         runBlocking {
             rabbitConsumers.forEach { (consumer, _) -> consumer.start() }
             kafkaConsumers.forEach { (_, consumer) -> consumer.start() }
+            natsConsumers.forEach { (_, consumer) -> consumer.start() }
         }
 
         managementServer?.start(wait = false)
@@ -626,6 +633,17 @@ private fun toDestination(name: String, destConfig: DestinationConfig): Destinat
         saslPassword = destConfig.saslPassword,
         timeoutMs = destConfig.timeoutMs
     )
+    is DestinationConfig.Nats -> Destination.Nats(
+        name = name,
+        servers = destConfig.servers,
+        subject = destConfig.subject,
+        jetStream = destConfig.jetStream,
+        headers = destConfig.headers,
+        username = destConfig.username,
+        password = destConfig.password,
+        token = destConfig.token,
+        timeoutMs = destConfig.timeoutMs
+    )
     is DestinationConfig.RabbitMQ -> Destination.RabbitMQ(
         name = name,
         url = destConfig.url,
@@ -633,4 +651,79 @@ private fun toDestination(name: String, destConfig: DestinationConfig): Destinat
         exchangeType = destConfig.exchangeType,
         headers = destConfig.headers
     )
+}
+
+/** Builds one NATS consumer per NATS source. Extracted from `main` for the same reason. */
+private fun natsInboxConsumers(
+    config: QueueBoxConfig,
+    inboxRepository: org.nxtspec.repository.InboxRepositoryInterface,
+    extractor: IdempotencyExtractor,
+    metricsCollector: MetricsCollector,
+    inboxTransformPipeline: org.nxtspec.transform.InboxTransformPipeline?
+): List<Pair<String, NatsInboxConsumer>> = config.sources
+    .filterValues { it is SourceConfig.Nats }
+    .map { (sourceName, sourceConfig) ->
+        val natsConfig = sourceConfig as SourceConfig.Nats
+        sourceName to NatsInboxConsumer(
+            storeMessage = inboxRepository::store,
+            extractor = extractor,
+            config = NatsConsumerConfig(
+                sourceName = sourceName,
+                servers = natsConfig.servers,
+                stream = natsConfig.stream,
+                durable = natsConfig.durable,
+                filterSubject = natsConfig.filterSubject,
+                consumption = natsConfig.consumption,
+                idempotencyKeyPath = natsConfig.idempotencyKeyPath,
+                aggregateIdPath = natsConfig.aggregateIdPath,
+                eventTypePath = natsConfig.eventTypePath,
+                ackWaitMs = natsConfig.ackWaitMs,
+                batchSize = natsConfig.batchSize,
+                username = natsConfig.username,
+                password = natsConfig.password,
+                token = natsConfig.token
+            ),
+            metricsCollector = metricsCollector,
+            transformPipeline = inboxTransformPipeline,
+            sourceTransform = natsConfig.transform,
+            storeDeadMessage = inboxRepository::storeDead
+        )
+    }
+
+/**
+ * The readiness components, one per worker and one per broker connection.
+ *
+ * It lives outside `main` because that function already carries every other wiring step and
+ * detekt reports it as too complex.
+ */
+@Suppress("LongParameterList")
+private fun healthContributors(
+    config: QueueBoxConfig,
+    capture: org.nxtspec.capture.OutboxCapture,
+    outboxPoller: OutboxPoller,
+    retentionService: RetentionService,
+    inboxRelay: InboxRelay,
+    rabbitConsumers: List<Pair<String, RabbitConsumer>>,
+    kafkaConsumers: List<Pair<String, KafkaInboxConsumer>>,
+    natsConsumers: List<Pair<String, NatsInboxConsumer>>
+): List<HealthContributor> = buildList {
+    // Capture is advisory: it shortens the delivery delay, and SQL delivery continues without
+    // it, so a capture fault must not take a working instance out of service.
+    addAll(
+        optionalComponent("outbox-capture", config.outbox.capture.enabled, advisory = true) {
+            capture.healthy
+        }
+    )
+    add(SimpleHealthContributor("outbox-poller") { outboxPoller.isRunning() })
+    addAll(retentionHealthContributors(config.retention.enabled) { retentionService.isRunning() })
+    addAll(optionalComponent("inbox-relay", config.inbox.relay.enabled) { inboxRelay.isRunning() })
+    rabbitConsumers.forEach { (sourceName, consumer) ->
+        add(SimpleHealthContributor("rabbitmq.$sourceName") { consumer.isChannelOpen })
+    }
+    kafkaConsumers.forEach { (sourceName, consumer) ->
+        add(SimpleHealthContributor("kafka.$sourceName") { consumer.isRunning })
+    }
+    natsConsumers.forEach { (sourceName, consumer) ->
+        add(SimpleHealthContributor("nats.$sourceName") { consumer.isRunning })
+    }
 }
