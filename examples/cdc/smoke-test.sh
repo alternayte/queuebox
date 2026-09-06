@@ -93,10 +93,16 @@ if [ "${connectors:-0}" -lt 2 ]; then
 fi
 
 echo "==> a second process with the same capture identity must be refused"
+# Two guards can refuse it, and which one fires depends on timing. The session lock refuses it
+# while the first instance holds capture. The state check refuses it because its volume holds no
+# state for an identity the database already knows. The first instance can also be READY with
+# its capture still starting, because capture is an advisory readiness component, so the second
+# instance sometimes reaches the state check first. Either refusal proves the same guarantee:
+# this instance does not own capture.
 docker compose -f docker-compose.yml -p "$PROJECT" --profile second up -d queuebox-second
 for _ in $(seq 1 60); do
   refused=$(docker compose -f docker-compose.yml -p "$PROJECT" logs queuebox-second 2>&1 |
-    grep -c "already has an active owner" || true)
+    grep -cE "already has an active owner|requires explicit state recovery" || true)
   if [ "$refused" -ge 1 ]; then
     break
   fi

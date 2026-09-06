@@ -27,7 +27,8 @@ which proves that the recorded log position survived on the volume.
 The smoke test then proves three more claims about the packaged image:
 
 - the distribution ships the PostgreSQL and the SQL Server connector,
-- a second process with the same capture identity is refused, and
+- a second process with the same capture identity is refused, by the session lock or by the
+  state check depending on which one it reaches first, and
 - that refused process still delivers through SQL.
 
 Only one process may own a capture identity. The second instance in this stack exists to
