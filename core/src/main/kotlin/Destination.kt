@@ -24,6 +24,33 @@ sealed interface Destination {
             "authConfig=$authConfig)"
     }
 
+    /**
+     * A Kafka topic.
+     *
+     * `bootstrapServers` can carry no credential, so it needs no mask. A SASL password does,
+     * and it lives in `saslPassword`, which is a `Secret`.
+     */
+    @Serializable
+    @SerialName("kafka")
+    data class Kafka(
+        val name: String,
+        val bootstrapServers: String,
+        val topic: String,
+        /** The record key. `{{ topic }}` and `{{ key }}` render from the outbox row. */
+        val keyTemplate: String = "{{ key }}",
+        val headers: Map<String, String> = emptyMap(),
+        val securityProtocol: String = "PLAINTEXT",
+        val saslMechanism: String? = null,
+        val saslUsername: String? = null,
+        val saslPassword: Secret? = null,
+        /** How long one publish may take, including the broker acknowledgement. */
+        val timeoutMs: Long = 30000
+    ) : Destination {
+        override fun toString(): String = "Kafka(name=$name, bootstrapServers=$bootstrapServers, " +
+            "topic=$topic, keyTemplate=$keyTemplate, headers=${CredentialMasking.maskHeaders(headers)}, " +
+            "securityProtocol=$securityProtocol, saslMechanism=$saslMechanism, saslUsername=$saslUsername)"
+    }
+
     @Serializable
     @SerialName("rabbitmq")
     data class RabbitMQ(

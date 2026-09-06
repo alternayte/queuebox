@@ -226,6 +226,27 @@ sealed class DestinationConfig {
     }
 
     @Serializable
+    @SerialName("kafka")
+    data class Kafka(
+        val bootstrapServers: String,
+        val topic: String,
+        val keyTemplate: String = "{{ key }}",
+        val headers: Map<String, String> = emptyMap(),
+        val securityProtocol: String = "PLAINTEXT",
+        val saslMechanism: String? = null,
+        val saslUsername: String? = null,
+        val saslPassword: Secret? = null,
+        val timeoutMs: Long = 30000,
+        override val transform: TransformConfig? = null
+    ) : DestinationConfig() {
+        /** F-038: a static header can carry a credential, so the printed form masks it. */
+        override fun toString(): String = "Kafka(bootstrapServers=$bootstrapServers, topic=$topic, " +
+            "keyTemplate=$keyTemplate, headers=${CredentialMasking.maskHeaders(headers)}, " +
+            "securityProtocol=$securityProtocol, saslMechanism=$saslMechanism, " +
+            "saslUsername=$saslUsername, timeoutMs=$timeoutMs, transform=$transform)"
+    }
+
+    @Serializable
     @SerialName("rabbitmq")
     data class RabbitMQ(
         val url: String,
@@ -279,6 +300,58 @@ sealed class SourceConfig {
         override val rateLimit: RateLimitConfig? = null,
         val auth: InboxAuthConfig? = null
     ) : SourceConfig()
+
+    /**
+     * A Kafka topic that QueueBox consumes into the inbox.
+     *
+     * The consumer commits the offset only after the inbox row commits, so a crash replays the
+     * record rather than losing it. The unique constraint on `(source, idempotency_key)` then
+     * rejects the repeat, which is what makes the at-least-once delivery of Kafka safe here.
+     */
+    @Serializable
+    @SerialName("kafka")
+    data class Kafka(
+        val bootstrapServers: String,
+        val topics: List<String>,
+        /** The consumer group. Two QueueBox replicas in one group share the partitions. */
+        val groupId: String,
+        val idempotencyKeyPath: String = "$.id",
+        val aggregateIdPath: String? = null,
+        /**
+         * Optional JSONPath to the event type in the message body. The consumer reads this path
+         * first, and it falls back to the `x-event-type` record header.
+         */
+        val eventTypePath: String? = null,
+        /**
+         * Declares that every producer of these topics sets the `x-event-type` record header.
+         * See the RabbitMQ source for why the declaration is explicit.
+         */
+        val eventTypeFromHeader: Boolean = false,
+        /**
+         * Where a new consumer group starts. `earliest` reads the whole retained log, which is
+         * what an inbox usually wants. `latest` skips everything committed before the start.
+         */
+        val autoOffsetReset: String = "earliest",
+        /** The largest number of records that one poll returns. */
+        val maxPollRecords: Int = 100,
+        val securityProtocol: String = "PLAINTEXT",
+        val saslMechanism: String? = null,
+        val saslUsername: String? = null,
+        val saslPassword: Secret? = null,
+        override val transform: TransformConfig? = null,
+        /** The default renders the source name, which every message carries. */
+        override val topic: String = "{{ source }}",
+        override val consumption: String = "push",
+        override val rateLimit: RateLimitConfig? = null
+    ) : SourceConfig() {
+        override fun toString(): String = "Kafka(bootstrapServers=$bootstrapServers, topics=$topics, " +
+            "groupId=$groupId, idempotencyKeyPath=$idempotencyKeyPath, aggregateIdPath=$aggregateIdPath, " +
+            "eventTypePath=$eventTypePath, eventTypeFromHeader=$eventTypeFromHeader, " +
+            "autoOffsetReset=$autoOffsetReset, maxPollRecords=$maxPollRecords, " +
+            "securityProtocol=$securityProtocol, saslMechanism=$saslMechanism, " +
+            "saslUsername=$saslUsername, transform=$transform, topic=$topic, " +
+            "consumption=$consumption, rateLimit=$rateLimit)"
+    }
 
     @Serializable
     @SerialName("rabbitmq")

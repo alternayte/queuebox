@@ -196,6 +196,15 @@ object ConfigValidator {
                 validateDestinationUrl(name, dest.baseUrl, config.http.blockPrivateAddresses)
                 validateDestinationPath(name, dest.path)
             }
+            if (dest is DestinationConfig.Kafka) {
+                validateKafkaDestination(name, dest)
+            }
+        }
+
+        config.sources.forEach { (name, source) ->
+            if (source is SourceConfig.Kafka) {
+                validateKafkaSource(name, source)
+            }
         }
 
         // Validate retention configuration
@@ -286,6 +295,11 @@ object ConfigValidator {
                 "aggregateIdPath" to source.aggregateIdPath,
                 "eventTypePath" to source.eventTypePath
             )
+            is SourceConfig.Kafka -> listOf(
+                "idempotencyKeyPath" to source.idempotencyKeyPath,
+                "aggregateIdPath" to source.aggregateIdPath,
+                "eventTypePath" to source.eventTypePath
+            )
         }
 
         paths.forEach { (field, path) ->
@@ -327,6 +341,21 @@ object ConfigValidator {
                         "'sources.$name.eventTypePath' is not set. The inbox relay would mark every " +
                         "message of this source as dead. Set 'sources.$name.eventTypePath', or set a " +
                         "'sources.$name.topic' template that does not use eventType."
+                }
+
+            is SourceConfig.Kafka ->
+                // A Kafka source has the same two sources of the event type as an AMQP one: the
+                // body path and the `x-event-type` record header. The header cannot be checked at
+                // startup, so the operator declares it.
+                require(source.eventTypePath != null || source.eventTypeFromHeader) {
+                    "Source '$name' topic template '${source.topic}' uses eventType, but " +
+                        "'sources.$name.eventTypePath' is not set and " +
+                        "'sources.$name.eventTypeFromHeader' is false. The inbox relay would mark " +
+                        "every message with no event type as dead. Set " +
+                        "'sources.$name.eventTypePath', or set " +
+                        "'sources.$name.eventTypeFromHeader' to true when every producer sets the " +
+                        "'x-event-type' record header, or set a 'sources.$name.topic' template that " +
+                        "does not use eventType."
                 }
 
             is SourceConfig.RabbitMQ ->

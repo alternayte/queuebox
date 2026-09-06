@@ -21,6 +21,8 @@ exposed = "0.56.0"
 postgresql = "42.7.12"
 mssqlJdbc = "12.8.2.jre11"
 amqpClient = "5.33.1"
+kafkaClient = "4.1.2"
+natsClient = "2.21.2"
 jsonPath = "2.9.0"
 ktlint = "12.1.2"
 # The ktlint engine, which is separate from the version of the Gradle plugin.
@@ -100,6 +102,8 @@ exposed-kotlin-datetime = { group = "org.jetbrains.exposed", name = "exposed-kot
 
 # RabbitMQ
 amqp-client = { group = "com.rabbitmq", name = "amqp-client", version.ref = "amqpClient" }
+kafka-clients = { group = "org.apache.kafka", name = "kafka-clients", version.ref = "kafkaClient" }
+nats-client = { group = "io.nats", name = "jnats", version.ref = "natsClient" }
 
 # Lint plugins, resolved by the convention plugin in buildSrc
 ktlint-gradle-plugin = { module = "org.jlleitschuh.gradle:ktlint-gradle", version.ref = "ktlint" }
@@ -118,6 +122,7 @@ testcontainers-core = { module = "org.testcontainers:testcontainers", version.re
 testcontainers-junit = { module = "org.testcontainers:junit-jupiter", version.ref = "testcontainers" }
 testcontainers-postgresql = { module = "org.testcontainers:postgresql", version.ref = "testcontainers" }
 testcontainers-rabbitmq = { module = "org.testcontainers:rabbitmq", version.ref = "testcontainers" }
+testcontainers-kafka = { module = "org.testcontainers:kafka", version.ref = "testcontainers" }
 testcontainers-mssqlserver = { module = "org.testcontainers:mssqlserver", version.ref = "testcontainers" }
 
 # Libraries can be bundled together for easier import

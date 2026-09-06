@@ -84,18 +84,21 @@ class DestinationTest {
     fun `should support exhaustive when expression pattern matching`() {
         val destinations: List<Destination> = listOf(
             Destination.Http(name = "http", baseUrl = "https://example.com"),
-            Destination.RabbitMQ(name = "rabbitmq", url = "amqp://localhost", exchange = "events")
+            Destination.RabbitMQ(name = "rabbitmq", url = "amqp://localhost", exchange = "events"),
+            Destination.Kafka(name = "kafka", bootstrapServers = "localhost:9092", topic = "events")
         )
 
         val results = destinations.map { destination ->
             when (destination) {
                 is Destination.Http -> "HTTP: ${destination.baseUrl}"
+                is Destination.Kafka -> "Kafka: ${destination.topic}"
                 is Destination.RabbitMQ -> "RabbitMQ: ${destination.exchange}"
             }
         }
 
         assertEquals("HTTP: https://example.com", results[0])
         assertEquals("RabbitMQ: events", results[1])
+        assertEquals("Kafka: events", results[2])
     }
 
     @Test

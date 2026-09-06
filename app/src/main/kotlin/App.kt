@@ -62,23 +62,7 @@ fun main() {
 
     // Convert config destinations to domain Destinations
     val destinations = config.destinations.mapValues { (name, destConfig) ->
-        when (destConfig) {
-            is DestinationConfig.Http -> Destination.Http(
-                name = name,
-                baseUrl = destConfig.baseUrl,
-                path = destConfig.path,
-                timeoutMs = destConfig.timeoutMs,
-                headers = destConfig.headers,
-                authConfig = destConfig.auth
-            )
-            is DestinationConfig.RabbitMQ -> Destination.RabbitMQ(
-                name = name,
-                url = destConfig.url,
-                exchange = destConfig.exchange,
-                exchangeType = destConfig.exchangeType,
-                headers = destConfig.headers
-            )
-        }
+        toDestination(name, destConfig)
     }
 
     // Extract destination-level transforms
@@ -103,7 +87,8 @@ fun main() {
     // F-003: RabbitMQ destinations are advertised, so the RabbitMQ publisher must be
     // registered. Without it the poller marks every RabbitMQ message as dead.
     val rabbitPublisher = RabbitPublisher(metricsCollector = metricsCollector)
-    val publishers = listOf(httpPublisher, rabbitPublisher)
+    val kafkaPublisher = KafkaPublisher(metricsCollector = metricsCollector)
+    val publishers = listOf(httpPublisher, rabbitPublisher, kafkaPublisher)
 
     // F-003: fail fast when a destination has no publisher.
     validatePublisherCoverage(destinations, publishers)
@@ -207,6 +192,16 @@ fun main() {
         metricsCollector = metricsCollector
     )
 
+    // Kafka consumers for inbox sources. The consumer commits the offset only after the inbox
+    // row commits, so a crash replays the record and the unique constraint rejects the repeat.
+    val kafkaConsumers = kafkaInboxConsumers(
+        config,
+        inboxRepository,
+        extractor,
+        metricsCollector,
+        inboxTransformPipeline
+    )
+
     // RabbitMQ consumers for inbox sources
     val rabbitConsumers = config.sources
         .filterValues { it is SourceConfig.RabbitMQ }
@@ -249,6 +244,9 @@ fun main() {
         rabbitSourceNames.forEachIndexed { index, sourceName ->
             val consumer = rabbitConsumers[index].first
             add(SimpleHealthContributor("rabbitmq.$sourceName") { consumer.isChannelOpen })
+        }
+        kafkaConsumers.forEach { (sourceName, consumer) ->
+            add(SimpleHealthContributor("kafka.$sourceName") { consumer.isRunning })
         }
     }
     val healthManager = HealthManager(dataSource, healthContributors)
@@ -335,8 +333,12 @@ fun main() {
                 stopQuietly("a RabbitMQ consumer") { consumer.stop() }
                 stopQuietly("a RabbitMQ connection") { connection.close() }
             }
+            kafkaConsumers.forEach { (name, consumer) ->
+                stopQuietly("the Kafka consumer of source '$name'") { consumer.stop() }
+            }
             stopQuietly("capture") { capture.shutdown() }
             stopQuietly("the outbox poller") { outboxPoller.shutdown() }
+            stopQuietly("the Kafka publisher") { kafkaPublisher.close() }
             stopQuietly("the inbox relay") { inboxRelay.shutdown() }
             stopQuietly("the retention service") { retentionService.stop() }
         },
@@ -367,6 +369,7 @@ fun main() {
         inboxRelay.start()
         runBlocking {
             rabbitConsumers.forEach { (consumer, _) -> consumer.start() }
+            kafkaConsumers.forEach { (_, consumer) -> consumer.start() }
         }
 
         managementServer?.start(wait = false)
@@ -555,4 +558,79 @@ fun Application.configureRouting() {
             call.respondText("QueueBox is running!")
         }
     }
+}
+
+/**
+ * Builds one Kafka consumer per Kafka source.
+ *
+ * It lives outside `main` because that function already carries every other wiring step and
+ * detekt reports it as too complex. A broker keeps its own function.
+ */
+private fun kafkaInboxConsumers(
+    config: QueueBoxConfig,
+    inboxRepository: org.nxtspec.repository.InboxRepositoryInterface,
+    extractor: IdempotencyExtractor,
+    metricsCollector: MetricsCollector,
+    inboxTransformPipeline: org.nxtspec.transform.InboxTransformPipeline?
+): List<Pair<String, KafkaInboxConsumer>> = config.sources
+    .filterValues { it is SourceConfig.Kafka }
+    .map { (sourceName, sourceConfig) ->
+        val kafkaConfig = sourceConfig as SourceConfig.Kafka
+        sourceName to KafkaInboxConsumer(
+            storeMessage = inboxRepository::store,
+            extractor = extractor,
+            config = KafkaConsumerConfig(
+                sourceName = sourceName,
+                bootstrapServers = kafkaConfig.bootstrapServers,
+                topics = kafkaConfig.topics,
+                groupId = kafkaConfig.groupId,
+                consumption = kafkaConfig.consumption,
+                idempotencyKeyPath = kafkaConfig.idempotencyKeyPath,
+                aggregateIdPath = kafkaConfig.aggregateIdPath,
+                eventTypePath = kafkaConfig.eventTypePath,
+                autoOffsetReset = kafkaConfig.autoOffsetReset,
+                maxPollRecords = kafkaConfig.maxPollRecords,
+                securityProtocol = kafkaConfig.securityProtocol,
+                saslMechanism = kafkaConfig.saslMechanism,
+                saslUsername = kafkaConfig.saslUsername,
+                saslPassword = kafkaConfig.saslPassword
+            ),
+            metricsCollector = metricsCollector,
+            transformPipeline = inboxTransformPipeline,
+            sourceTransform = kafkaConfig.transform,
+            // A transform rejection must not destroy the record. The row is stored dead in one
+            // transaction, so the relay never sees a claimable rejected row.
+            storeDeadMessage = inboxRepository::storeDead
+        )
+    }
+
+/** Maps one configured destination to its domain type. Extracted from `main` for its size. */
+private fun toDestination(name: String, destConfig: DestinationConfig): Destination = when (destConfig) {
+    is DestinationConfig.Http -> Destination.Http(
+        name = name,
+        baseUrl = destConfig.baseUrl,
+        path = destConfig.path,
+        timeoutMs = destConfig.timeoutMs,
+        headers = destConfig.headers,
+        authConfig = destConfig.auth
+    )
+    is DestinationConfig.Kafka -> Destination.Kafka(
+        name = name,
+        bootstrapServers = destConfig.bootstrapServers,
+        topic = destConfig.topic,
+        keyTemplate = destConfig.keyTemplate,
+        headers = destConfig.headers,
+        securityProtocol = destConfig.securityProtocol,
+        saslMechanism = destConfig.saslMechanism,
+        saslUsername = destConfig.saslUsername,
+        saslPassword = destConfig.saslPassword,
+        timeoutMs = destConfig.timeoutMs
+    )
+    is DestinationConfig.RabbitMQ -> Destination.RabbitMQ(
+        name = name,
+        url = destConfig.url,
+        exchange = destConfig.exchange,
+        exchangeType = destConfig.exchangeType,
+        headers = destConfig.headers
+    )
 }
