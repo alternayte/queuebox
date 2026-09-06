@@ -28,6 +28,9 @@ class CaptureIntegrationTest {
          * this test fail for the load of its neighbours rather than for its own behaviour.
          */
         const val DELIVERY_TIMEOUT_MS = 120_000L
+
+        /** How long a state change may take to become visible after its delivery. */
+        const val STATE_TIMEOUT_MS = 30_000L
     }
 
     @Test fun `PostgreSQL logical capture wakes delivery and survives restart`() = runBlocking {
@@ -145,7 +148,10 @@ class CaptureIntegrationTest {
                 withTimeout(DELIVERY_TIMEOUT_MS) { received.receive() }.id,
                 "Delivery must beat the five-minute reconciliation timer"
             )
-            withTimeout(5000) { while (repository.countByState("sent") != 1L) delay(20) }
+            // The publisher records the delivery before the poller marks the row, so this waits
+            // for a state change that has already been decided. Five seconds was too tight on a
+            // two-core runner.
+            withTimeout(STATE_TIMEOUT_MS) { while (repository.countByState("sent") != 1L) delay(20) }
             assertNull(withTimeoutOrNull(1000) { received.receive() }, "State updates must not create deliveries")
 
             // A scheduled retry has no capture event of its own, because the retry only updates
@@ -159,7 +165,7 @@ class CaptureIntegrationTest {
                 withTimeout(DELIVERY_TIMEOUT_MS) { received.receive() }.id,
                 "The scheduled retry must beat the five-minute reconciliation timer"
             )
-            withTimeout(5000) { while (repository.countByState("sent") != 2L) delay(20) }
+            withTimeout(STATE_TIMEOUT_MS) { while (repository.countByState("sent") != 2L) delay(20) }
 
             val second =
                 OutboxCapture(
