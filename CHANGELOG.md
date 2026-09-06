@@ -9,7 +9,7 @@ the configuration schema and for the database schema.
 
 ## [Unreleased]
 
-## [0.1.0] — unreleased
+## [0.1.0] — 2026-09-06
 
 The first release. QueueBox is a transactional outbox and inbox relay between HTTP endpoints,
 PostgreSQL or SQL Server, and RabbitMQ. Everything below is new to a user, because no earlier
