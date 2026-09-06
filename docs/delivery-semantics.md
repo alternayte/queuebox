@@ -38,6 +38,31 @@ work.
 For the pull claim, renewal, completion, retry and dead-letter statements, see
 [`examples/pull`](../examples/pull/README.md).
 
+## Where a message can come from, and where it can go
+
+| Broker | As a source | As a destination |
+| --- | --- | --- |
+| HTTP | Yes, `POST /inbox/<source>` | Yes |
+| RabbitMQ | Yes, one queue per source | Yes, one exchange per destination |
+| Kafka | Yes, one consumer group per source | Yes, one topic per destination |
+| NATS | Yes, JetStream only | Yes, JetStream by default |
+
+Each source keeps the promise of the broker it reads. QueueBox acknowledges a message only after
+the inbox row commits, so a crash replays the message rather than losing it, and the unique
+constraint on `(source, idempotency_key)` rejects the replay.
+
+- **Kafka** commits the offset after the store. An offset says that everything before it is done,
+  so the consumer commits only the unbroken run of records that the inbox accepted, and it seeks
+  back to the first record that failed.
+- **NATS** acknowledges the message after the store, and negatively acknowledges a failed store
+  so JetStream returns it at once. The source is JetStream only: core NATS can acknowledge
+  nothing, so an inbox on it would lose every message that arrives during a restart.
+- **RabbitMQ** acknowledges after the store and requeues on failure.
+
+A record or message whose body is not JSON is stored dead and acknowledged. Nothing downstream
+can read such a body, and refusing to acknowledge it would stop the partition or return the
+message for ever.
+
 ## The identity of a message
 
 Three identifiers travel with a forwarded message. Each answers a different question.

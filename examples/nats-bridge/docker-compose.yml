@@ -1,0 +1,52 @@
+# A NATS JetStream subject in, a JetStream subject out, with the inbox and the outbox between.
+services:
+  queuebox:
+    build:
+      context: ../..
+    ports:
+      - "${QUEUEBOX_PORT:-18086}:8080"
+    volumes:
+      - ./queuebox.yml:/etc/queuebox/queuebox.yml:ro
+    environment:
+      - QUEUEBOX_CONFIG_FILE=/etc/queuebox/queuebox.yml
+    depends_on:
+      postgres:
+        condition: service_healthy
+      streams:
+        condition: service_completed_successfully
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: queuebox
+      POSTGRES_USER: queuebox
+      POSTGRES_PASSWORD: queuebox
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U queuebox"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  nats:
+    image: nats:2.10-alpine
+    command: ["-js"]
+
+  streams:
+    # QueueBox never creates a stream, so the example creates both before QueueBox starts.
+    image: natsio/nats-box:latest
+    depends_on:
+      nats:
+        condition: service_started
+    entrypoint:
+      - sh
+      - -c
+      - |
+        until nats --server nats://nats:4222 server check connection; do sleep 1; done
+        nats --server nats://nats:4222 stream add ORDERS \
+          --subjects 'orders.>' --storage memory --retention limits --discard old \
+          --max-msgs=-1 --max-bytes=-1 --max-age=1h --max-msg-size=-1 --dupe-window=2m \
+          --replicas 1 --no-allow-rollup --no-deny-delete --no-deny-purge --defaults
+        nats --server nats://nats:4222 stream add PROCESSED \
+          --subjects 'processed.>' --storage memory --retention limits --discard old \
+          --max-msgs=-1 --max-bytes=-1 --max-age=1h --max-msg-size=-1 --dupe-window=2m \
+          --replicas 1 --no-allow-rollup --no-deny-delete --no-deny-purge --defaults

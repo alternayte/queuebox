@@ -1,0 +1,28 @@
+# NATS JetStream in, JetStream out. The stream must exist before QueueBox starts; QueueBox never
+# creates one, because the retention and the replication of a stream are an operator decision.
+database:
+  type: postgresql
+  url: jdbc:postgresql://postgres:5432/queuebox
+  username: queuebox
+  password: queuebox
+
+sources:
+  orders:
+    type: nats
+    servers: nats://nats:4222
+    stream: ORDERS
+    durable: queuebox-orders
+    filterSubject: orders.>
+    idempotencyKeyPath: $.id
+    eventTypePath: $.type
+    topic: "{{ source }}"
+
+destinations:
+  processed:
+    type: nats
+    servers: nats://nats:4222
+    subject: processed.orders
+
+routes:
+  - topicPattern: "orders"
+    destination: processed

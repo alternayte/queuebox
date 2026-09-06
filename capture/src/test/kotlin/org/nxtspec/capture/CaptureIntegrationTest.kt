@@ -16,6 +16,20 @@ import kotlin.test.*
 
 @Tag("integration")
 class CaptureIntegrationTest {
+
+    private companion object {
+        /**
+         * How long a delivery may take before the test gives up.
+         *
+         * The reconciliation timer of `exercise` is five minutes, so any delivery inside this
+         * bound came from a capture wake rather than from reconciliation. The bound is generous
+         * because the PostgreSQL connector sometimes needs a long time to resume streaming on a
+         * machine that is already running several database containers, and a tighter bound made
+         * this test fail for the load of its neighbours rather than for its own behaviour.
+         */
+        const val DELIVERY_TIMEOUT_MS = 120_000L
+    }
+
     @Test fun `PostgreSQL logical capture wakes delivery and survives restart`() = runBlocking {
         PostgreSQLContainer("postgres:16").withCommand("postgres", "-c", "wal_level=logical").use { db ->
             db.start()
@@ -128,7 +142,7 @@ class CaptureIntegrationTest {
             repository.insert(message)
             assertEquals(
                 message.id,
-                withTimeout(60000) { received.receive() }.id,
+                withTimeout(DELIVERY_TIMEOUT_MS) { received.receive() }.id,
                 "Delivery must beat the five-minute reconciliation timer"
             )
             withTimeout(5000) { while (repository.countByState("sent") != 1L) delay(20) }
@@ -142,7 +156,7 @@ class CaptureIntegrationTest {
             repository.insert(retried)
             assertEquals(
                 retried.id,
-                withTimeout(60000) { received.receive() }.id,
+                withTimeout(DELIVERY_TIMEOUT_MS) { received.receive() }.id,
                 "The scheduled retry must beat the five-minute reconciliation timer"
             )
             withTimeout(5000) { while (repository.countByState("sent") != 2L) delay(20) }
@@ -170,7 +184,7 @@ class CaptureIntegrationTest {
             }
             val afterRestart = OutboxMessage(topic = "test", payload = JsonObject(emptyMap()))
             repository.insert(afterRestart)
-            assertEquals(afterRestart.id, withTimeout(60000) { received.receive() }.id)
+            assertEquals(afterRestart.id, withTimeout(DELIVERY_TIMEOUT_MS) { received.receive() }.id)
             capture.shutdown()
 
             // Changed capture settings must never reuse the offsets of the previous settings.

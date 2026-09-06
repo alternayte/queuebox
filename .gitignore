@@ -87,3 +87,7 @@ CLAUDE.md
 # logs, configurations and capture state of a run are not.
 benchmarks/results/*
 !benchmarks/results/*.result.json
+
+# The client library work order. It is a working document for the next effort, not part of the
+# shipped documentation.
+client-libs-doc.md

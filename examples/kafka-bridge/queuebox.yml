@@ -1,0 +1,28 @@
+# Kafka in, Kafka out. QueueBox owns the inbox and the outbox; the application owns neither
+# broker code nor the tables. See docs/delivery-semantics.md.
+database:
+  type: postgresql
+  url: jdbc:postgresql://postgres:5432/queuebox
+  username: queuebox
+  password: queuebox
+
+sources:
+  orders:
+    type: kafka
+    bootstrapServers: kafka:9092
+    topics: [orders]
+    groupId: queuebox-orders
+    idempotencyKeyPath: $.id
+    eventTypePath: $.type
+    # The relay forwards every stored row into the outbox under this topic.
+    topic: "{{ source }}"
+
+destinations:
+  processed:
+    type: kafka
+    bootstrapServers: kafka:9092
+    topic: orders-processed
+
+routes:
+  - topicPattern: "orders"
+    destination: processed
