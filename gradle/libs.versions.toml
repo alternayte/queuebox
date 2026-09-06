@@ -23,7 +23,7 @@ mssqlJdbc = "12.8.2.jre11"
 amqpClient = "5.33.1"
 kafkaClient = "4.1.2"
 natsClient = "2.21.2"
-jsonPath = "2.9.0"
+jsonPath = "3.0.0"
 ktlint = "12.1.2"
 # The ktlint engine, which is separate from the version of the Gradle plugin.
 ktlintEngine = "1.5.0"
