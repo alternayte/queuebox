@@ -2,6 +2,8 @@ package org.nxtspec.docs
 
 import com.zaxxer.hikari.HikariDataSource
 import kotlinx.coroutines.runBlocking
+import org.jetbrains.exposed.sql.Database
+import org.jetbrains.exposed.sql.transactions.TransactionManager
 import org.junit.jupiter.api.AfterAll
 import org.junit.jupiter.api.BeforeAll
 import org.junit.jupiter.api.Tag
@@ -75,8 +77,13 @@ class IntegrationDocSqlTest {
     private lateinit var postgresConnection: Connection
     private lateinit var sqlServerConnection: Connection
 
+    private var postgresDatabase: Database? = null
+    private var sqlServerDatabase: Database? = null
+    private var previousDefaultDatabase: Database? = null
+
     @BeforeAll
     fun startInfrastructure() {
+        previousDefaultDatabase = TransactionManager.defaultDatabase
         postgres.start()
         sqlServer.start()
 
@@ -104,10 +111,16 @@ class IntegrationDocSqlTest {
         sqlServerDataSource = sqlServerCreated
         SqlServerMigrator().migrate(sqlServerCreated)
         sqlServerConnection = sqlServerCreated.connection.also { it.autoCommit = true }
+
+        // One registration per dialect. A repeated `Database.connect` of the same data source
+        // registers another database, and the last one registered would outlive this class.
+        postgresDatabase = Database.connect(postgresDataSource!!)
+        sqlServerDatabase = Database.connect(sqlServerDataSource!!)
     }
 
     @AfterAll
     fun stopInfrastructure() {
+        TransactionManager.defaultDatabase = previousDefaultDatabase
         postgresConnection.close()
         sqlServerConnection.close()
         postgresDataSource?.close()
@@ -129,9 +142,26 @@ class IntegrationDocSqlTest {
         )
     }
 
+    /**
+     * Binds the dialect under test as the default database of this JVM.
+     *
+     * Exposed resolves `newSuspendedTransaction` against one global default. This class drives
+     * both dialects in one JVM, so which dialect that default names is ambiguous. A PostgreSQL
+     * repository reached a SQL Server connection and sent `clock_timestamp()` to it, which SQL
+     * Server does not know, and the row went back to pending.
+     *
+     * `stopInfrastructure` restores what the default was before this class ran. Leaving this
+     * class's database in place would point every later class at a pool that `stopInfrastructure`
+     * has closed.
+     */
+    private fun bindDefaultDatabase(database: Database) {
+        TransactionManager.defaultDatabase = database
+    }
+
     @Test
     fun `every postgres statement runs and every inserted outbox row is delivered`() {
         DatabaseFactory.init(postgresDataSource!!)
+        bindDefaultDatabase(postgresDatabase!!)
         runDialect(
             dialect = "postgres",
             connection = postgresConnection,
@@ -142,6 +172,7 @@ class IntegrationDocSqlTest {
     @Test
     fun `every sqlserver statement runs and every inserted outbox row is delivered`() {
         SqlServerDatabaseFactory.init(sqlServerDataSource!!)
+        bindDefaultDatabase(sqlServerDatabase!!)
         runDialect(
             dialect = "sqlserver",
             connection = sqlServerConnection,
