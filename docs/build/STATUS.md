@@ -10,8 +10,8 @@ Source of truth: `hardening-doc.md`. The document is immutable and authoritative
 | 2 | Durability and correctness | F-013 to F-033 | **complete** (commits `93afae4`..`8960a00`) |
 | 3 | Security hardening | F-034 to F-045 | **complete** (commits `fb1f01f`..`f3fc59d`) |
 | 4 | Observability and operations | F-046 to F-057 | **complete** (commits `b261c3c`..`e86b6d2`) |
-| 5 | Open source governance | F-058 to F-071 | in progress. F-058, F-059 to F-065, F-069, F-070, F-071 closed. F-066, F-067, F-068 remain. |
-| 6 | Documentation and polish | F-072 to F-085 | not started |
+| 5 | Open source governance | F-058 to F-071 | **complete** (see Phase 5 below) |
+| 6 | Documentation and polish | F-072 to F-085 | **complete** (see Phase 6 below) |
 
 ---
 
@@ -737,41 +737,85 @@ attaches the SBOM and pushes the provenance to the registry.
 reach zero. A thirteenth pass would probably find something, and the honest reading of that is
 that this codebase rewards continued adversarial review rather than that it is now perfect.
 
+## Post-hardening effort — the claim contract, capture and evidence
+
+This effort is not part of `hardening-doc.md`. It was requested separately and delivered in three
+commits on `main`: `6c546b3`, `f5258db` and `982ad9a`, with the continuous integration repairs in
+`cbb5876`.
+
+### What it added
+
+| Change | Evidence |
+|--------|----------|
+| Per-source `consumption: push` or `pull`, stored on the row at receipt. The relay claims push rows only. | `PullLeaseTest`, `SqlServerPullLeaseTest`, `CaptureConfigTest` |
+| An opaque claim token and a lease replace the timestamp fence. Every terminal write is fenced inside SQL against the database clock. | `PullLeaseTest`, `ClaimFenceTest`, `SqlServerClaimFenceTest`, `CustomTableNameTest` |
+| `withClaimLease` renews while work runs and cancels the work when ownership is lost. | `ClaimLeaseTest` |
+| A conflated delivery signal replaces the fixed poll interval when capture is on. | `DeliverySignalTest` |
+| An embedded change data capture connector wakes delivery. Off by default. | `CaptureIntegrationTest` on real PostgreSQL 16 and SQL Server 2022, `CapturePropertiesTest`, `examples/cdc` in CI |
+| Capture state is bound to a fingerprint of its settings, and the PostgreSQL slot and the SQL Server capture tables are checked before the connector starts. | `CaptureIntegrationTest`, `CapturePropertiesTest` |
+| V6 adds the claim columns, V7 the capture registry. Both are additive. | `PostgresMigratorTest`, `SqlServerMigratorTest`, `MigrationParityTest` |
+| A benchmark harness, its results, and `docs/development/verification-report.md`. | `benchmarks/` |
+
+### Defects that this effort found in existing code
+
+1. **The SQL Server wake query mixed two clocks.** `scheduled_at` is written from the application
+   clock and `lease_expires_at` by `SYSUTCDATETIME()`. Comparing one against the other delayed
+   every scheduled retry to the reconciliation interval on any host that does not run in UTC. A
+   new test case found it on a UTC+2 host.
+2. **Capture health failed readiness.** A capture fault would have taken a delivering instance out
+   of service. Readiness now carries advisory components, and capture is one.
+3. **The test harness sat inside the configuration namespace.** The database matrix selects its
+   image through a `QUEUEBOX_*` variable, which `EnvConfigLoader` reads as configuration, so every
+   matrix job failed the first time the matrix ran. `DocumentedExamplesTest` held a local allowlist
+   that the loader never shared. The harness variables are now `TESTCONTAINERS_*`, and a new check
+   applies the binding rule to the workflow files.
+4. **`aquasecurity/trivy-action@0.28.0` never resolved**, because those tags carry a `v` prefix.
+   Neither the dependency scan nor the image scan had ever run.
+5. **Two end-to-end tests raced.** One used `return@repeat`, which continues a loop rather than
+   leaving it, so it always waited to the end and could count a redelivery. The other waited for a
+   persisted error before asserting that the destination had received a secret, which a first
+   attempt that never reached the destination satisfies.
+
+### What this effort did not prove
+
+`docs/development/verification-report.md` carries the list. In short: the benchmark ran five,
+three and two runs rather than five each; the low-rate latency phase and the slow-receiver phase
+were not run; the figures are PostgreSQL only, because SQL Server is emulated on the measuring
+host; and capture mode is proved for insert delivery and the scheduled retry, while scheduling,
+retry, dead-lettering, replay, retention and custom mappings are proved in polling mode.
+
 ## Next phase
 
-**All six phases are complete.** The remaining work is the maintainer's, below.
+**All six phases are complete, and the post-hardening effort above is delivered.** The remaining
+work is the maintainer's, below.
 
 ## Open questions for the maintainer
 
-**1. F-083 is the one Definition of Done item that is not met.** No badge can resolve, because the
-repository is not public. `curl https://github.com/AlterNayte/queuebox` returns 404, and every
-shields.io badge renders "repo not found". The README carries the build, security, release,
-license and coverage badges, and each becomes live when the repository is published. The coverage
-badge states the gate that CI enforces, not a measured figure, because the project has adopted no
-coverage service.
-
-F-083 also asks for a repository description and topics, which live in the GitHub settings.
-Suggested description:
-
-> A message relay that implements the transactional outbox and the idempotent inbox. Your
-> application writes a row, and QueueBox handles the delivery, the retries, the deduplication and
-> the cleanup.
-
-Suggested topics: `outbox-pattern`, `inbox-pattern`, `transactional-outbox`, `idempotency`,
-`message-queue`, `webhooks`, `kotlin`, `ktor`, `postgresql`, `sqlserver`, `rabbitmq`.
+**1. F-083 is now met, except for a measured coverage figure.** The repository is public, and it
+carries the suggested description and the eleven suggested topics. The build, security, release,
+license and coverage badges resolve. The coverage badge still states the gate that CI enforces
+rather than a measured figure, because the project has adopted no coverage service.
 
 **2. F-063 needs the GHCR permissions that only the maintainer can grant.** The release workflow
 stays unproven until then.
 
-**3. No GitHub Actions run exists yet.** Every workflow file parses as valid YAML and every action
-input was checked against its documented interface. The `compose`, `examples` and `manual-setup`
-jobs run commands that were all proved on this host. The `docker`, `release` and database matrix
-paths stay unverified until the workflows reach the default branch.
+**3. The workflows have now run on `main`, except the release.** The first run exposed two defects
+that only a live run could show: the database matrix collided with the configuration namespace,
+and the trivy action reference never resolved. Both are fixed in `cbb5876`. The `compose`,
+`examples`, `manual-setup`, `docker`, lint, build and database matrix paths have all executed.
+**The release workflow has still never run**, so the tag path stays unproven. Treat the first tag
+as a deliberate test of the publish path rather than a routine release.
 
 **4. `CODE_OF_CONDUCT.md` carries the GitHub noreply commit address**, which receives no mail. It
 needs a real inbox.
 
-**5. Two breaking changes need a release note.** `retention.inbox.policy: COUNT` now fails the
-startup, and the RabbitMQ source default topic changed from `{{ eventType }}` to `{{ source }}`.
-Both are in `CHANGELOG.md` under `### Breaking changes`. Neither had a working behaviour before,
-so no deployment loses one.
+**5. The breaking changes need a release note, and one of them needs an operator step.**
+`CHANGELOG.md` carries them all under `### Breaking changes`. `retention.inbox.policy: COUNT` now
+fails the startup, the RabbitMQ source default topic changed from `{{ eventType }}` to
+`{{ source }}`, and `outbox.maxAttempts` now reaches the message. None of those had a working
+behaviour before, so no deployment loses one.
+
+The V6 migration is different, and it is the one to put in front of a reader. It is additive, but
+the old timestamp claim fence and the new token fence must never run at the same time, because an
+old worker can complete a row that a new worker owns. Anyone running a pre-release build must stop
+every worker, apply V6 and V7, then start the new workers.

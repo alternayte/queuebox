@@ -122,9 +122,12 @@ class CaptureIntegrationTest {
             delay(1500)
             val message = OutboxMessage(topic = "test", payload = JsonObject(emptyMap()))
             repository.insert(message)
+            // The reconciliation timer is 60 seconds, so any delivery inside 30 came from a
+            // capture wake. The margin is wide because a two-core continuous integration runner
+            // needs longer than a workstation to start the connector and read the log.
             assertEquals(
                 message.id,
-                withTimeout(15000) { received.receive() }.id,
+                withTimeout(30000) { received.receive() }.id,
                 "Delivery must beat the 60-second reconciliation timer"
             )
             withTimeout(5000) { while (repository.countByState("sent") != 1L) delay(20) }
@@ -138,7 +141,7 @@ class CaptureIntegrationTest {
             repository.insert(retried)
             assertEquals(
                 retried.id,
-                withTimeout(20000) { received.receive() }.id,
+                withTimeout(30000) { received.receive() }.id,
                 "The scheduled retry must beat the 60-second reconciliation timer"
             )
             withTimeout(5000) { while (repository.countByState("sent") != 2L) delay(20) }
@@ -166,7 +169,7 @@ class CaptureIntegrationTest {
             }
             val afterRestart = OutboxMessage(topic = "test", payload = JsonObject(emptyMap()))
             repository.insert(afterRestart)
-            assertEquals(afterRestart.id, withTimeout(15000) { received.receive() }.id)
+            assertEquals(afterRestart.id, withTimeout(30000) { received.receive() }.id)
             capture.shutdown()
 
             // Changed capture settings must never reuse the offsets of the previous settings.

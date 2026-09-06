@@ -21,8 +21,27 @@ release exists.
   moves the message into the outbox table in one transaction. The outbox poller then delivers it.
 - **Message ordering per aggregate.** The inbox claim serialises the messages of one aggregate, so
   a consumer sees them in the order that the producer sent them.
-- **Crash recovery.** A claim records `claimed_at`. A restarted instance reclaims a stale claim, so
-  no message is lost when a process dies between the claim and the delivery.
+- **Crash recovery.** A claim records an opaque token and a lease. A restarted instance reclaims an
+  expired claim, so no message is lost when a process dies between the claim and the delivery.
+- **Push and pull sources.** A source declares `consumption: push` or `consumption: pull`, and the
+  value is stored on the inbox row when the message arrives. The relay claims push rows only, so a
+  pull source needs no topic, no route and no destination. `push` is the default.
+  [`examples/pull`](examples/pull) publishes the claim, renewal, completion, retry and dead letter
+  SQL of both databases, and the tests execute those files. For a pull row `processed` means the
+  application finished the work; for a push row it means QueueBox forwarded the row into the
+  outbox. See [docs/delivery-semantics.md](docs/delivery-semantics.md).
+- **A claim fence that a clock cannot move.** Every terminal write of both tables needs the claim
+  token that the claim returned and a lease that has not expired. The comparison happens inside
+  SQL against the database clock, so no driver time zone can change an ownership decision. A
+  worker renews the lease while it works, and losing ownership cancels the work.
+- **Change data capture, optional and off by default.** `outbox.capture.mode` accepts
+  `postgres-logical` or `sqlserver-cdc`. An embedded connector reads the database log and wakes
+  delivery when an outbox row is inserted, which shortens the delay between the commit and the
+  delivery. Nothing external is needed: no Kafka, no Kafka Connect, no Debezium Server. Capture
+  never delivers anything, so delivery continues while capture is down or disabled. Exactly one
+  process may own a capture identity, and recovery from lost or changed capture state is an
+  explicit operator decision. See [docs/capture.md](docs/capture.md) and
+  [`examples/cdc`](examples/cdc).
 - **Retry with a recorded reason.** A failed delivery is rescheduled with a backoff. The outbox row
   carries the sanitised error in `last_error`, so an operator can see why the delivery failed.
 - **Dead letter handling.** A message that exhausts its retries moves to the dead state.
@@ -75,6 +94,14 @@ release exists.
   publishes a multi-architecture image to the GitHub container registry.
 - **Code style enforcement.** ktlint and detekt run as part of `./gradlew check`.
 
+### Fixed
+
+- **A scheduled retry on SQL Server no longer waits for the reconciliation interval.** The two
+  deadline columns do not share one clock: `scheduled_at` is written through the driver from the
+  application clock, and `lease_expires_at` is written by `SYSUTCDATETIME()`. The wake query
+  compared one against the other, which put the wake off by the offset of the application time
+  zone on any host that does not run in UTC. Each deadline is now measured against its own clock.
+
 ### Breaking changes
 
 - **The default `topic` of a RabbitMQ source is now `{{ source }}`.** The default was
@@ -99,6 +126,15 @@ release exists.
   while the startup looked clean. QueueBox now rejects the value at startup and names the two that
   work, `AGE` and `DISABLED`. A deployment that set `COUNT` was never getting the cleanup it asked
   for, so the loud failure reports a defect that already existed.
+
+- **The V6 migration needs every old worker stopped first.** `V6__add_consumption_and_leases.sql`
+  adds the consumption, claim token and lease columns, and `V7__capture_state.sql` adds the capture
+  registry. Both are additive and rewrite no data. The old worker fences a claim on a timestamp and
+  the new worker fences it on a token and a lease, and the two must never run at the same time,
+  because an old worker can complete a row that a new worker owns. Stop every worker, apply both
+  files, then start the new workers. Existing inbox rows migrate as `push`, which keeps the
+  previous behaviour. A custom schema must add and map the new columns by hand. See
+  [docs/development/migrations.md](docs/development/migrations.md).
 
 - **`outbox.maxAttempts` now reaches the message.** The value was validated and never applied.
   Every message that QueueBox created took the schema default of 5, whatever the configuration
