@@ -44,7 +44,7 @@ application writes only its own work.
 | Language | Package | Example |
 | --- | --- | --- |
 | C# | `QueueBox.Inbox` on NuGet | [`examples/pull/csharp`](../examples/pull/csharp/README.md) |
-| TypeScript | `@queuebox/inbox` on npm | [`examples/pull/typescript`](../examples/pull/typescript/README.md) |
+| TypeScript | `@alternayte/queuebox-inbox` on npm | [`examples/pull/typescript`](../examples/pull/typescript/README.md) |
 
 ## Where a message can come from, and where it can go
 

@@ -1,5 +1,5 @@
 import pg from "pg";
-import { InboxWorker, fromPg } from "@queuebox/inbox";
+import { InboxWorker, fromPg } from "@alternayte/queuebox-inbox";
 
 // The worker stops on Ctrl+C. It stops claiming at once, and the handlers already running keep
 // their grace.

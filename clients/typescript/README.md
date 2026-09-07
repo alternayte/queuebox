@@ -1,4 +1,4 @@
-# @queuebox/inbox
+# @alternayte/queuebox-inbox
 
 A pull-inbox worker for [QueueBox](https://github.com/alternayte/queuebox).
 
@@ -26,14 +26,14 @@ for each, so one package serves both dialects and your application brings the dr
 ## Install
 
 ```
-npm install @queuebox/inbox
+npm install @alternayte/queuebox-inbox
 ```
 
 ## PostgreSQL
 
 ```ts
 import pg from "pg";
-import { InboxWorker, fromPg } from "@queuebox/inbox";
+import { InboxWorker, fromPg } from "@alternayte/queuebox-inbox";
 
 const pool = new pg.Pool({ connectionString: process.env.QUEUEBOX_DB });
 
@@ -50,7 +50,7 @@ await worker.run(async (message, tx) => {
 
 ```ts
 import mssql from "mssql";
-import { InboxWorker, fromMssql } from "@queuebox/inbox";
+import { InboxWorker, fromMssql } from "@alternayte/queuebox-inbox";
 
 const pool = await new mssql.ConnectionPool(process.env.QUEUEBOX_DB!).connect();
 
@@ -120,8 +120,8 @@ jitter, and dead-letters after that. Only your application knows that a validati
 never be retried while a timeout must, so write your own:
 
 ```ts
-import { deadLetter, retryAfter } from "@queuebox/inbox";
-import type { InboxRetryPolicy } from "@queuebox/inbox";
+import { deadLetter, retryAfter } from "@alternayte/queuebox-inbox";
+import type { InboxRetryPolicy } from "@alternayte/queuebox-inbox";
 
 const policy: InboxRetryPolicy = (message, failure) => {
   // A bad payload never becomes good. Do not spend five attempts on it.
@@ -151,7 +151,7 @@ a log line nor the `last_error` column.
 QueueBox lets an operator rename the inbox table and its columns. Name them here as well:
 
 ```ts
-import { defaultSchema } from "@queuebox/inbox";
+import { defaultSchema } from "@alternayte/queuebox-inbox";
 
 const worker = new InboxWorker(fromPg(pool), {
   source: "orders",

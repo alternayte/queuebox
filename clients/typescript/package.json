@@ -1,5 +1,5 @@
 {
-  "name": "@queuebox/inbox",
+  "name": "@alternayte/queuebox-inbox",
   "version": "0.1.0",
   "description": "A pull-inbox worker for QueueBox. It claims, renews, completes, retries and dead-letters messages, and it runs the completion inside the handler's own transaction.",
   "license": "Apache-2.0",

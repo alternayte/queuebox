@@ -1,6 +1,6 @@
 # A pull worker in TypeScript
 
-This example is the README example of `@queuebox/inbox`, as a program that runs.
+This example is the README example of `@alternayte/queuebox-inbox`, as a program that runs.
 
 The continuous integration packs the library, installs the tarball, and type checks and runs
 this project. That is the evidence for item 14 of the Definition of Done: the published package

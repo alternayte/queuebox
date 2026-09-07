@@ -282,9 +282,9 @@ jobs:
         run: |
           npm pack --pack-destination "${RUNNER_TEMP}"
           cd ../../examples/pull/typescript
-          npm install --no-audit --no-fund "${RUNNER_TEMP}"/queuebox-inbox-*.tgz pg
+          npm install --no-audit --no-fund "${RUNNER_TEMP}"/alternayte-queuebox-inbox-*.tgz pg
           node --check worker.ts
-          node -e "import('@queuebox/inbox').then((m) => { if (typeof m.InboxWorker !== 'function') { throw new Error('The package does not export InboxWorker.'); } })"
+          node -e "import('@alternayte/queuebox-inbox').then((m) => { if (typeof m.InboxWorker !== 'function') { throw new Error('The package does not export InboxWorker.'); } })"
 
   lint:
     name: Lint
