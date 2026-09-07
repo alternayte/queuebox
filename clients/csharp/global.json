@@ -1,6 +1,7 @@
 {
   "sdk": {
-    "version": "8.0.100",
-    "rollForward": "latestMajor"
+    "//": "The SDK version is pinned exactly. Microsoft.NET.ILLink.Tasks is an SDK implicit package that IsTrimmable pulls in, so its version follows the SDK patch level. A floating SDK therefore breaks `dotnet restore --locked-mode` on every SDK patch. Pinning makes an SDK change an explicit, reviewed change, as dependency verification does for Gradle.",
+    "version": "10.0.300",
+    "rollForward": "disable"
   }
 }

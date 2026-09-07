@@ -179,11 +179,12 @@ jobs:
       - name: Set up .NET
         uses: actions/setup-dotnet@v4
         with:
-          # The library targets net8.0, which is the floor. The newer SDK reads the solution
-          # format, and the 8.0 runtime runs the tests on the floor itself.
+          # global.json pins the SDK exactly, because an SDK implicit package puts the SDK
+          # patch level into the lock file. The 8.0 runtime runs the tests on the floor that
+          # the library targets.
           dotnet-version: |
             8.0.x
-            10.0.x
+            10.0.300
 
       - name: Restore
         # The lock file pins the transitive graph, as dependency verification does for Gradle.
