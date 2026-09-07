@@ -165,6 +165,64 @@ jobs:
           path: "${{ matrix.module }}/build/reports/tests/test"
           if-no-files-found: warn
 
+  client-csharp:
+    name: Client library, C#
+    runs-on: ubuntu-latest
+    # The C# client library has its own gate. `./gradlew check` stays pure JVM, so a contributor
+    # who touches no client library needs no dotnet SDK.
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          # The library targets net8.0, which is the floor. The newer SDK reads the solution
+          # format, and the 8.0 runtime runs the tests on the floor itself.
+          dotnet-version: |
+            8.0.x
+            10.0.x
+
+      - name: Restore
+        # The lock file pins the transitive graph, as dependency verification does for Gradle.
+        # `--locked-mode` fails the build when a dependency moved without a review.
+        run: dotnet restore clients/csharp/QueueBox.Inbox.slnx --locked-mode
+
+      - name: Build
+        # Warnings are errors, and the analysers run in the build.
+        run: dotnet build clients/csharp/QueueBox.Inbox.slnx -c Release --no-restore
+
+      - name: Run the unit tests
+        run: dotnet test clients/csharp/tests/QueueBox.Inbox.Tests -c Release --no-build
+
+      - name: Run the contract tests against PostgreSQL and SQL Server
+        # The runner provides the Docker daemon that Testcontainers needs. The tests apply the
+        # QueueBox migrations from this repository, so the library cannot drift from the schema.
+        run: dotnet test clients/csharp/tests/QueueBox.Inbox.IntegrationTests -c Release --no-build
+
+      - name: Pack the package
+        run: dotnet pack clients/csharp/src/QueueBox.Inbox -c Release -o clients/csharp/artifacts
+
+      - name: Build the README example against the packed package
+        # Definition of Done, item 14. The example installs the package from a local feed, so a
+        # package that does not carry what the README promises fails here.
+        run: dotnet build examples/pull/csharp
+
+      - name: Prove that the package publishes under Native AOT
+        # Section 9A. A library that a service embeds must not be the reason that service cannot
+        # publish AOT.
+        run: dotnet publish examples/pull/csharp -c Release -r linux-x64 -p:PublishAot=true
+
+      - name: Upload the package
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: queuebox-inbox-nupkg
+          path: clients/csharp/artifacts/*.nupkg
+          if-no-files-found: warn
+
   lint:
     name: Lint
     runs-on: ubuntu-latest

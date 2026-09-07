@@ -1,0 +1,18 @@
+<Project>
+
+  <PropertyGroup>
+    <!-- The floor is net8.0. TimeProvider, DbDataSource and the trimming and Native AOT
+         guarantees of section 9A all start there. -->
+    <TargetFramework>net8.0</TargetFramework>
+    <LangVersion>12.0</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+    <AnalysisLevel>latest-recommended</AnalysisLevel>
+    <!-- A lock file pins the transitive graph, as dependency verification does for Gradle. -->
+    <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
+    <Deterministic>true</Deterministic>
+  </PropertyGroup>
+
+</Project>

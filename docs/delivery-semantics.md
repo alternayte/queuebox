@@ -38,6 +38,13 @@ work.
 For the pull claim, renewal, completion, retry and dead-letter statements, see
 [`examples/pull`](../examples/pull/README.md).
 
+A client library holds those statements, the renewal timer and the lease discipline, so an
+application writes only its own work. C# is available today.
+
+| Language | Package | Example |
+| --- | --- | --- |
+| C# | `QueueBox.Inbox` on NuGet | [`examples/pull/csharp`](../examples/pull/csharp/README.md) |
+
 ## Where a message can come from, and where it can go
 
 | Broker | As a source | As a destination |
