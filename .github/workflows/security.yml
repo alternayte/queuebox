@@ -28,7 +28,7 @@ jobs:
           java-version: "21"
 
       - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v4
+        uses: gradle/actions/setup-gradle@v6
 
       - name: Build the software bill of materials
         # The CycloneDX plugin does not support the Gradle configuration cache.
