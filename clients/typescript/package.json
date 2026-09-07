@@ -1,0 +1,56 @@
+{
+  "name": "@queuebox/inbox",
+  "version": "0.1.0",
+  "description": "A pull-inbox worker for QueueBox. It claims, renews, completes, retries and dead-letters messages, and it runs the completion inside the handler's own transaction.",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/alternayte/queuebox.git",
+    "directory": "clients/typescript"
+  },
+  "keywords": [
+    "queuebox",
+    "inbox",
+    "outbox",
+    "transactional",
+    "postgresql",
+    "sqlserver"
+  ],
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test test/unit/*.test.ts",
+    "test:bun": "./run-bun-tests.sh",
+    "test:contract": "node --test --test-timeout=600000 test/contract/*.test.ts"
+  },
+  "devDependencies": {
+    "@testcontainers/mssqlserver": "^12.1.0",
+    "@testcontainers/postgresql": "^12.1.0",
+    "@types/mssql": "^12.3.0",
+    "@types/node": "^22.10.2",
+    "@types/pg": "^8.11.10",
+    "mssql": "^11.0.1",
+    "pg": "^8.13.1",
+    "testcontainers": "^12.1.0",
+    "tsup": "^8.3.5",
+    "typescript": "^5.7.2"
+  }
+}

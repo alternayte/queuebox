@@ -77,6 +77,22 @@ later.
 The build packs the package, installs it from a local feed, and builds the README example
 against it. An example that the README shows and the package cannot run is a defect.
 
+## 12A. What the TypeScript build added
+
+- **Both dialects bind positionally.** `pg` accepts no named parameter, so PostgreSQL renders
+  `$1` and SQL Server renders `@p1`, and one connection interface serves both drivers. Python
+  and Go face the same split and must decide the same way.
+- **The driver module can be a parameter.** The `mssql` adapter needs the `Transaction` and
+  `Request` constructors, and the core package imports no driver, so the module itself is an
+  argument. Prefer this to importing a driver in the core.
+- **Cancellation follows the language.** C# passes a `CancellationToken` and TypeScript passes an
+  `AbortSignal`. The guarantee is the same: the signal fires when the lease is lost and when a
+  shutdown runs out of grace.
+- **Prove the test runner before you choose it.** `node:test` runs the same file under Node, Bun
+  and Deno, so the suite needs no test framework and work order item 15 costs nothing. But
+  `bun test <directory>` runs the tests of ONE file and reports success for all of them, so the
+  Bun leg runs one file at a time. Check that your runner actually runs what it claims.
+
 ## 12. What the C# build had to change in the work order
 
 - Section 6 shows `new InboxWorker(dataSource, ...)`. That signature cannot serve both C#
