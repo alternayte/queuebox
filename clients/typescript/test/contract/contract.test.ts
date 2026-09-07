@@ -363,8 +363,14 @@ function contract(harness: DatabaseHarness): void {
       stop.abort();
       await run;
 
-      assert.notEqual((await harness.readRow(first)).state, "processed");
-      assert.equal((await harness.readRow(second)).state, "pending");
+      // The two rows carry the same scheduled_at, so the claim order is not decided. The
+      // guarantee is about the counts: the stop completes nothing and claims nothing new, so
+      // exactly one row is in flight and the other is untouched.
+      const states = [(await harness.readRow(first)).state, (await harness.readRow(second)).state];
+
+      assert.ok(!states.includes("processed"), `a row was completed: ${states.join(", ")}`);
+      assert.equal(states.filter((state) => state === "processing").length, 1);
+      assert.equal(states.filter((state) => state === "pending").length, 1);
     });
 
     // Item 13.
