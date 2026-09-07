@@ -286,6 +286,78 @@ jobs:
           node --check worker.ts
           node -e "import('@alternayte/queuebox-inbox').then((m) => { if (typeof m.InboxWorker !== 'function') { throw new Error('The package does not export InboxWorker.'); } })"
 
+  client-go:
+    name: Client library, Go ${{ matrix.go }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 1.24 is the floor that go.mod states. A pull request proves the floor, and a push to
+        # main and the nightly schedule prove the newer releases as well.
+        go: ${{ github.event_name == 'pull_request' && fromJSON('["1.24.x"]') || fromJSON('["1.24.x","1.25.x","1.26.x"]') }}
+    defaults:
+      run:
+        working-directory: clients/go
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go ${{ matrix.go }}
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ matrix.go }}
+          cache-dependency-path: clients/go/go.sum
+
+      - name: Check that go.mod and go.sum are tidy
+        # A dependency cannot move without a review. The library module must also keep its small
+        # dependency list, so the check covers both modules.
+        run: |
+          go mod tidy
+          (cd contract && go mod tidy)
+          git diff --exit-code go.mod go.sum contract/go.mod contract/go.sum
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Check the formatting
+        run: |
+          unformatted="$(gofmt -l .)"
+          if [ -n "${unformatted}" ]; then
+            echo "These files are not formatted:" >&2
+            echo "${unformatted}" >&2
+            exit 1
+          fi
+
+      - name: Run staticcheck
+        uses: dominikh/staticcheck-action@v1
+        with:
+          version: latest
+          working-directory: clients/go
+          install-go: false
+
+      - name: Run the unit tests and the shared redaction corpus
+        run: go test -race ./...
+
+      - name: Run the contract tests against PostgreSQL and SQL Server
+        # The runner provides the Docker daemon that Testcontainers needs. The tests apply the
+        # QueueBox migrations from this repository, so the library cannot drift from the schema.
+        #
+        # They live in their own module, because Testcontainers and both drivers need a newer Go
+        # than the library does, and a test dependency must never raise the floor of a published
+        # library.
+        working-directory: clients/go/contract
+        run: go test -timeout 30m ./...
+
+      - name: Build the README example against the library
+        # Definition of Done, item 14. The example is the README example, so a library that does
+        # not carry what the README promises fails here.
+        working-directory: examples/pull/go
+        run: |
+          go build ./...
+          go vet ./...
+
   lint:
     name: Lint
     runs-on: ubuntu-latest

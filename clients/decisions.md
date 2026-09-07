@@ -93,6 +93,28 @@ against it. An example that the README shows and the package cannot run is a def
   `bun test <directory>` runs the tests of ONE file and reports success for all of them, so the
   Bun leg runs one file at a time. Check that your runner actually runs what it claims.
 
+## 12B. What the Go build added
+
+- **`database/sql` is the abstraction the other languages wanted.** The worker takes a plain
+  `*sql.DB`, the handler receives a real `*sql.Tx`, and the library imports no driver. Python has
+  no equivalent, so it must state its own interface, as TypeScript does.
+- **Positional binding again.** PostgreSQL renders `$1` and SQL Server renders `@p1`. Two of the
+  three languages so far have needed this, so treat it as the rule and not the exception.
+- **Cancellation follows the language.** Go passes a `context.Context`, C# a
+  `CancellationToken`, TypeScript an `AbortSignal`. The guarantee does not change.
+- **A regular expression engine is not a given.** Go's `regexp` is RE2 and has no lookahead, so
+  the redaction patterns cannot be copied verbatim. The library uses `regexp2` for the three URL
+  shapes only, and the standard library for the rest, which is about seven times faster on the
+  common path. Where an engine forces a different implementation, prove the behaviour with the
+  shared corpus rather than by reading the two patterns side by side.
+- **A driver can return an identifier as bytes.** go-mssqldb returns a UNIQUEIDENTIFIER as
+  sixteen raw bytes, and SQL Server stores the first three groups little-endian. The library
+  converts it, because the application must not and the library must not import a driver to do
+  it. Check what every driver returns for the identifier and the claim token.
+- **A test dependency must never raise the floor of a published library.** Testcontainers and
+  both drivers need a newer Go than the library does, so the contract tests live in their own
+  module. The library installs with one small dependency.
+
 ## 12. What the C# build had to change in the work order
 
 - Section 6 shows `new InboxWorker(dataSource, ...)`. That signature cannot serve both C#

@@ -1,0 +1,2 @@
+# `go build` writes the binary beside the source, and it is named after the directory.
+/go
