@@ -5,12 +5,14 @@
 # whose number promises a change that the library did not make.
 #
 #   C#: `csharp-v0.1.1` publishes QueueBox.Inbox 0.1.1 to NuGet.
+#   TypeScript: `typescript-v0.1.1` publishes @queuebox/inbox 0.1.1 to npm.
 name: release-clients
 
 on:
   push:
     tags:
       - "csharp-v*"
+      - "typescript-v*"
 
 permissions:
   contents: read
@@ -18,6 +20,7 @@ permissions:
 jobs:
   csharp:
     name: Publish QueueBox.Inbox
+    if: startsWith(github.ref_name, 'csharp-v')
     runs-on: ubuntu-latest
     permissions:
       # The job attaches the package to a GitHub release as well.
@@ -92,3 +95,76 @@ jobs:
             --title "QueueBox.Inbox ${{ steps.version.outputs.version }}" \
             --notes "The C# pull inbox client library, version ${{ steps.version.outputs.version }}. See clients/csharp/README.md." \
             artifacts/*.nupkg
+
+  typescript:
+    name: Publish @queuebox/inbox
+    if: startsWith(github.ref_name, 'typescript-v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      # npm trusted publishing signs the provenance with the workflow identity.
+      id-token: write
+    defaults:
+      run:
+        working-directory: clients/typescript
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22.x"
+          cache: npm
+          cache-dependency-path: clients/typescript/package-lock.json
+          registry-url: https://registry.npmjs.org
+
+      - name: Read the version from the tag
+        id: version
+        run: |
+          version="${GITHUB_REF_NAME#typescript-v}"
+          if ! printf '%s' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
+            echo "The tag '${GITHUB_REF_NAME}' does not carry a version that npm accepts." >&2
+            exit 1
+          fi
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+
+      - name: Install
+        run: npm ci
+
+      - name: Type check
+        run: npm run typecheck
+
+      - name: Run the unit tests
+        run: npm test
+
+      - name: Run the contract tests against PostgreSQL and SQL Server
+        # A publish to npm cannot be undone after seventy two hours, so the whole contract runs
+        # before it.
+        run: npm run test:contract
+
+      - name: Set the version that the tag names
+        run: npm version "${{ steps.version.outputs.version }}" --no-git-tag-version --allow-same-version
+
+      - name: Build
+        run: npm run build
+
+      - name: Publish to npm
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          if [ -z "${NODE_AUTH_TOKEN}" ]; then
+            echo "The secret NPM_TOKEN is not set. Add it before you tag a release." >&2
+            exit 1
+          fi
+          npm publish --access public --provenance
+
+      - name: Create the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" \
+            --title "@queuebox/inbox ${{ steps.version.outputs.version }}" \
+            --notes "The TypeScript pull inbox client library, version ${{ steps.version.outputs.version }}. See clients/typescript/README.md."
