@@ -159,6 +159,19 @@ var options = new InboxOptions
 
 Every name is quoted and checked before it reaches the database, so a mapping cannot carry SQL.
 
+## Releases
+
+The library releases on its own tag, so a library fix never needs a QueueBox release, and a
+QueueBox release never republishes the library.
+
+```bash
+git tag csharp-v0.1.1 && git push origin csharp-v0.1.1
+```
+
+The tag drives the package version. The `<Version>` in the project file is the development
+default only. The README states the minimum QueueBox version, and the library checks nothing at
+runtime.
+
 ## License
 
 Apache-2.0.
