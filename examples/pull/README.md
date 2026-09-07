@@ -1,9 +1,10 @@
 # Pull workers
 
 A client library implements everything on this page. Use it rather than the raw statements when
-your language has one. C# and TypeScript are available today: see [`csharp`](csharp/README.md)
-and [`typescript`](typescript/README.md). The statements below stay the contract, and they
-remain the answer for a language with no library yet.
+your language has one. C#, TypeScript and Go are available today: see
+[`csharp`](csharp/README.md), [`typescript`](typescript/README.md) and [`go`](go/README.md). The
+statements below stay the contract, and they remain the answer for a language with no library
+yet.
 
 Run QueueBox with `queuebox.yml` against the PostgreSQL service in the root Compose
 setup (adjust credentials to match that database). For SQL Server, set `database.type`,
