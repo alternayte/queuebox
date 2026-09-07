@@ -39,11 +39,12 @@ For the pull claim, renewal, completion, retry and dead-letter statements, see
 [`examples/pull`](../examples/pull/README.md).
 
 A client library holds those statements, the renewal timer and the lease discipline, so an
-application writes only its own work. C# is available today.
+application writes only its own work.
 
 | Language | Package | Example |
 | --- | --- | --- |
 | C# | `QueueBox.Inbox` on NuGet | [`examples/pull/csharp`](../examples/pull/csharp/README.md) |
+| TypeScript | `@alternayte/queuebox-inbox` on npm | [`examples/pull/typescript`](../examples/pull/typescript/README.md) |
 
 ## Where a message can come from, and where it can go
 
