@@ -6,6 +6,8 @@
 #
 #   C#: `csharp-v0.1.1` publishes QueueBox.Inbox 0.1.1 to NuGet.
 #   TypeScript: `typescript-v0.1.1` publishes @queuebox/inbox 0.1.1 to npm.
+#   Go: `clients/go/v0.1.1` publishes the module. Go ties the tag of a module in a subdirectory
+#   to that subdirectory, so this tag carries the path and cannot follow the pattern above.
 name: release-clients
 
 on:
@@ -13,6 +15,7 @@ on:
     tags:
       - "csharp-v*"
       - "typescript-v*"
+      - "clients/go/v*"
 
 permissions:
   contents: read
@@ -168,3 +171,77 @@ jobs:
           gh release create "${GITHUB_REF_NAME}" \
             --title "@queuebox/inbox ${{ steps.version.outputs.version }}" \
             --notes "The TypeScript pull inbox client library, version ${{ steps.version.outputs.version }}. See clients/typescript/README.md."
+
+  go:
+    name: Publish the Go module
+    if: startsWith(github.ref_name, 'clients/go/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.24.x"
+          cache-dependency-path: clients/go/go.sum
+
+      - name: Read the version from the tag
+        id: version
+        run: |
+          version="${GITHUB_REF_NAME#clients/go/v}"
+          if ! printf '%s' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
+            echo "The tag '${GITHUB_REF_NAME}' does not carry a version that Go accepts." >&2
+            exit 1
+          fi
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+
+      - name: Vet and test the library
+        working-directory: clients/go
+        run: |
+          go vet ./...
+          go test -race ./...
+
+      - name: Run the contract tests against PostgreSQL and SQL Server
+        # A version that the module proxy has served cannot be withdrawn, so the whole contract
+        # runs before the tag becomes a release.
+        working-directory: clients/go/contract
+        run: go test -timeout 30m ./...
+
+      - name: Create the GitHub release
+        # Go publishes nothing. The module proxy serves the tag straight from this repository, so
+        # the tag IS the release. This step records it for a reader.
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" \
+            --title "Go client ${{ steps.version.outputs.version }}" \
+            --notes "The Go pull inbox client library, version ${{ steps.version.outputs.version }}.
+
+          Install it with:
+
+              go get github.com/alternayte/queuebox/clients/go@v${{ steps.version.outputs.version }}
+
+          See clients/go/README.md."
+
+      - name: Prove that the module proxy serves the version
+        # The proxy fetches the tag on the first request, so this step is the evidence that a
+        # consumer can install what the tag names.
+        env:
+          GOPROXY: https://proxy.golang.org
+        run: |
+          for attempt in 1 2 3 4 5 6; do
+            if go list -m "github.com/alternayte/queuebox/clients/go@v${{ steps.version.outputs.version }}"; then
+              exit 0
+            fi
+
+            echo "The proxy does not serve the version yet. Waiting." >&2
+            sleep 20
+          done
+
+          echo "The module proxy did not serve the version." >&2
+          exit 1
