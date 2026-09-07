@@ -37,13 +37,18 @@ const QUOTED_VALUE = `"(?:\\\\.|[^"\\\\\\n])*"?|'(?:\\\\.|[^'\\\\\\n])*'?`;
 // Matches "<key><separator><value>". The key accepts a prefix, so "PGPASSWORD" matches, and it
 // ends on a word boundary, so "passwordless" does not.
 //
+// The prefix is BOUNDED. An unbounded run in front of a required literal makes the whole pattern
+// quadratic in the length of the text, because the engine scans to the end at every start
+// position. The redaction runs on every failure, and an error text can be long, so the cost was
+// also a denial of service. No real key carries a prefix of more than sixty four characters.
+//
 // A ':' separator is the log, the YAML and the header notation, where a value can hold a space,
 // so the value runs to a comma, a semicolon, a brace, a bracket, an ampersand, a quote or the
 // end of the line. An '=' separator is the environment, the query and the connection string
 // notation, where the value ends at the first whitespace. Both stop at a semicolon, which is
 // what bounds a connection string value.
 const SECRET_PATTERN = new RegExp(
-  `([A-Za-z0-9_]*(?:${SECRET_KEYS.map(keyAlternative).join("|")}))\\b"?\\s*(?:` +
+  `([A-Za-z0-9_]{0,64}(?:${SECRET_KEYS.map(keyAlternative).join("|")}))\\b"?\\s*(?:` +
     `:+\\s*(?:${QUOTED_VALUE}|(?:(?:${AUTH_SCHEMES.join("|")})\\s+)?[^,;}\\]&\\n"]*)` +
     "|" +
     `=+\\s*(?:${QUOTED_VALUE}|(?:(?:${AUTH_SCHEMES.join("|")})\\s+)?[^\\s,;}\\]&\\n"]*)` +
@@ -65,7 +70,9 @@ const SCHEME_PATTERN = new RegExp(
 );
 
 // The user information of a URL. The host and the port stay, because an operator needs them.
-const SCHEME_PART = "([a-zA-Z][a-zA-Z0-9+.-]*:/{1,2})";
+// The scheme name is BOUNDED, for the reason the key prefix above states. The longest
+// registered URI scheme is far below thirty two characters.
+const SCHEME_PART = "([a-zA-Z][a-zA-Z0-9+.-]{0,31}:/{1,2})";
 const USER_PART = "[^\\s/?#@]*:";
 const HOST_AFTER = "(?=[^/?#\\s@]*(?:[/?#\\s]|$))";
 const PLAUSIBLE_HOST_AFTER = "(?=[^/?#\\s@]*:[0-9]+(?:[/?#\\s]|$)|[^/?#\\s@]*[/?#])";
