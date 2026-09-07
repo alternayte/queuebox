@@ -64,6 +64,12 @@ object ErrorSanitizer {
     // The key accepts a prefix, so an environment variable such as "PGPASSWORD" matches. The key
     // still ends on a word boundary, so "passwordless" does not match.
     //
+    // The prefix is BOUNDED. An unbounded run in front of a required literal makes the whole
+    // pattern quadratic in the length of the text, because the engine scans to the end of the
+    // text at every start position. The redaction runs on every failure, and an error text can
+    // be long, so a five thousand character message cost about two hundred milliseconds. No real
+    // key carries a prefix of more than sixty four characters.
+    //
     // A quoted value ends at its closing quote, so a comma inside the quotes cannot cut the
     // redaction short.
     //
@@ -85,7 +91,7 @@ object ErrorSanitizer {
     private val schemePrefix: String = "(?:(?:" + AUTH_SCHEMES.joinToString("|") + ")\\s+)?"
 
     private val secretPattern: Regex = Regex(
-        "(?i)([A-Za-z0-9_]*(?:" + SECRET_KEYS.joinToString("|") { keyAlternative(it) } +
+        "(?i)([A-Za-z0-9_]{0,64}(?:" + SECRET_KEYS.joinToString("|") { keyAlternative(it) } +
             "))\\b\"?\\s*(?:" +
             ":+\\s*(?:" + QUOTED_VALUE + "|" + schemePrefix + "[^,;}\\]&\\n\"]*)" +
             "|" +

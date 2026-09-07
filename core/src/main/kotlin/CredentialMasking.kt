@@ -67,7 +67,10 @@ object CredentialMasking {
     // is malformed, and a missing slash is the commonest malformation, so `amqp:/host:pass@broker`
     // escaped the mask. One or two slashes are accepted now. At least one slash is still
     // mandatory, so ordinary prose of the form `note:see me@example.com` does not match.
-    private const val SCHEME = "([a-zA-Z][a-zA-Z0-9+.-]*:/{1,2})"
+    // The scheme name is BOUNDED, for the reason that ErrorSanitizer states about its key
+    // prefix: an unbounded run in front of a required literal makes the pattern quadratic in the
+    // length of the text. The longest registered URI scheme is far below thirty two characters.
+    private const val SCHEME = "([a-zA-Z][a-zA-Z0-9+.-]{0,31}:/{1,2})"
 
     private const val USER = "[^\\s/?#@]*:"
 

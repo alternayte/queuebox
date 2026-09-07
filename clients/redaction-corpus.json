@@ -1,0 +1,262 @@
+{
+  "$comment": [
+    "The shared redaction corpus. Every QueueBox client library runs it, and so does QueueBox.",
+    "Section 8 of the work order says that no library prints a secret. A library that redacts",
+    "ALMOST the same as the others is a security defect, not a difference of idiom, so the cases",
+    "live here rather than in one language's test file.",
+    "The cases come from ErrorSanitizerTest and CredentialMaskingTest in core.",
+    "",
+    "A case states the input and one of two expectations.",
+    "  expected        the exact output. This pins the behaviour hardest, so prefer it.",
+    "  mustNotContain  text that must not survive. Use it when the exact output is not the point.",
+    "  mustContain     text that must survive, so an operator keeps the meaning of the message."
+  ],
+  "maxLength": 2000,
+  "truncationMarker": "...[truncated]",
+  "cases": [
+    {
+      "name": "an ordinary message is not mangled",
+      "input": "Connection reset by peer after 3 attempts on exchange orders",
+      "expected": "Connection reset by peer after 3 attempts on exchange orders"
+    },
+    {
+      "name": "a short text stays whole",
+      "input": "HTTP 404: Not Found",
+      "expected": "HTTP 404: Not Found"
+    },
+    {
+      "name": "an authorization header value",
+      "input": "HTTP 500 for request with Authorization: Bearer super-secret-token, retrying",
+      "mustNotContain": ["super-secret-token"],
+      "mustContain": ["HTTP 500", "[REDACTED]"]
+    },
+    {
+      "name": "a bare basic scheme token",
+      "input": "rejected: Basic dXNlcjpwYXNzd29yZA==",
+      "mustNotContain": ["dXNlcjpwYXNzd29yZA=="],
+      "mustContain": ["rejected"]
+    },
+    {
+      "name": "a bare bearer json web token",
+      "input": "rejected: Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.abcDEF123",
+      "mustNotContain": ["eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.abcDEF123"]
+    },
+    {
+      "name": "a bare digest token",
+      "input": "denied Digest leaked-value-123",
+      "mustNotContain": ["leaked-value-123"]
+    },
+    {
+      "name": "a bare negotiate token",
+      "input": "denied Negotiate leaked-value-123",
+      "mustNotContain": ["leaked-value-123"]
+    },
+    {
+      "name": "a bare token scheme token",
+      "input": "denied Token leaked-value-123",
+      "mustNotContain": ["leaked-value-123"]
+    },
+    {
+      "name": "the word token in prose survives",
+      "input": "the token bucket is empty",
+      "expected": "the token bucket is empty"
+    },
+    {
+      "name": "the word digest in prose survives",
+      "input": "Digest authentication failed",
+      "expected": "Digest authentication failed"
+    },
+    {
+      "name": "a key with an underscore separator",
+      "input": "failure api_key=SUPERSECRETVALUE end",
+      "mustNotContain": ["SUPERSECRETVALUE"],
+      "mustContain": ["failure"]
+    },
+    {
+      "name": "a key with a dot separator",
+      "input": "failure client.secret=SUPERSECRETVALUE end",
+      "mustNotContain": ["SUPERSECRETVALUE"],
+      "mustContain": ["failure"]
+    },
+    {
+      "name": "a key in camel case",
+      "input": "failure apiKey=SUPERSECRETVALUE end",
+      "mustNotContain": ["SUPERSECRETVALUE"]
+    },
+    {
+      "name": "a key in upper case",
+      "input": "failure API_KEY=SUPERSECRETVALUE end",
+      "mustNotContain": ["SUPERSECRETVALUE"]
+    },
+    {
+      "name": "a key with a prefix such as PGPASSWORD",
+      "input": "PGPASSWORD=hunter2 psql failed",
+      "mustNotContain": ["hunter2"],
+      "mustContain": ["psql failed"]
+    },
+    {
+      "name": "an equals value keeps the words that follow",
+      "input": "PGPASSWORD=hunter2 psql failed",
+      "mustNotContain": ["hunter2"],
+      "mustContain": ["psql failed"]
+    },
+    {
+      "name": "a colon value loses its whole tail",
+      "input": "password: my secret pass",
+      "mustNotContain": ["secret pass", "my"]
+    },
+    {
+      "name": "a quoted value that holds a comma",
+      "input": "password=\"pa,ss word!\" other=1",
+      "mustNotContain": ["pa,ss", "ss word!"],
+      "mustContain": ["other=1"]
+    },
+    {
+      "name": "a quoted value that holds an escaped quote",
+      "input": "{\"password\":\"he said \\\"hi\\\", ok\"}",
+      "mustNotContain": ["he said", "ok"]
+    },
+    {
+      "name": "a sentence that names a password",
+      "input": "The password was wrong and the broker closed the channel",
+      "expected": "The password was wrong and the broker closed the channel"
+    },
+    {
+      "name": "a passwordless option is not a password",
+      "input": "passwordless=true is not supported",
+      "expected": "passwordless=true is not supported"
+    },
+    {
+      "name": "a dotnet connection string",
+      "input": "Host=db;Username=app;Password=hunter2;Database=queuebox",
+      "mustNotContain": ["hunter2"],
+      "mustContain": ["Host=db", "Database=queuebox"]
+    },
+    {
+      "name": "a sql server connection string",
+      "input": "Server=db;User Id=sa;Password=P@ssw0rd!;Encrypt=True",
+      "mustNotContain": ["P@ssw0rd!"],
+      "mustContain": ["Server=db"]
+    },
+    {
+      "name": "the pwd abbreviation",
+      "input": "Server=db;pwd=hunter2;Encrypt=True",
+      "mustNotContain": ["hunter2"],
+      "mustContain": ["Server=db"]
+    },
+    {
+      "name": "the user information of an amqp uri",
+      "input": "Illegal character in authority at index 18: amqp://guest:Sup3r S3cret@rabbit:5672/vh",
+      "mustNotContain": ["Sup3r S3cret"],
+      "mustContain": ["rabbit:5672"]
+    },
+    {
+      "name": "a url with no user information keeps its host and path",
+      "input": "Connection refused to amqp://rabbit:5672/vh",
+      "mustContain": ["rabbit:5672", "/vh"]
+    },
+    {
+      "name": "a url password that holds an unencoded slash",
+      "input": "connect failed amqp://user:p/ssw0rd@broker:5672/vhost",
+      "mustNotContain": ["p/ssw0rd"],
+      "mustContain": ["broker:5672"]
+    },
+    {
+      "name": "a url password that holds an at sign uses the last at sign",
+      "input": "https://user:p@ss@host/path",
+      "expected": "https://***@host/path"
+    },
+    {
+      "name": "a url password that holds both an at sign and a slash",
+      "input": "amqp://user:pa@ss/word@broker:5672/vhost",
+      "expected": "amqp://***@broker:5672/vhost"
+    },
+    {
+      "name": "two urls in one message",
+      "input": "amqp://a:b@h1:5672/v failed, amqp://c:d@h2:5672/v failed",
+      "mustNotContain": ["a:b", "c:d"],
+      "mustContain": ["h1:5672", "h2:5672"]
+    },
+    {
+      "name": "a path that holds an at sign is not user information",
+      "input": "GET https://api.example.com/users/me@example.com failed",
+      "expected": "GET https://api.example.com/users/me@example.com failed"
+    },
+    {
+      "name": "a url password that holds two spaces",
+      "input": "Illegal character at index 18: amqp://user:aa  bb@rabbit:5672/vh",
+      "mustNotContain": ["aa  bb"],
+      "mustContain": ["rabbit:5672"]
+    },
+    {
+      "name": "a url password that holds a tab",
+      "input": "connect failed amqp://user:aa\tbb@rabbit:5672/vh",
+      "mustNotContain": ["aa\tbb"],
+      "mustContain": ["rabbit:5672"]
+    },
+    {
+      "name": "a url password that holds a newline",
+      "input": "connect failed amqp://user:aa\nbb@rabbit:5672/vh",
+      "mustNotContain": ["aa\nbb"],
+      "mustContain": ["rabbit:5672"]
+    },
+    {
+      "name": "a url password that holds a space and an at sign",
+      "input": "bad uri amqp://user:a b@c d@rabbit:5672/vh",
+      "expected": "bad uri amqp://***@rabbit:5672/vh"
+    },
+    {
+      "name": "a url password that holds a space, a slash and an at sign",
+      "input": "bad uri amqp://user:a b/c@d e@rabbit:5672/vh",
+      "expected": "bad uri amqp://***@rabbit:5672/vh"
+    },
+    {
+      "name": "a whitespace password before a prose mail address",
+      "input": "amqp://user:a b@rabbit:5672/vh failed for nate@example.com",
+      "expected": "amqp://***@rabbit:5672/vh failed for nate@example.com"
+    },
+    {
+      "name": "a whitespace password of a url with no port and no path",
+      "input": "connect failed amqp://user:pass word@rabbit",
+      "expected": "connect failed amqp://***@rabbit"
+    },
+    {
+      "name": "prose that names a url and a mail address",
+      "input": "amqp://rabbit:5672/vh failed for nate@example.com",
+      "expected": "amqp://rabbit:5672/vh failed for nate@example.com"
+    },
+    {
+      "name": "a port only url followed by prose is masked on purpose",
+      "$comment": "A leaked broker password is a defect. A mangled word is an inconvenience.",
+      "input": "amqp://rabbit:5672 refused for nate@example.com",
+      "expected": "amqp://***@example.com"
+    },
+    {
+      "name": "a message with no scheme keeps its mail address",
+      "input": "delivery failed for nate@example.com after 3 attempts",
+      "expected": "delivery failed for nate@example.com after 3 attempts"
+    },
+    {
+      "name": "prose that holds a colon and a mail address",
+      "input": "note:see me@example.com for details",
+      "expected": "note:see me@example.com for details"
+    },
+    {
+      "name": "a malformed uri with one slash",
+      "input": "connect failed amqp:/user:hunter2@rabbit:5672/vh",
+      "mustNotContain": ["hunter2"],
+      "mustContain": ["rabbit:5672"]
+    },
+    {
+      "name": "a jdbc password query parameter",
+      "input": "jdbc:postgresql://db:5432/app?user=app&password=hunter2&ssl=true",
+      "mustNotContain": ["hunter2"],
+      "mustContain": ["db:5432"]
+    },
+    {
+      "name": "a header map printed into a message",
+      "input": "headers {Authorization=Bearer leaked-value-123, X-Api-Key=leaked-key-456} rejected",
+      "mustNotContain": ["leaked-value-123", "leaked-key-456"]
+    }
+  ]
+}

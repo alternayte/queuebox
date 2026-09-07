@@ -8,7 +8,10 @@ namespace QueueBox.Inbox;
 /// </summary>
 internal static partial class CredentialMasking
 {
-    private const string Scheme = "([a-zA-Z][a-zA-Z0-9+.-]*:/{1,2})";
+    // The scheme name is BOUNDED, for the reason ErrorSanitizer states about its key prefix: an
+    // unbounded run in front of a required literal makes the pattern quadratic in the length of
+    // the text. The longest registered URI scheme is far below thirty two characters.
+    private const string Scheme = "([a-zA-Z][a-zA-Z0-9+.-]{0,31}:/{1,2})";
     private const string User = "[^\\s/?#@]*:";
     private const string HostAfter = "(?=[^/?#\\s@]*(?:[/?#\\s]|$))";
     private const string PlausibleHostAfter = "(?=[^/?#\\s@]*:[0-9]+(?:[/?#\\s]|$)|[^/?#\\s@]*[/?#])";
