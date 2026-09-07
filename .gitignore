@@ -91,3 +91,7 @@ benchmarks/results/*
 # The client library work order. It is a working document for the next effort, not part of the
 # shipped documentation.
 client-libs-doc.md
+
+# .NET client libraries and examples
+obj/
+[Aa]rtifacts/

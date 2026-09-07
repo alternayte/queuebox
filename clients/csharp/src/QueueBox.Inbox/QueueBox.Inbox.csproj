@@ -1,0 +1,45 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>QueueBox.Inbox</RootNamespace>
+    <AssemblyName>QueueBox.Inbox</AssemblyName>
+
+    <!-- Section 9A: the library must not stop a host from publishing trimmed or AOT. -->
+    <IsAotCompatible>true</IsAotCompatible>
+    <IsTrimmable>true</IsTrimmable>
+
+    <PackageId>QueueBox.Inbox</PackageId>
+    <!-- The library depends on the V6 schema, so version one tracks QueueBox 0.1.0. The README
+         states the minimum QueueBox version, and the library checks nothing at runtime. -->
+    <Version>0.1.0</Version>
+    <Description>A pull-inbox worker for QueueBox. It claims, renews, completes, retries and dead-letters messages, and it runs the completion inside the handler's own transaction.</Description>
+    <Authors>AlterNayte</Authors>
+    <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
+    <PackageProjectUrl>https://github.com/alternayte/queuebox</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/alternayte/queuebox</RepositoryUrl>
+    <PackageTags>queuebox;inbox;outbox;transactional;postgresql;sqlserver</PackageTags>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- The tests build a message without a database, so they need the internal constructor. -->
+    <InternalsVisibleTo Include="QueueBox.Inbox.Tests" />
+    <InternalsVisibleTo Include="QueueBox.Inbox.IntegrationTests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- `IsTrimmable` and `IsAotCompatible` pull this package in implicitly, and the implicit
+         version follows whichever .NET 8 toolchain the machine has. That put the toolchain
+         version into the lock file, so a locked restore failed on any machine
+         whose SDK set differed. The explicit reference makes it deterministic and keeps the
+         trim and AOT analysers running in the build. -->
+    <PackageReference Include="Microsoft.NET.ILLink.Tasks" Version="8.0.30" PrivateAssets="all" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The core package depends on no database driver. It talks to System.Data.Common only,
+         so one package serves Npgsql and Microsoft.Data.SqlClient. -->
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="8.0.2" />
+  </ItemGroup>
+
+</Project>

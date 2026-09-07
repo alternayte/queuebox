@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>QueueBox.Examples.Pull</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- The version is a floating one, so the example builds against the package that the
+         build just packed. See nuget.config for the local feed. -->
+    <PackageReference Include="QueueBox.Inbox" Version="*" />
+    <PackageReference Include="Npgsql" Version="8.0.5" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Console" Version="8.0.1" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,7 @@
+{
+  "sdk": {
+    "//": "The solution uses the slnx format, which needs SDK 9.0.200 or newer. The lock file no longer depends on the SDK, so the roll forward is permissive.",
+    "version": "9.0.100",
+    "rollForward": "latestMajor"
+  }
+}
