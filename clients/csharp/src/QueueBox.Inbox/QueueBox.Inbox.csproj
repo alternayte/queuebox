@@ -28,6 +28,15 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- `IsTrimmable` and `IsAotCompatible` pull this package in implicitly, and the implicit
+         version follows whichever .NET 8 toolchain the machine has. That put the toolchain
+         version into the lock file, so a locked restore failed on any machine
+         whose SDK set differed. The explicit reference makes it deterministic and keeps the
+         trim and AOT analysers running in the build. -->
+    <PackageReference Include="Microsoft.NET.ILLink.Tasks" Version="8.0.30" PrivateAssets="all" />
+  </ItemGroup>
+
+  <ItemGroup>
     <!-- The core package depends on no database driver. It talks to System.Data.Common only,
          so one package serves Npgsql and Microsoft.Data.SqlClient. -->
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="8.0.2" />
