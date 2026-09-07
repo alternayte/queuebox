@@ -377,8 +377,19 @@ public abstract class InboxWorkerContractTest : IAsyncLifetime
         await stop.CancelAsync();
         await run;
 
-        Assert.NotEqual("processed", (await Harness.ReadRowAsync(first)).State);
-        Assert.Equal("pending", (await Harness.ReadRowAsync(second)).State);
+        // The two rows carry the same scheduled_at, so `ORDER BY scheduled_at, created_at` does
+        // not say which one the claim takes. The guarantee is about the counts, not about which
+        // row: the stop completes nothing, and it claims nothing new, so exactly one row is in
+        // flight and the other is untouched.
+        var states = new[]
+        {
+            (await Harness.ReadRowAsync(first)).State,
+            (await Harness.ReadRowAsync(second)).State,
+        };
+
+        Assert.DoesNotContain("processed", states);
+        Assert.Equal(1, states.Count(state => state == "processing"));
+        Assert.Equal(1, states.Count(state => state == "pending"));
     }
 
     // Item 13.
