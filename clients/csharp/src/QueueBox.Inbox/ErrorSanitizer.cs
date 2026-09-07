@@ -94,6 +94,12 @@ public static partial class ErrorSanitizer
     // pattern. The key accepts a prefix, so "PGPASSWORD" matches, and it ends on a word
     // boundary, so "passwordless" does not.
     //
+    // The prefix is BOUNDED. An unbounded run in front of a required literal makes the whole
+    // pattern quadratic in the length of the text, because the engine scans to the end at every
+    // start position. The redaction runs on every failure, and an error text can be long, so the
+    // cost was also a denial of service. No real key carries a prefix of more than sixty four
+    // characters.
+    //
     // A ':' separator is the log, the YAML and the header notation, where a value can hold a
     // space, so the value runs to a comma, a semicolon, a brace, a bracket, an ampersand, a
     // quote or the end of the line. An '=' separator is the environment, the query and the
@@ -105,7 +111,7 @@ public static partial class ErrorSanitizer
         var schemePrefix = "(?:(?:" + string.Join("|", AuthSchemes) + ")\\s+)?";
 
         return new Regex(
-            "([A-Za-z0-9_]*(?:" + keys + "))\\b\"?\\s*(?:" +
+            "([A-Za-z0-9_]{0,64}(?:" + keys + "))\\b\"?\\s*(?:" +
             ":+\\s*(?:" + QuotedValue + "|" + schemePrefix + "[^,;}\\]&\\n\"]*)" +
             "|" +
             "=+\\s*(?:" + QuotedValue + "|" + schemePrefix + "[^\\s,;}\\]&\\n\"]*)" +
