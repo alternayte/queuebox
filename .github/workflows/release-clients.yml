@@ -5,7 +5,7 @@
 # whose number promises a change that the library did not make.
 #
 #   C#: `csharp-v0.1.1` publishes QueueBox.Inbox 0.1.1 to NuGet.
-#   TypeScript: `typescript-v0.1.1` publishes @queuebox/inbox 0.1.1 to npm.
+#   TypeScript: `typescript-v0.1.1` publishes @alternayte/queuebox-inbox 0.1.1 to npm.
 #   Go: `clients/go/v0.1.1` publishes the module. Go ties the tag of a module in a subdirectory
 #   to that subdirectory, so this tag carries the path and cannot follow the pattern above.
 name: release-clients
@@ -100,7 +100,7 @@ jobs:
             artifacts/*.nupkg
 
   typescript:
-    name: Publish @queuebox/inbox
+    name: Publish @alternayte/queuebox-inbox
     if: startsWith(github.ref_name, 'typescript-v')
     runs-on: ubuntu-latest
     permissions:
@@ -169,7 +169,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release create "${GITHUB_REF_NAME}" \
-            --title "@queuebox/inbox ${{ steps.version.outputs.version }}" \
+            --title "@alternayte/queuebox-inbox ${{ steps.version.outputs.version }}" \
             --notes "The TypeScript pull inbox client library, version ${{ steps.version.outputs.version }}. See clients/typescript/README.md."
 
   go:
