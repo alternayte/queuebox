@@ -1,0 +1,94 @@
+# The client libraries release on their own tags, never on the `v*` tag of the server.
+#
+# A client library and QueueBox itself do not share a cadence. A shared tag would force a whole
+# server release for a one line library fix, and it would republish a library under a version
+# whose number promises a change that the library did not make.
+#
+#   C#: `csharp-v0.1.1` publishes QueueBox.Inbox 0.1.1 to NuGet.
+name: release-clients
+
+on:
+  push:
+    tags:
+      - "csharp-v*"
+
+permissions:
+  contents: read
+
+jobs:
+  csharp:
+    name: Publish QueueBox.Inbox
+    runs-on: ubuntu-latest
+    permissions:
+      # The job attaches the package to a GitHub release as well.
+      contents: write
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          # The 8.0 SDK brings the 8.0 runtime, so the tests run on the floor that the library
+          # targets. The newer SDK reads the solution format.
+          dotnet-version: |
+            8.0.x
+            10.0.x
+
+      - name: Read the version from the tag
+        id: version
+        # `csharp-v0.1.1` becomes `0.1.1`. The tag must carry a version that NuGet accepts, so
+        # the job stops here rather than publishing something unusable.
+        run: |
+          version="${GITHUB_REF_NAME#csharp-v}"
+          if ! printf '%s' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
+            echo "The tag '${GITHUB_REF_NAME}' does not carry a version that NuGet accepts." >&2
+            exit 1
+          fi
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+
+      - name: Restore
+        run: dotnet restore clients/csharp/QueueBox.Inbox.slnx --locked-mode
+
+      - name: Build
+        run: dotnet build clients/csharp/QueueBox.Inbox.slnx -c Release --no-restore
+
+      - name: Run the unit tests
+        run: dotnet test clients/csharp/tests/QueueBox.Inbox.Tests -c Release --no-build
+
+      - name: Run the contract tests against PostgreSQL and SQL Server
+        # A push to NuGet cannot be undone, so the whole contract runs before it.
+        run: dotnet test clients/csharp/tests/QueueBox.Inbox.IntegrationTests -c Release --no-build
+
+      - name: Pack the version that the tag names
+        run: |
+          dotnet pack clients/csharp/src/QueueBox.Inbox \
+            -c Release \
+            -o artifacts \
+            -p:Version=${{ steps.version.outputs.version }}
+
+      - name: Push to NuGet
+        # The key is a repository secret. Scope it to `QueueBox.*` and to push only.
+        # `--skip-duplicate` makes a repeated tag a no-op rather than a failure.
+        env:
+          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
+        run: |
+          if [ -z "${NUGET_API_KEY}" ]; then
+            echo "The secret NUGET_API_KEY is not set. Add it before you tag a release." >&2
+            exit 1
+          fi
+          dotnet nuget push "artifacts/QueueBox.Inbox.${{ steps.version.outputs.version }}.nupkg" \
+            --api-key "${NUGET_API_KEY}" \
+            --source https://api.nuget.org/v3/index.json \
+            --skip-duplicate
+
+      - name: Create the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" \
+            --title "QueueBox.Inbox ${{ steps.version.outputs.version }}" \
+            --notes "The C# pull inbox client library, version ${{ steps.version.outputs.version }}. See clients/csharp/README.md." \
+            artifacts/*.nupkg
