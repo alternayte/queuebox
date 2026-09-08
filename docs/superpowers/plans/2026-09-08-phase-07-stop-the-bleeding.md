@@ -1064,3 +1064,49 @@ The phase is closed when all of the following produce their evidence:
       dialects.
 - [ ] The concurrency default is 1 in all three clients.
 - [ ] `docs/build/STATUS.md` records the phase and names the commits.
+
+---
+
+## Task 9: The lock timeout must always fire before the driver gives up (F-087)
+
+Added during execution, after the TypeScript task found the defect. It is not a defect in any one
+client, so it does not reopen Task 4, 5 or 6.
+
+**The defect.** `sp_getapplock @LockTimeout = 30000` is not below any driver default. The `mssql`
+and `tedious` default request timeout is 15 seconds, so it always aborts first.
+`Microsoft.Data.SqlClient` defaults to a 30 second command timeout, which equals the lock timeout
+and must be treated as losing. `go-mssqldb` inherits the deadline of the caller.
+
+**Why it matters.** A client-side abort does NOT roll back the server-side transaction. The lock
+uses `@LockOwner = 'Transaction'`, so the abandoned transaction holds the per-source claim lock
+until the connection resets. Every later claim on that source then waits its own full 30 seconds
+and aborts the same way. The adopter sees a SQL Server pull worker stall for minutes, with an
+opaque driver timeout instead of `Msg 51000`, and throughput near zero. No message is lost.
+
+**Files:**
+- Modify: `examples/pull/sql/sqlserver/claim.sql`
+- Modify: `clients/csharp/src/QueueBox.Inbox/InboxSql.cs`
+- Modify: `clients/go/sql.go`
+- Modify: `clients/typescript/src/sql.ts`
+- Modify: `docs/build/spikes/2026-09-08-aggregate-reservation.md`
+- Modify: `examples/pull/README.md` and the three client README files
+- Test: one test per client library
+
+- [ ] **Step 1: Write the failing test**
+
+Set the driver request or command timeout below 30 seconds, hold the application lock in another
+session, and run a claim. Assert that the error is `Msg 51000` and not a driver timeout. Before the
+fix this test fails, because the driver aborts first.
+
+- [ ] **Step 2: Lower the lock timeout**
+
+Set `@LockTimeout = 10000` in the canonical statement and in all three rendered claims. Ten seconds
+sits below every driver default named above, so the server always raises `Msg 51000` first.
+
+- [ ] **Step 3: Document the minimum driver timeout**
+
+State in `examples/pull/README.md` and in each client README that the driver request or command
+timeout must be at least 30 seconds, beside the existing transaction-scope note. Name the symptom
+of a shorter one: an abandoned application lock and a stalled source.
+
+- [ ] **Step 4: Run every client suite against both dialects, then commit.**
