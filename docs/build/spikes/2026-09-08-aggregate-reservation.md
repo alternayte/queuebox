@@ -416,3 +416,197 @@ live split of that specific case inside one container.
 One follow-up is required, not optional: task 3 must add `idx_inbox_agg_state_lease` alongside the
 existing `idx_inbox_aggregate_state`, because the existing index is not what the planner picks for
 this statement's correlated subquery once the schema's full index set is present.
+
+---
+
+## Round 1 fix: the statements above are SUPERSEDED
+
+Code review found three critical defects in the statements printed in Sections 2 and 3 above.
+**Do not copy those statements into a client library.** The corrected statements below are
+the ones Task 3 must use. Full transcripts, EXPLAIN output, and the arrangements that found and
+then closed each defect are in
+`.superpowers/sdd/2026-09-08-phase-07-stop-the-bleeding/task-2-report.md`, section
+'Fix round 1 of 5'.
+
+**What was wrong.**
+
+1. The locking node's only qual was an id equality. Under PostgreSQL's EvalPlanQual re-check,
+   or under SQL Server's UPDLOCK sitting only on the final target, a row a worker already
+   claimed and committed could be claimed a second time by a worker that had picked it before
+   the first commit. Arrangement 0 could not detect this, because it holds the winning
+   transaction open for three seconds. A new arrangement, in which the winner commits
+   immediately and the loser is delayed into the lock stage, reproduced a genuine double claim
+   on both dialects against the original statements.
+2. The aggregate busy check was not scoped by source, so one aggregate_id shared by two
+   sources could compute two different head rows.
+3. The PostgreSQL plan carried a full sequential scan and an external disk sort at
+   100,000 rows, taking 3.6 seconds; not viable for a hot polling loop.
+
+**The fix.** Repeat the full readiness predicate — consumption, source, the
+pending-or-expired-processing branch, and the aggregate busy check, itself now scoped by
+source — as quals on the actual locking read (the base-table scan under FOR UPDATE in
+PostgreSQL; the base-table scan under UPDLOCK, READPAST, ROWLOCK in SQL Server) and again in
+the final UPDATE ... WHERE. Bound the candidate set by branch, through its own partial index,
+before the window function runs, instead of ranking the whole table.
+
+**Result.** Every one of 5 original arrangements plus 2 new ones (a fast-commit-then-delayed-
+lock arrangement for the double-claim defect, and a two-sources-one-aggregate arrangement for
+the scoping defect) passed on both PostgreSQL 16 and SQL Server 2022, the latter tested
+explicitly with READ_COMMITTED_SNAPSHOT ON. PostgreSQL's warm-cache execution time at
+100,000 rows / 10,000 aggregates fell to 2.155 ms. The honest cold-cache number, measured
+after unvacuumed write churn and a container restart to discard shared_buffers, is
+117.864 ms for the first claim only; every claim after that, with pages resident, returned to
+the low-millisecond range. This does not meet the under-50-ms target on a cold first call, and
+that gap is reported rather than hidden.
+
+### Final statement, PostgreSQL
+```sql
+WITH candidates AS (
+    (
+        SELECT id, aggregate_id, scheduled_at, created_at
+        FROM inbox
+        WHERE consumption = 'pull' AND source = :source AND state = 'pending'
+          AND scheduled_at <= clock_timestamp()
+        ORDER BY scheduled_at, created_at, id
+        LIMIT :cand_limit
+    )
+    UNION ALL
+    (
+        SELECT id, aggregate_id, scheduled_at, created_at
+        FROM inbox
+        WHERE consumption = 'pull' AND source = :source AND state = 'processing'
+          AND lease_expires_at <= clock_timestamp()
+        ORDER BY scheduled_at, created_at, id
+        LIMIT :cand_limit
+    )
+),
+ready AS (
+    SELECT id, aggregate_id, scheduled_at, created_at,
+           row_number() OVER (
+               PARTITION BY COALESCE(aggregate_id, '#' || id::text)
+               ORDER BY scheduled_at, created_at, id
+           ) AS rn
+    FROM candidates
+),
+eligible AS (
+    SELECT r.id, r.aggregate_id, r.scheduled_at, r.created_at
+    FROM ready AS r
+    WHERE r.rn = 1
+      AND (r.aggregate_id IS NULL OR NOT EXISTS (
+            SELECT 1 FROM inbox AS busy
+            WHERE busy.aggregate_id = r.aggregate_id
+              AND busy.source = :source
+              AND busy.consumption = 'pull'
+              AND busy.state = 'processing'
+              AND busy.lease_expires_at > clock_timestamp()))
+    ORDER BY r.scheduled_at, r.created_at, r.id
+    LIMIT :batch
+),
+locked AS (
+    SELECT i.id FROM inbox AS i
+    JOIN eligible AS e ON i.id = e.id
+    WHERE i.consumption = 'pull' AND i.source = :source
+      AND ((i.state = 'pending' AND i.scheduled_at <= clock_timestamp())
+        OR (i.state = 'processing' AND i.lease_expires_at <= clock_timestamp()))
+      AND (i.aggregate_id IS NULL OR NOT EXISTS (
+            SELECT 1 FROM inbox AS busy
+            WHERE busy.aggregate_id = i.aggregate_id
+              AND busy.source = :source
+              AND busy.consumption = 'pull'
+              AND busy.state = 'processing'
+              AND busy.lease_expires_at > clock_timestamp()))
+    FOR UPDATE SKIP LOCKED
+)
+UPDATE inbox AS target
+SET state = 'processing', claim_token = gen_random_uuid(), claimed_at = clock_timestamp(),
+    lease_expires_at = clock_timestamp() + :lease_ms * INTERVAL '1 millisecond'
+FROM locked
+WHERE target.id = locked.id
+  AND target.consumption = 'pull' AND target.source = :source
+  AND ((target.state = 'pending' AND target.scheduled_at <= clock_timestamp())
+    OR (target.state = 'processing' AND target.lease_expires_at <= clock_timestamp()))
+  AND (target.aggregate_id IS NULL OR NOT EXISTS (
+        SELECT 1 FROM inbox AS busy
+        WHERE busy.aggregate_id = target.aggregate_id
+          AND busy.source = :source
+          AND busy.consumption = 'pull'
+          AND busy.state = 'processing'
+          AND busy.lease_expires_at > clock_timestamp()))
+RETURNING target.*;
+```
+
+### Final statement, SQL Server
+```sql
+-- Required isolation: READ COMMITTED. Tested explicitly with READ_COMMITTED_SNAPSHOT ON
+-- (Azure SQL's default), because UPDLOCK is a physical lock unaffected by RCSI's snapshot reads.
+DECLARE @batch INT = :batch;
+DECLARE @lease_ms INT = :lease_ms;
+DECLARE @cand_limit INT = :cand_limit;
+DECLARE @src VARCHAR(255) = :source;
+WITH candidates AS (
+    SELECT TOP (@cand_limit) id, aggregate_id, scheduled_at, created_at
+    FROM inbox WITH (UPDLOCK, READPAST, ROWLOCK)
+    WHERE consumption = 'pull' AND source = @src AND state = 'pending'
+      AND scheduled_at <= SYSUTCDATETIME()
+    ORDER BY scheduled_at, created_at, id
+    UNION ALL
+    SELECT TOP (@cand_limit) id, aggregate_id, scheduled_at, created_at
+    FROM inbox WITH (UPDLOCK, READPAST, ROWLOCK)
+    WHERE consumption = 'pull' AND source = @src AND state = 'processing'
+      AND lease_expires_at <= SYSUTCDATETIME()
+    ORDER BY scheduled_at, created_at, id
+),
+ready AS (
+    SELECT id, aggregate_id, scheduled_at, created_at,
+           ROW_NUMBER() OVER (
+               PARTITION BY COALESCE(aggregate_id, '#' + CAST(id AS VARCHAR(36)))
+               ORDER BY scheduled_at, created_at, id
+           ) AS rn
+    FROM candidates
+),
+eligible AS (
+    SELECT TOP (@batch) r.id, r.aggregate_id, r.scheduled_at, r.created_at
+    FROM ready AS r
+    WHERE r.rn = 1
+      AND (r.aggregate_id IS NULL OR NOT EXISTS (
+            SELECT 1 FROM inbox AS busy
+            WHERE busy.aggregate_id = r.aggregate_id
+              AND busy.source = @src
+              AND busy.consumption = 'pull'
+              AND busy.state = 'processing'
+              AND busy.lease_expires_at > SYSUTCDATETIME()))
+    ORDER BY r.scheduled_at, r.created_at, r.id
+)
+UPDATE target
+SET state = 'processing', claim_token = NEWID(), claimed_at = SYSUTCDATETIME(),
+    lease_expires_at = DATEADD(millisecond, @lease_ms, SYSUTCDATETIME())
+OUTPUT inserted.*
+FROM inbox AS target WITH (UPDLOCK, ROWLOCK)
+JOIN eligible AS e ON target.id = e.id
+WHERE target.consumption = 'pull' AND target.source = @src
+  AND ((target.state = 'pending' AND target.scheduled_at <= SYSUTCDATETIME())
+    OR (target.state = 'processing' AND target.lease_expires_at <= SYSUTCDATETIME()))
+  AND (target.aggregate_id IS NULL OR NOT EXISTS (
+        SELECT 1 FROM inbox AS busy
+        WHERE busy.aggregate_id = target.aggregate_id
+          AND busy.source = @src
+          AND busy.consumption = 'pull'
+          AND busy.state = 'processing'
+          AND busy.lease_expires_at > SYSUTCDATETIME()));
+```
+
+### Indexes Task 3 must add
+```sql
+CREATE INDEX idx_inbox_pull_pending ON inbox (source, scheduled_at, created_at, id)
+    WHERE consumption = 'pull' AND state = 'pending';
+CREATE INDEX idx_inbox_pull_processing ON inbox (source, lease_expires_at)
+    WHERE consumption = 'pull' AND state = 'processing';
+CREATE INDEX idx_inbox_pull_busy ON inbox (source, aggregate_id, lease_expires_at)
+    WHERE consumption = 'pull' AND state = 'processing';
+```
+This supersedes the 'idx_inbox_agg_state_lease' index named in the Result section above; that
+index lacked the 'source' column and does not satisfy the corrected, source-scoped busy check.
+
+**Note on scope, as the review required:** the push relay ('InboxRepository.claimPending') is
+NOT source-scoped, and this spike does not change it. Push and pull differ on this point by
+design; only the pull statement above carries the source scoping.
