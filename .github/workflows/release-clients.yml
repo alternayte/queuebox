@@ -8,6 +8,10 @@
 #   TypeScript: `typescript-v0.1.1` publishes @alternayte/queuebox-inbox 0.1.1 to npm.
 #   Go: `clients/go/v0.1.1` publishes the module. Go ties the tag of a module in a subdirectory
 #   to that subdirectory, so this tag carries the path and cannot follow the pattern above.
+#
+# Neither registry needs a stored key. Both exchange the OIDC token of this job for a short-lived
+# credential, against a trusted publishing policy that names this repository AND THIS FILE.
+# Renaming this file therefore stops publishing until the policies name the new one.
 name: release-clients
 
 on:
@@ -28,6 +32,9 @@ jobs:
     permissions:
       # The job attaches the package to a GitHub release as well.
       contents: write
+      # Trusted publishing: nuget.org exchanges this token for a key that lives one hour, so the
+      # repository stores no long-lived key at all.
+      id-token: write
     steps:
       - name: Check out the repository
         uses: actions/checkout@v4
@@ -75,18 +82,20 @@ jobs:
             -o artifacts \
             -p:Version=${{ steps.version.outputs.version }}
 
+      - name: Ask nuget.org for a short-lived key
+        # The trusted publishing policy on nuget.org names this repository and this workflow
+        # file. NuGet validates the OIDC token against it and returns a key that lives one hour,
+        # so the step runs immediately before the push.
+        id: nuget_login
+        uses: NuGet/login@v1
+        with:
+          user: ${{ secrets.NUGET_USER }}
+
       - name: Push to NuGet
-        # The key is a repository secret. Scope it to `QueueBox.*` and to push only.
         # `--skip-duplicate` makes a repeated tag a no-op rather than a failure.
-        env:
-          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
         run: |
-          if [ -z "${NUGET_API_KEY}" ]; then
-            echo "The secret NUGET_API_KEY is not set. Add it before you tag a release." >&2
-            exit 1
-          fi
           dotnet nuget push "artifacts/QueueBox.Inbox.${{ steps.version.outputs.version }}.nupkg" \
-            --api-key "${NUGET_API_KEY}" \
+            --api-key "${{ steps.nuget_login.outputs.NUGET_API_KEY }}" \
             --source https://api.nuget.org/v3/index.json \
             --skip-duplicate
 
@@ -155,13 +164,18 @@ jobs:
         run: npm run build
 
       - name: Publish to npm
+        # The token is OPTIONAL. When the npm trusted publisher is configured, the CLI exchanges
+        # the OIDC token of this job for a short-lived credential and the secret can be deleted.
+        # The step therefore works either way, and it says which path it took.
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
-          if [ -z "${NODE_AUTH_TOKEN}" ]; then
-            echo "The secret NPM_TOKEN is not set. Add it before you tag a release." >&2
-            exit 1
+          if [ -n "${NODE_AUTH_TOKEN}" ]; then
+            echo "Publishing with the stored token."
+          else
+            echo "No token is stored, so this publish relies on the npm trusted publisher."
           fi
+
           npm publish --access public --provenance
 
       - name: Create the GitHub release
