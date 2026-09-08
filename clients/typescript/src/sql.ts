@@ -249,7 +249,7 @@ DECLARE @qbCandLimit INT = @p4; -- LEAST(GREATEST(3 * @qbBatch, 50), 500)
 DECLARE @src VARCHAR(255) = @p1;
 DECLARE @lockresult INT;
 EXEC @lockresult = sp_getapplock @Resource = @src, @LockMode = 'Exclusive',
-    @LockOwner = 'Transaction', @LockTimeout = 30000;
+    @LockOwner = 'Transaction', @LockTimeout = 10000;
 IF @lockresult < 0
 BEGIN
     ROLLBACK TRANSACTION;

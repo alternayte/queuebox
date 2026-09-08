@@ -103,6 +103,15 @@ worker, err := queuebox.NewInboxWorker(db, queuebox.Options{
 })
 ```
 
+Set the context deadline for a claim call, or any wider timeout the caller applies to
+it, to at least 30 seconds. The SQL Server claim runs `sp_getapplock` with a 10 second
+lock timeout of its own, so the server always raises Msg 51000 before a shorter
+caller-side deadline aborts the call. `go-mssqldb` inherits the caller's context
+deadline, so a shorter deadline aborts the connection instead of letting Msg 51000
+arrive: the lock is held under `@LockOwner = 'Transaction'`, so the abandoned
+transaction keeps the per-source claim lock until the connection resets, and every
+later claim on that source stalls behind it.
+
 ## Placeholders
 
 Both dialects bind **positionally**, because the PostgreSQL driver accepts no named parameter.

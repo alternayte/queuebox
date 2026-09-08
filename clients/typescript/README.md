@@ -66,6 +66,15 @@ await worker.run(async (message, tx) => {
 The `mssql` module itself is a parameter, because the adapter needs its `Transaction` and
 `Request` constructors and this package imports no driver.
 
+Set `mssql`'s request timeout to at least 30 seconds. Its default is 15 seconds, well
+below that. The SQL Server claim runs `sp_getapplock` with a 10 second lock timeout of
+its own, so the server always raises Msg 51000 before a request timeout of 30 seconds
+or more can abort the call. A client-side abort does not roll back the claim's
+transaction, because the lock is held under `@LockOwner = 'Transaction'`. The symptom
+of a shorter request timeout is an abandoned application lock: the per-source claim
+lock stays held until the connection resets, and every later claim on that source
+stalls behind it.
+
 ## Placeholders
 
 Both dialects bind **positionally**, because `pg` accepts no named parameter. Write the

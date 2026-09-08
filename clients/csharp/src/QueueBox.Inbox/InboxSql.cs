@@ -198,7 +198,7 @@ public sealed class InboxSql
             DECLARE @src VARCHAR(255) = @source;
             DECLARE @lockresult INT;
             EXEC @lockresult = sp_getapplock @Resource = @src, @LockMode = 'Exclusive',
-                @LockOwner = 'Transaction', @LockTimeout = 30000;
+                @LockOwner = 'Transaction', @LockTimeout = 10000;
             IF @lockresult < 0
             BEGIN
                 ROLLBACK TRANSACTION;

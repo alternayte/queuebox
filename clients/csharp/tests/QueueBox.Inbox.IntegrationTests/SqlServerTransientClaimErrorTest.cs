@@ -22,7 +22,7 @@ public sealed class SqlServerTransientClaimErrorTest(SqlServerHarness harness) :
         var id = await harness.InsertPendingAsync(Source, "key-19", "{}");
 
         // Hold the per-source applock from outside the worker, for a session, with no timeout.
-        // Every claim on this source must wait out the worker's own 30-second lock timeout and
+        // Every claim on this source must wait out the worker's own 10-second lock timeout and
         // then see sp_getapplock return negative.
         await using var holder = (SqlConnection)await harness.OpenAsync();
         await using (var acquire = holder.CreateCommand())
@@ -44,7 +44,7 @@ public sealed class SqlServerTransientClaimErrorTest(SqlServerHarness harness) :
         using var stop = new CancellationTokenSource();
         var run = worker.RunAsync((_, _, _) => Task.CompletedTask, stop.Token);
 
-        // Longer than the worker's 30-second sp_getapplock timeout: the message must still be
+        // Longer than the worker's 10-second sp_getapplock timeout: the message must still be
         // untouched, and the worker must still be running, having backed off rather than crashed.
         await Task.Delay(TimeSpan.FromSeconds(35), CancellationToken.None);
 

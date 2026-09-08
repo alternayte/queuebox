@@ -14,11 +14,11 @@ const SOURCE = "locked-source";
  * failure of a message.
  *
  * COVERAGE NOTE: this test proves the "never mark failed or dead" half of item 19, and that the
- * worker survives past the 30 second sp_getapplock timeout without crashing. It does NOT prove
+ * worker survives past the 10 second sp_getapplock timeout without crashing. It does NOT prove
  * the "must not retry immediately" half. Every claim attempt already blocks for the whole 30
  * second sp_getapplock timeout before it fails, so the gap between two failing claims is large
  * whether or not the worker adds a poll-interval backoff on top of it: the two cases are not
- * distinguishable from outside with the fixed 30 second lock timeout the canonical statement
+ * distinguishable from outside with the fixed 10 second lock timeout the canonical statement
  * declares. Proving the backoff itself needs a shorter, configurable lock timeout, which the
  * canonical SQL Server claim text does not expose as a parameter.
  */
@@ -39,7 +39,7 @@ describe("a SQL Server claim lock failure", () => {
     const id = await harness.insertPending({ source: SOURCE, idempotencyKey: "key-19", payload: "{}" });
 
     // Hold the per-source applock from outside the worker, for a session, with no timeout. Every
-    // claim on this source must wait out the worker's own 30 second lock timeout and then see
+    // claim on this source must wait out the worker's own 10 second lock timeout and then see
     // sp_getapplock return negative.
     const holder = new mssql.Transaction(harness.rawPool);
     await holder.begin();
@@ -71,7 +71,7 @@ describe("a SQL Server claim lock failure", () => {
     const run = worker.run(async () => undefined, stop.signal);
 
     try {
-      // Longer than the worker's 30 second sp_getapplock timeout: the message must still be
+      // Longer than the worker's 10 second sp_getapplock timeout: the message must still be
       // untouched, and the worker must still be running, having backed off rather than crashed.
       await new Promise((resolve) => setTimeout(resolve, 35_000));
 

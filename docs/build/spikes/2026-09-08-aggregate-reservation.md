@@ -781,7 +781,7 @@ DECLARE @qbCandLimit INT = :cand_limit; -- LEAST(GREATEST(3 * @qbBatch, 50), 500
 DECLARE @src VARCHAR(255) = :source;
 DECLARE @lockresult INT;
 EXEC @lockresult = sp_getapplock @Resource = @src, @LockMode = 'Exclusive',
-    @LockOwner = 'Transaction', @LockTimeout = 30000;
+    @LockOwner = 'Transaction', @LockTimeout = 10000;
 IF @lockresult < 0
 BEGIN
     ROLLBACK TRANSACTION;
@@ -889,3 +889,17 @@ superseding the earlier single-branch variant used in rounds 1 and 2.** Same res
 committed a claim; worker B, whose 'pending'-branch read had already selected the same row
 before A's commit, found it excluded once its own locking stage re-validated the repeated
 predicate. Full transcript in the report's round 3 section.
+
+## Round 4 fix: the lock timeout must lose to no driver default (F-087)
+
+The statement above once set `@LockTimeout = 30000`. The `mssql` and `tedious` default request
+timeout is 15 seconds, so a caller on either driver always aborted before the lock timed out.
+`Microsoft.Data.SqlClient` defaults to a 30 second command timeout, equal to the lock timeout, and
+a tie must count as a loss. A client-side abort does not roll back the server-side transaction:
+the lock uses `@LockOwner = 'Transaction'`, so the abandoned transaction keeps the per-source claim
+lock until the connection resets, and every later claim on that source waits its own full timeout
+and aborts the same way.
+
+**Fix:** `@LockTimeout` is now `10000`. Ten seconds sits below every driver default named above,
+so the server always raises `Msg 51000` before any driver aborts on its own. A caller must still
+set a driver request or command timeout of at least 30 seconds, as a second line of defence.

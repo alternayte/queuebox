@@ -27,6 +27,14 @@ the per-source claim lock, not a data error. A client must treat Msg 51000 as
 transient: it must back off before the retry, and it must never retry the call
 immediately.
 
+Set the driver request or command timeout to at least 30 seconds. The claim sets
+`sp_getapplock`'s own lock timeout to 10 seconds, so the server always raises Msg
+51000 before a shorter driver timeout can abort the call. A client-side abort does
+not roll back the claim's transaction, because the lock is held under `@LockOwner =
+'Transaction'`. The symptom of a driver timeout below 30 seconds is an abandoned
+application lock: the per-source claim lock stays held until the connection resets,
+and every claim on that source stalls behind it.
+
 The SQL Server claim declares local variables (`@qbBatch`, `@qbLeaseMs`, `@qbCandLimit`)
 under names distinct from the bound parameters (`:batch`, `:lease_ms`, `:cand_limit`).
 A local T-SQL variable must never share a name with a bound parameter of the same
