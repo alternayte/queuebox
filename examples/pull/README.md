@@ -17,8 +17,15 @@ contracts. Bind named parameters through your database library; do not interpola
 values. `source` is the configured source name, `batch` is available worker capacity,
 `lease_ms` is a positive duration, `id` and `token` come from the claim result.
 Run claim in a short transaction and commit before starting work. SQL Server examples
-use READ COMMITTED with READ_COMMITTED_SNAPSHOT disabled. Use the corresponding
-READCOMMITTEDLOCK hint if your database enables read-committed snapshot isolation.
+require READ COMMITTED, and they also work correctly with READ_COMMITTED_SNAPSHOT ON.
+`claim.sql` also binds `cand_limit`, a caller-computed bound on the candidate scan.
+Compute it as `LEAST(GREATEST(3 * batch, 50), 500)` and bind it on every call; it is
+not an operator-tunable setting.
+
+A SQL Server claim can raise Msg 51000. This signals that `sp_getapplock` did not get
+the per-source claim lock, not a data error. A client must treat Msg 51000 as
+transient: it must back off before the retry, and it must never retry the call
+immediately.
 
 Renew every third of the lease duration. A renewal, completion, retry or dead-letter
 update must affect exactly one row. Zero means ownership was lost: stop work and
