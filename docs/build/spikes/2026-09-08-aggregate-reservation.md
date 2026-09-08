@@ -610,3 +610,203 @@ index lacked the 'source' column and does not satisfy the corrected, source-scop
 **Note on scope, as the review required:** the push relay ('InboxRepository.claimPending') is
 NOT source-scoped, and this spike does not change it. Push and pull differ on this point by
 design; only the pull statement above carries the source scoping.
+
+---
+
+## Round 2 fix: index competition, SQL Server contention, and a test-gap explanation
+
+Re-review confirmed all seven round-1 findings addressed, and found two new Important issues
+plus one test gap in the round-1 fix itself. Full transcripts in the report's 'Fix round 2 of
+5' section.
+
+**Index competition (PostgreSQL).** The round-1 fix added two partial indexes that shared the
+same predicate ('consumption = pull AND state = processing'):
+'idx_inbox_pull_processing' and 'idx_inbox_pull_busy'. The planner is free to pick either for
+the busy check, and picking the wrong one was the actual cause of the 117.864 ms cold number,
+not cache warmth by itself. 'idx_inbox_pull_processing' is dropped; only 'idx_inbox_pull_busy'
+remains, so there is nothing left to compete with. Re-measured cold with the settled index set:
+**22.844 ms**, roughly 5 times faster than the flip-affected number.
+
+**Contention and deadlocks (SQL Server).** Multi-worker measurement found that, without
+serialization, concurrent SQL Server claimants on one source deadlock: throughput collapsed
+from 111.8 claims/sec at one worker to 5.3 claims/sec at two workers, with 686 deadlock retries
+needed to complete 20 successful claims, even with immediate retry-on-1205. Adding
+'sp_getapplock' scoped to the source, before the claim statement — the same pattern the shipped
+push relay already uses with 'pg_advisory_xact_lock' — removed the deadlocks entirely and
+restored throughput to 139.0/sec at 2 workers and 130.9/sec at 4. PostgreSQL needs no such
+change: 'FOR UPDATE SKIP LOCKED' never blocks waiting for a lock, so this class of deadlock
+cannot arise there, confirmed with 4 concurrent workers producing zero errors.
+
+'cand_limit' is now sized by a rule rather than a fixed guess, on both dialects:
+```
+cand_limit = LEAST(GREATEST(3 * batch, 50), 500)
+```
+
+**Test gap.** The SQL Server outer 'UPDATE ... WHERE' repeats the readiness predicate, but no
+interleaving exists, on SQL Server, in which a fellow pull claimant commits a change to a row
+between this statement's own candidates read and its own final update of that row: 'UPDLOCK'
+taken at the candidates read already excludes every other claimant from that row until commit.
+The repeated predicate there defends against a writer outside this claim statement (a
+maintenance job, a manual release), not against a fellow claimant, and this is stated plainly
+rather than left untested-but-implied. On PostgreSQL the repeated predicate is genuinely
+load-bearing against a fellow claimant, because an ordinary read takes no lock; the exact
+statement that proves this, sleep included, is printed in the report.
+
+### Final statement, PostgreSQL (unchanged since round 1)
+```sql
+WITH candidates AS (
+    (
+        SELECT id, aggregate_id, scheduled_at, created_at
+        FROM inbox
+        WHERE consumption = 'pull' AND source = :source AND state = 'pending'
+          AND scheduled_at <= clock_timestamp()
+        ORDER BY scheduled_at, created_at, id
+        LIMIT :cand_limit
+    )
+    UNION ALL
+    (
+        SELECT id, aggregate_id, scheduled_at, created_at
+        FROM inbox
+        WHERE consumption = 'pull' AND source = :source AND state = 'processing'
+          AND lease_expires_at <= clock_timestamp()
+        ORDER BY scheduled_at, created_at, id
+        LIMIT :cand_limit
+    )
+),
+ready AS (
+    SELECT id, aggregate_id, scheduled_at, created_at,
+           row_number() OVER (
+               PARTITION BY COALESCE(aggregate_id, '#' || id::text)
+               ORDER BY scheduled_at, created_at, id
+           ) AS rn
+    FROM candidates
+),
+eligible AS (
+    SELECT r.id, r.aggregate_id, r.scheduled_at, r.created_at
+    FROM ready AS r
+    WHERE r.rn = 1
+      AND (r.aggregate_id IS NULL OR NOT EXISTS (
+            SELECT 1 FROM inbox AS busy
+            WHERE busy.aggregate_id = r.aggregate_id
+              AND busy.source = :source
+              AND busy.consumption = 'pull'
+              AND busy.state = 'processing'
+              AND busy.lease_expires_at > clock_timestamp()))
+    ORDER BY r.scheduled_at, r.created_at, r.id
+    LIMIT :batch
+),
+locked AS (
+    SELECT i.id FROM inbox AS i
+    JOIN eligible AS e ON i.id = e.id
+    WHERE i.consumption = 'pull' AND i.source = :source
+      AND ((i.state = 'pending' AND i.scheduled_at <= clock_timestamp())
+        OR (i.state = 'processing' AND i.lease_expires_at <= clock_timestamp()))
+      AND (i.aggregate_id IS NULL OR NOT EXISTS (
+            SELECT 1 FROM inbox AS busy
+            WHERE busy.aggregate_id = i.aggregate_id
+              AND busy.source = :source
+              AND busy.consumption = 'pull'
+              AND busy.state = 'processing'
+              AND busy.lease_expires_at > clock_timestamp()))
+    FOR UPDATE SKIP LOCKED
+)
+UPDATE inbox AS target
+SET state = 'processing', claim_token = gen_random_uuid(), claimed_at = clock_timestamp(),
+    lease_expires_at = clock_timestamp() + :lease_ms * INTERVAL '1 millisecond'
+FROM locked
+WHERE target.id = locked.id
+  AND target.consumption = 'pull' AND target.source = :source
+  AND ((target.state = 'pending' AND target.scheduled_at <= clock_timestamp())
+    OR (target.state = 'processing' AND target.lease_expires_at <= clock_timestamp()))
+  AND (target.aggregate_id IS NULL OR NOT EXISTS (
+        SELECT 1 FROM inbox AS busy
+        WHERE busy.aggregate_id = target.aggregate_id
+          AND busy.source = :source
+          AND busy.consumption = 'pull'
+          AND busy.state = 'processing'
+          AND busy.lease_expires_at > clock_timestamp()))
+RETURNING target.*;
+```
+
+### Final statement, SQL Server (adds sp_getapplock; supersedes the round-1 version)
+```sql
+-- Required isolation: READ COMMITTED. Tested explicitly with READ_COMMITTED_SNAPSHOT ON
+-- (Azure SQL's default), because UPDLOCK is a physical lock unaffected by RCSI's snapshot reads.
+--
+-- sp_getapplock serializes claims per source. Without it, two concurrent claimants on one
+-- source deadlock: each holds UPDLOCK rows from two independently-ordered index scans (the
+-- 'pending' branch by scheduled_at, the 'processing' branch by lease_expires_at) and then joins
+-- them into one UPDATE, so two transactions can acquire those locks in different relative order
+-- and cycle. Measured: 5.3 claims/sec at 2 concurrent workers without this lock, against 111.8/sec
+-- for one worker alone, even with immediate retry-on-1205. With the lock: 139.0/sec at 2 workers
+-- and 130.9/sec at 4 workers, both zero deadlocks. This mirrors pg_advisory_xact_lock, which the
+-- existing push relay (InboxRepository.claimPending) already takes before its own claim statement.
+BEGIN TRANSACTION;
+DECLARE @batch INT = :batch;
+DECLARE @lease_ms INT = :lease_ms;
+DECLARE @cand_limit INT = :cand_limit; -- LEAST(GREATEST(3 * @batch, 50), 500)
+DECLARE @src VARCHAR(255) = :source;
+DECLARE @lockresult INT;
+EXEC @lockresult = sp_getapplock @Resource = @src, @LockMode = 'Exclusive',
+    @LockOwner = 'Transaction', @LockTimeout = 30000;
+WITH candidates AS (
+    SELECT TOP (@cand_limit) id, aggregate_id, scheduled_at, created_at
+    FROM inbox WITH (UPDLOCK, READPAST, ROWLOCK)
+    WHERE consumption = 'pull' AND source = @src AND state = 'pending'
+      AND scheduled_at <= SYSUTCDATETIME()
+    ORDER BY scheduled_at, created_at, id
+    UNION ALL
+    SELECT TOP (@cand_limit) id, aggregate_id, scheduled_at, created_at
+    FROM inbox WITH (UPDLOCK, READPAST, ROWLOCK)
+    WHERE consumption = 'pull' AND source = @src AND state = 'processing'
+      AND lease_expires_at <= SYSUTCDATETIME()
+    ORDER BY scheduled_at, created_at, id
+),
+ready AS (
+    SELECT id, aggregate_id, scheduled_at, created_at,
+           ROW_NUMBER() OVER (
+               PARTITION BY COALESCE(aggregate_id, '#' + CAST(id AS VARCHAR(36)))
+               ORDER BY scheduled_at, created_at, id
+           ) AS rn
+    FROM candidates
+),
+eligible AS (
+    SELECT TOP (@batch) r.id, r.aggregate_id, r.scheduled_at, r.created_at
+    FROM ready AS r
+    WHERE r.rn = 1
+      AND (r.aggregate_id IS NULL OR NOT EXISTS (
+            SELECT 1 FROM inbox AS busy
+            WHERE busy.aggregate_id = r.aggregate_id
+              AND busy.source = @src
+              AND busy.consumption = 'pull'
+              AND busy.state = 'processing'
+              AND busy.lease_expires_at > SYSUTCDATETIME()))
+    ORDER BY r.scheduled_at, r.created_at, r.id
+)
+UPDATE target
+SET state = 'processing', claim_token = NEWID(), claimed_at = SYSUTCDATETIME(),
+    lease_expires_at = DATEADD(millisecond, @lease_ms, SYSUTCDATETIME())
+OUTPUT inserted.*
+FROM inbox AS target WITH (UPDLOCK, ROWLOCK)
+JOIN eligible AS e ON target.id = e.id
+WHERE target.consumption = 'pull' AND target.source = @src
+  AND ((target.state = 'pending' AND target.scheduled_at <= SYSUTCDATETIME())
+    OR (target.state = 'processing' AND target.lease_expires_at <= SYSUTCDATETIME()))
+  AND (target.aggregate_id IS NULL OR NOT EXISTS (
+        SELECT 1 FROM inbox AS busy
+        WHERE busy.aggregate_id = target.aggregate_id
+          AND busy.source = @src
+          AND busy.consumption = 'pull'
+          AND busy.state = 'processing'
+          AND busy.lease_expires_at > SYSUTCDATETIME()));
+COMMIT TRANSACTION;
+```
+
+### Settled index set, PostgreSQL (supersedes every earlier recommendation in this document)
+```sql
+CREATE INDEX idx_inbox_pull_pending ON inbox (source, scheduled_at, created_at, id)
+    WHERE consumption = 'pull' AND state = 'pending';
+CREATE INDEX idx_inbox_pull_busy ON inbox (source, aggregate_id, lease_expires_at)
+    WHERE consumption = 'pull' AND state = 'processing';
+```
+Do not create 'idx_inbox_pull_processing' or 'idx_inbox_agg_state_lease' from earlier rounds.
