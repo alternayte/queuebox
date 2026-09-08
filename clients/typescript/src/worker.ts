@@ -258,6 +258,7 @@ export class InboxWorker {
         this.#options.source,
         this.#options.batchSize,
         this.#options.leaseMs,
+        candidateLimit(this.#options.batchSize),
       ]);
 
       await connection.commit();
@@ -389,6 +390,16 @@ class LeaseRenewal {
       }
     }
   }
+}
+
+// The candidate scan in the claim needs a bound per branch, so one aggregate with a long
+// backlog cannot force the claim to scan the whole table. This value is not a public option on
+// InboxOptions on purpose: it is a lock-footprint tuning value derived from the batch size the
+// caller already sets, and a public knob would give an operator a way to tune away the aggregate
+// reservation the claim depends on (finding F-087). Every claim call computes and binds it fresh,
+// so it always tracks the current batch size.
+function candidateLimit(batchSize: number): number {
+  return Math.min(Math.max(3 * batchSize, 50), 500);
 }
 
 /** Wait, and return early when the signal aborts. */
