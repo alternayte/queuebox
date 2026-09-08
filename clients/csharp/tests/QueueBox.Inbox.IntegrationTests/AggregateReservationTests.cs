@@ -55,7 +55,13 @@ public abstract class AggregateReservationTests : IAsyncLifetime
         async Task Handler(InboxMessage m, System.Data.Common.DbTransaction tx, CancellationToken ct)
         {
             InterlockedMax(ref peak, Interlocked.Increment(ref inFlight));
-            await Task.Delay(200, ct);
+
+            // SQL Server serializes the claim itself (sp_getapplock, per source), so the second
+            // worker's claim can lag behind the first worker's handler by however long that lock
+            // wait and round trip take. The handler stays open well past that lag, so the two
+            // windows overlap regardless of dialect, and the assertion below is about overlap,
+            // not about timing.
+            await Task.Delay(TimeSpan.FromSeconds(2), ct);
             Interlocked.Decrement(ref inFlight);
         }
 

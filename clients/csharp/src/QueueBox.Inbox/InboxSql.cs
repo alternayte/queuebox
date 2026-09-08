@@ -120,8 +120,7 @@ public sealed class InboxSql
                 FOR UPDATE SKIP LOCKED
             )
             UPDATE {Q(s.Table)} AS target
-            SET {Q(s.State)} = 'processing', {Q(s.ClaimToken)} = gen_random_uuid(),
-                {Q(s.ClaimedAt)} = clock_timestamp(),
+            SET {Q(s.State)} = 'processing', {Q(s.ClaimToken)} = gen_random_uuid(), {Q(s.ClaimedAt)} = clock_timestamp(),
                 {Q(s.LeaseExpiresAt)} = clock_timestamp() + @lease_ms * INTERVAL '1 millisecond'
             FROM locked
             WHERE target.{Q(s.Id)} = locked.{Q(s.Id)}
@@ -176,17 +175,15 @@ public sealed class InboxSql
         //
         // sp_getapplock serializes claims per source, scoped to @src so different sources do not
         // block each other. It returns a negative value on a lock timeout or on a deadlock, and
-        // that return is checked and THROWn below rather than left to proceed unserialized.
-        //
-        // The local variable names below (@qbBatch, @qbLeaseMs, @qbCandLimit) differ from the
-        // bound parameter names (@batch, @lease_ms, @cand_limit) on purpose. Microsoft.Data.
-        // SqlClient sends a bound parameter to sp_executesql as an argument of that name, and a
-        // DECLARE cannot reuse an argument name in the same batch.
+        // that return is checked and THROWn below rather than left to proceed unserialized. The
+        // local variable names (@qbBatch, @qbLeaseMs, @qbCandLimit) are the canonical names of
+        // examples/pull/sql/sqlserver/claim.sql; see that file for why they differ from the
+        // bound parameter names.
         var claim = $"""
             BEGIN TRANSACTION;
             DECLARE @qbBatch INT = @batch;
             DECLARE @qbLeaseMs INT = @lease_ms;
-            DECLARE @qbCandLimit INT = @cand_limit;
+            DECLARE @qbCandLimit INT = @cand_limit; -- LEAST(GREATEST(3 * @qbBatch, 50), 500)
             DECLARE @src VARCHAR(255) = @source;
             DECLARE @lockresult INT;
             EXEC @lockresult = sp_getapplock @Resource = @src, @LockMode = 'Exclusive',

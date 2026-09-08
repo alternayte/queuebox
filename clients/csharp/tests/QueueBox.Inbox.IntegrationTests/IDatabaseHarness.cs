@@ -97,9 +97,16 @@ public interface IDatabaseHarness
             }
             finally
             {
-                if (!done.IsSet)
+                // CountdownEvent.Signal() throws once the count already reached zero. Two
+                // handlers can finish at once when the count is one, so the check above it would
+                // race; the count itself, not a separate flag, is what must gate the signal.
+                try
                 {
                     done.Signal();
+                }
+                catch (InvalidOperationException)
+                {
+                    // Already at zero. Every message beyond untilProcessed needs no signal.
                 }
             }
         }

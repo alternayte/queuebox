@@ -27,6 +27,15 @@ the per-source claim lock, not a data error. A client must treat Msg 51000 as
 transient: it must back off before the retry, and it must never retry the call
 immediately.
 
+The SQL Server claim declares local variables (`@qbBatch`, `@qbLeaseMs`, `@qbCandLimit`)
+under names distinct from the bound parameters (`:batch`, `:lease_ms`, `:cand_limit`).
+A local T-SQL variable must never share a name with a bound parameter of the same
+call: a driver sends a bound parameter to `sp_executesql` as an argument of that
+name, and a `DECLARE` cannot reuse an argument name in the same batch. It fails with
+Msg 134, "The variable name ... has already been declared." Bind `:batch`,
+`:lease_ms` and `:cand_limit` under a parameter name distinct from `@qbBatch`,
+`@qbLeaseMs` and `@qbCandLimit`, never under those same names.
+
 Renew every third of the lease duration. A renewal, completion, retry or dead-letter
 update must affect exactly one row. Zero means ownership was lost: stop work and
 never use a different token. Retry increments `attempt`; use `dead.sql` once the

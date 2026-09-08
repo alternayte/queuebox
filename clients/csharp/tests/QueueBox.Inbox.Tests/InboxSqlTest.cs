@@ -1,7 +1,17 @@
+using System.Text.RegularExpressions;
+
 namespace QueueBox.Inbox.Tests;
 
 public sealed class InboxSqlTest
 {
+    // The repeated readiness predicate is what restores the EvalPlanQual re-check: a row that
+    // became ineligible between the locking read and the final UPDATE must not be claimed. This
+    // matches the OR-joined pair "state = 'pending' AND ... <= now()" / "state = 'processing' AND
+    // ... <= now()" wherever it appears, regardless of alias or exact whitespace.
+    private static readonly Regex ReadinessDisjunction = new(
+        @"'pending'\s+AND\s+[\s\S]*?<=\s+(?:clock_timestamp\(\)|SYSUTCDATETIME\(\))\)\s*OR\s*\(",
+        RegexOptions.Compiled);
+
     [Fact]
     public void PostgreSqlClaimMatchesTheContract()
     {
@@ -17,6 +27,11 @@ public sealed class InboxSqlTest
 
         // The busy check, scoped to (source, aggregate_id), runs at every occurrence.
         Assert.Equal(3, CountOccurrences(sql.Claim, "\"aggregate_id\" = "));
+        Assert.Equal(3, CountOccurrences(sql.Claim, "busy.\"source\" = @source"));
+
+        // The full readiness predicate repeats in the locking read and again in the final
+        // UPDATE: two occurrences.
+        Assert.Equal(2, ReadinessDisjunction.Count(sql.Claim));
     }
 
     [Fact]
@@ -35,6 +50,11 @@ public sealed class InboxSqlTest
         // The busy check, scoped to (source, aggregate_id), runs at every occurrence. SQL Server
         // has no separate locking CTE, so the check appears once fewer than PostgreSQL.
         Assert.Equal(2, CountOccurrences(sql.Claim, "[aggregate_id] = "));
+        Assert.Equal(2, CountOccurrences(sql.Claim, "busy.[source] = @src"));
+
+        // SQL Server takes its readiness re-check only in the final UPDATE: one occurrence,
+        // where PostgreSQL, which also has a separate locking read, has two.
+        Assert.Single(ReadinessDisjunction.Matches(sql.Claim));
     }
 
     private static int CountOccurrences(string haystack, string needle)

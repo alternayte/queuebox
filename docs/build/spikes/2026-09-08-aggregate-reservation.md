@@ -766,10 +766,18 @@ RETURNING target.*;
 -- A client library must treat this error as transient: back off and retry the whole call; it must
 -- NOT retry immediately (see the round-2 finding on immediate-retry livelock) and must NOT treat
 -- it as a data or logic error.
+--
+-- The local variables below (@qbBatch, @qbLeaseMs, @qbCandLimit) carry names that differ
+-- from the bound parameters (:batch, :lease_ms, :cand_limit) on purpose. A driver that sends
+-- a bound parameter to sp_executesql passes it as an argument of that name, and a DECLARE
+-- cannot reuse an argument name in the same batch: Msg 134, "The variable name ... has
+-- already been declared." A client library must render :batch, :lease_ms and :cand_limit
+-- under a bound parameter name distinct from @qbBatch, @qbLeaseMs and @qbCandLimit, never
+-- under those same names, or the claim fails on every call.
 BEGIN TRANSACTION;
-DECLARE @batch INT = :batch;
-DECLARE @lease_ms INT = :lease_ms;
-DECLARE @cand_limit INT = :cand_limit; -- LEAST(GREATEST(3 * @batch, 50), 500)
+DECLARE @qbBatch INT = :batch;
+DECLARE @qbLeaseMs INT = :lease_ms;
+DECLARE @qbCandLimit INT = :cand_limit; -- LEAST(GREATEST(3 * @qbBatch, 50), 500)
 DECLARE @src VARCHAR(255) = :source;
 DECLARE @lockresult INT;
 EXEC @lockresult = sp_getapplock @Resource = @src, @LockMode = 'Exclusive',
@@ -780,13 +788,13 @@ BEGIN
     THROW 51000, 'inbox pull claim: sp_getapplock did not acquire the per-source claim lock', 1;
 END
 ;WITH candidates AS (
-    SELECT TOP (@cand_limit) id, aggregate_id, scheduled_at, created_at
+    SELECT TOP (@qbCandLimit) id, aggregate_id, scheduled_at, created_at
     FROM inbox WITH (UPDLOCK, READPAST, ROWLOCK)
     WHERE consumption = 'pull' AND source = @src AND state = 'pending'
       AND scheduled_at <= SYSUTCDATETIME()
     ORDER BY scheduled_at, created_at, id
     UNION ALL
-    SELECT TOP (@cand_limit) id, aggregate_id, scheduled_at, created_at
+    SELECT TOP (@qbCandLimit) id, aggregate_id, scheduled_at, created_at
     FROM inbox WITH (UPDLOCK, READPAST, ROWLOCK)
     WHERE consumption = 'pull' AND source = @src AND state = 'processing'
       AND lease_expires_at <= SYSUTCDATETIME()
@@ -801,7 +809,7 @@ ready AS (
     FROM candidates
 ),
 eligible AS (
-    SELECT TOP (@batch) r.id, r.aggregate_id, r.scheduled_at, r.created_at
+    SELECT TOP (@qbBatch) r.id, r.aggregate_id, r.scheduled_at, r.created_at
     FROM ready AS r
     WHERE r.rn = 1
       AND (r.aggregate_id IS NULL OR NOT EXISTS (
@@ -815,7 +823,7 @@ eligible AS (
 )
 UPDATE target
 SET state = 'processing', claim_token = NEWID(), claimed_at = SYSUTCDATETIME(),
-    lease_expires_at = DATEADD(millisecond, @lease_ms, SYSUTCDATETIME())
+    lease_expires_at = DATEADD(millisecond, @qbLeaseMs, SYSUTCDATETIME())
 OUTPUT inserted.*
 FROM inbox AS target WITH (UPDLOCK, ROWLOCK)
 JOIN eligible AS e ON target.id = e.id
