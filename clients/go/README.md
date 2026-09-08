@@ -151,13 +151,20 @@ reach it could complete a message out of band.
 | `Source` | none, it is mandatory | The source whose messages this worker takes |
 | `BatchSize` | 10 | The largest number of messages one claim takes |
 | `LeaseMS` | 30000 | The lease duration. The renewal runs every third of it |
-| `MaxConcurrency` | the batch size | The largest number of handlers that run at one time |
+| `MaxConcurrency` | 1 | The largest number of handlers that run at one time |
 | `PollInterval` | 1 second | The wait after a claim that returned nothing |
 | `ShutdownGrace` | 30 seconds | How long a stop waits for the handlers already running |
 | `Dialect` | `DialectPostgreSQL` | The database dialect |
 | `Schema` | the QueueBox names | The table and column names, when an operator mapped them |
 | `RetryPolicy` | five attempts, exponential | What happens to a message whose handler failed |
 | `Logger` | none | The caller's logger. The library prints nothing without one |
+
+The concurrency default is one. A handler meets no sibling message unless the caller raises it.
+Raise it only when the handler is safe against a sibling message of another aggregate:
+
+```go
+options := queuebox.Options{Source: "orders", MaxConcurrency: 10}
+```
 
 ## Failure, retry and the dead letter
 

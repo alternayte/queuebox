@@ -15,8 +15,16 @@ describe("the options", () => {
 
   it("never lets the concurrency pass the batch", () => {
     assert.equal(resolveOptions({ source: "orders", batchSize: 4, maxConcurrency: 16 }).concurrency, 4);
-    assert.equal(resolveOptions({ source: "orders", batchSize: 4 }).concurrency, 4);
+    assert.equal(resolveOptions({ source: "orders", batchSize: 4 }).concurrency, 1);
     assert.equal(resolveOptions({ source: "orders", batchSize: 4, maxConcurrency: 2 }).concurrency, 2);
+  });
+
+  it("defaults the concurrency to one", () => {
+    assert.equal(resolveOptions({ source: "s" }).concurrency, 1);
+  });
+
+  it("keeps an explicit concurrency", () => {
+    assert.equal(resolveOptions({ source: "s", maxConcurrency: 5 }).concurrency, 5);
   });
 
   it("demands a source", () => {

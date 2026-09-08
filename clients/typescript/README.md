@@ -114,13 +114,20 @@ reach it could complete a message out of band.
 | `source` | none, it is mandatory | The source whose messages this worker takes |
 | `batchSize` | 10 | The largest number of messages one claim takes |
 | `leaseMs` | 30000 | The lease duration. The renewal runs every third of it |
-| `maxConcurrency` | the batch size | The largest number of handlers that run at one time |
+| `maxConcurrency` | 1 | The largest number of handlers that run at one time |
 | `pollIntervalMs` | 1000 | The wait after a claim that returned nothing |
 | `shutdownGraceMs` | 30000 | How long a stop waits for the handlers already running |
 | `dialect` | `"postgresql"` | `"postgresql"` or `"sqlserver"` |
 | `schema` | the QueueBox names | The table and column names, when an operator mapped them |
 | `retryPolicy` | `defaultRetryPolicy()` | What happens to a message whose handler threw |
 | `logger` | none | The caller's logger. The library prints nothing without one |
+
+The concurrency default is one. A handler meets no sibling message unless the caller raises it.
+Raise it only when the handler is safe against a sibling message of another aggregate:
+
+```typescript
+const options = { source: "orders", maxConcurrency: 10 };
+```
 
 ## Failure, retry and the dead letter
 

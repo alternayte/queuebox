@@ -116,12 +116,19 @@ reach it could complete a message out of band.
 | `Source` | none, it is mandatory | The source whose messages this worker takes |
 | `BatchSize` | 10 | The largest number of messages one claim takes |
 | `LeaseMs` | 30000 | The lease duration. The renewal runs every third of it |
-| `MaxConcurrency` | the batch size | The largest number of handlers that run at one time |
+| `MaxConcurrency` | 1 | The largest number of handlers that run at one time |
 | `PollInterval` | 1 second | The wait after a claim that returned nothing |
 | `ShutdownGrace` | 30 seconds | How long a stop waits for the handlers already running |
 | `Dialect` | `PostgreSql` | `PostgreSql` or `SqlServer` |
 | `Schema` | the QueueBox names | The table and column names, when an operator mapped them |
 | `RetryPolicy` | `DefaultRetryPolicy` | What happens to a message whose handler threw |
+
+The concurrency default is one. A handler meets no sibling message unless the caller raises it.
+Raise it only when the handler is safe against a sibling message of another aggregate:
+
+```csharp
+var options = new InboxOptions { Source = "orders", MaxConcurrency = 10 };
+```
 
 ## Failure, retry and the dead letter
 

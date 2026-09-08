@@ -30,7 +30,8 @@ type Options struct {
 	// The default is thirty thousand.
 	LeaseMS int
 	// MaxConcurrency is the largest number of handlers that run at one time. It never passes the
-	// batch size. The default is the batch size.
+	// batch size. The default is one. A handler meets no sibling message unless the caller asks
+	// for parallelism.
 	MaxConcurrency int
 	// PollInterval is how long the worker waits after a claim that returned nothing.
 	// The default is one second.
@@ -104,9 +105,11 @@ func (o Options) resolve() (resolvedOptions, Schema, RetryPolicy, Logger, error)
 		return resolvedOptions{}, Schema{}, nil, nil, errors.New("the shutdown grace is negative")
 	}
 
+	// A zero value means one. A handler meets no sibling message unless the caller asks for
+	// parallelism.
 	concurrency := o.MaxConcurrency
 	if concurrency == 0 {
-		concurrency = batchSize
+		concurrency = 1
 	}
 
 	// Bounded memory: never hold more than the configured batch.
