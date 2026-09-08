@@ -233,27 +233,31 @@ git commit -m "fix(F-086): store an unparsable RabbitMQ body dead instead of a r
 
 ---
 
-## Task 2: Prove the claim race and choose the reservation mechanism (F-087, gate)
+## Task 2: Prove that the head-row claim removes the race (F-087)
 
-**This task is a gate. Task 3 must not start before a maintainer accepts the result.**
+The rule needs no new locking primitive. The naive statement races because it applies `LIMIT`
+before it deduplicates by aggregate, so two workers pick DIFFERENT rows of one aggregate. When the
+statement picks only the head row per aggregate, both workers pick the SAME row, and the ordinary
+row lock serializes them. A worker that loses the lock falls through to nothing, because a sibling
+row was never its candidate.
 
-The spec settles that the reservation rule lives in SQL. A plain `NOT EXISTS` predicate does not
-carry the rule on its own, and the plan must not pretend otherwise. Two workers evaluate the
-predicate against the same snapshot, each locks a different row of one aggregate, and
-`SKIP LOCKED` does not make them wait for one another. Both claims succeed.
+The ordering must be a TOTAL order. `ORDER BY scheduled_at, created_at` can tie, and a tie lets two
+workers compute different heads. The statement orders by `scheduled_at, created_at, id`.
+
+This task proves the claim against both dialects. It chooses nothing.
 
 **Files:**
 - Create: `docs/build/spikes/2026-09-08-aggregate-reservation.md`
 - Create: throwaway SQL under the scratchpad directory. Keep none of it.
 
 **Interfaces:**
-- Produces: a decision, one chosen statement per dialect, and the reason. Task 3 copies the chosen
-  statement into `examples/pull/sql`.
+- Produces: one verified statement per dialect, and the transcript. Task 3 copies both into
+  `examples/pull/sql`.
 
 - [ ] **Step 1: Reproduce the race**
 
-Against a real PostgreSQL 16 container, create an inbox table with five pending rows that share one
-`aggregate_id`. Run this in two concurrent sessions, with the naive predicate:
+Against a real PostgreSQL 16 container, create the inbox table with five pending rows that share
+one `aggregate_id`. Run this in two concurrent sessions:
 
 ```sql
 BEGIN;
@@ -277,19 +281,17 @@ SELECT pg_sleep(3);
 COMMIT;
 ```
 
-Expected before any fix: both sessions return a row of the same aggregate. Record the transcript.
+Expected: both sessions return a row of the same aggregate. Record the transcript. This is the
+defect, and the next step must remove it.
 
-- [ ] **Step 2: Measure candidate A, the whole-aggregate lock**
-
-The claim locks every ready row of each candidate aggregate, not only the row it takes. A second
-worker meets locked rows and skips the whole aggregate.
+- [ ] **Step 2: Verify the head-row statement on PostgreSQL**
 
 ```sql
 WITH ready AS (
     SELECT id, aggregate_id, scheduled_at, created_at,
            row_number() OVER (
                PARTITION BY COALESCE(aggregate_id, id::text)
-               ORDER BY scheduled_at, created_at
+               ORDER BY scheduled_at, created_at, id
            ) AS rn
     FROM inbox
     WHERE consumption = 'pull' AND source = :source
@@ -303,51 +305,63 @@ WITH ready AS (
               AND busy.lease_expires_at > clock_timestamp()))
 ),
 picked AS (
-    SELECT id, aggregate_id FROM ready WHERE rn = 1
-    ORDER BY scheduled_at, created_at
+    SELECT id FROM ready WHERE rn = 1
+    ORDER BY scheduled_at, created_at, id
     LIMIT :batch
 ),
 locked AS (
     SELECT i.id FROM inbox AS i
-    JOIN picked AS p ON COALESCE(i.aggregate_id, i.id::text) = COALESCE(p.aggregate_id, p.id::text)
+    JOIN picked AS p ON i.id = p.id
     FOR UPDATE SKIP LOCKED
 )
 UPDATE inbox AS target
 SET state = 'processing', claim_token = gen_random_uuid(), claimed_at = clock_timestamp(),
     lease_expires_at = clock_timestamp() + :lease_ms * INTERVAL '1 millisecond'
-FROM picked WHERE target.id = picked.id AND target.id IN (SELECT id FROM locked)
+FROM locked WHERE target.id = locked.id
 RETURNING target.*;
 ```
 
+The `locked` CTE selects from the base table `inbox`, not from a CTE output. That distinction is
+what finding F-001 of `hardening-doc.md` turned on, so do not collapse it.
+
 Run the two-session reproduction against it. Expected: the second session returns zero rows.
 
-Record the cost. Run `EXPLAIN (ANALYZE, BUFFERS)` with 100,000 rows and 10,000 distinct aggregates.
-Record the plan and the time.
+Run four more arrangements, and record each result:
 
-- [ ] **Step 3: Measure candidate B, the application lock**
+1. Two aggregates, one row each. Expected: one claim returns both rows.
+2. One aggregate whose head row is `processing` with an EXPIRED lease. Expected: the claim
+   reclaims that row.
+3. One aggregate whose head row is `processing` with a LIVE lease, and a pending sibling.
+   Expected: the claim returns nothing for that aggregate.
+4. Four rows with a NULL `aggregate_id`. Expected: one claim returns all four, because a null
+   aggregate takes part in no ordering.
 
-`pg_advisory_xact_lock` in PostgreSQL and `sp_getapplock` in SQL Server. Both dialects have one, so
-the objection that an advisory lock is PostgreSQL-only does not hold. The claim takes one lock per
-candidate aggregate, in a deterministic order, with the non-blocking variant, and skips an
-aggregate whose lock it cannot take.
+- [ ] **Step 3: Verify the SQL Server form**
 
-Run the same reproduction and the same `EXPLAIN (ANALYZE, BUFFERS)`.
+Write the same statement with `ROW_NUMBER()`, `TOP (@batch)`, and `WITH (UPDLOCK, READPAST,
+ROWLOCK)` on the base table. Run every arrangement of Step 1 and Step 2 against a real SQL Server
+2022 container. The SQL Server locking hints are not the same primitive as `FOR UPDATE SKIP
+LOCKED`, so nothing here is assumed from the PostgreSQL result.
 
-- [ ] **Step 4: Write the spike report**
+- [ ] **Step 4: Measure the cost**
+
+Run `EXPLAIN (ANALYZE, BUFFERS)` on the PostgreSQL statement with 100,000 rows and 10,000 distinct
+aggregates. Record the plan and the time. Confirm that the `NOT EXISTS` uses
+`idx_inbox_aggregate_state`. If it does not, record what index it needs, and add that index in
+Task 3.
+
+- [ ] **Step 5: Write the report**
 
 Write `docs/build/spikes/2026-09-08-aggregate-reservation.md` with four sections: the reproduction
-transcript, the result of candidate A, the result of candidate B, and a recommendation. State the
-cost of each candidate at 100,000 rows. State whether the SQL Server form of the recommendation is
-the same shape or a different one.
+transcript, the PostgreSQL result over all five arrangements, the SQL Server result over the same
+five, and the measured cost. State any arrangement that failed, and stop rather than proceed.
 
-- [ ] **Step 5: Commit and STOP**
+- [ ] **Step 6: Commit**
 
 ```bash
 git add docs/build/spikes/2026-09-08-aggregate-reservation.md
-git commit -m "spike(F-087): measure two aggregate reservation mechanisms"
+git commit -m "test(F-087): prove the head-row claim removes the aggregate race on both dialects"
 ```
-
-Report the recommendation to the maintainer. Do not start Task 3 before an answer arrives.
 
 ---
 
@@ -359,7 +373,7 @@ Report the recommendation to the maintainer. Do not start Task 3 before an answe
 - Modify: `clients/contract-tests.md`
 
 **Interfaces:**
-- Consumes: the statement that Task 2 recommended and the maintainer accepted.
+- Consumes: the statement that Task 2 verified against both dialects.
 - Produces: the canonical text that Tasks 4, 5 and 6 render. The parameter names stay `:source`,
   `:batch` and `:lease_ms`, so no library changes its parameter binding.
 
