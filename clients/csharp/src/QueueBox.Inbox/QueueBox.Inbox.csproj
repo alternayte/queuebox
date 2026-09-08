@@ -19,7 +19,15 @@
     <RepositoryUrl>https://github.com/alternayte/queuebox</RepositoryUrl>
     <PackageTags>queuebox;inbox;outbox;transactional;postgresql;sqlserver</PackageTags>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <!-- NuGet shows this file on the package page. Without it the page carries the description
+         and nothing else, which is what 0.1.0 shipped. -->
+    <PackageReadmeFile>README.md</PackageReadmeFile>
   </PropertyGroup>
+
+  <ItemGroup>
+    <!-- The README travels inside the package, so the page on NuGet shows it. -->
+    <None Include="../../README.md" Pack="true" PackagePath="/" />
+  </ItemGroup>
 
   <ItemGroup>
     <!-- The tests build a message without a database, so they need the internal constructor. -->
