@@ -9,8 +9,14 @@ public sealed class InboxSqlTest
 
         Assert.Contains("FOR UPDATE SKIP LOCKED", sql.Claim, StringComparison.Ordinal);
         Assert.Contains("FROM \"inbox\"", sql.Claim, StringComparison.Ordinal);
+        Assert.Contains("UNION ALL", sql.Claim, StringComparison.Ordinal);
         Assert.Contains("@source", sql.Claim, StringComparison.Ordinal);
+        Assert.Contains("@cand_limit", sql.Claim, StringComparison.Ordinal);
         Assert.DoesNotContain(":source", sql.Claim, StringComparison.Ordinal);
+        Assert.DoesNotContain(":cand_limit", sql.Claim, StringComparison.Ordinal);
+
+        // The busy check, scoped to (source, aggregate_id), runs at every occurrence.
+        Assert.Equal(3, CountOccurrences(sql.Claim, "\"aggregate_id\" = "));
     }
 
     [Fact]
@@ -19,8 +25,30 @@ public sealed class InboxSqlTest
         var sql = InboxSql.For(SqlDialect.SqlServer, InboxSchema.Default);
 
         Assert.Contains("UPDLOCK, READPAST, ROWLOCK", sql.Claim, StringComparison.Ordinal);
-        Assert.Contains("TOP (@batch)", sql.Claim, StringComparison.Ordinal);
-        Assert.Contains("OUTPUT INSERTED.*", sql.Claim, StringComparison.Ordinal);
+        Assert.Contains("TOP (@qbCandLimit)", sql.Claim, StringComparison.Ordinal);
+        Assert.Contains("TOP (@qbBatch)", sql.Claim, StringComparison.Ordinal);
+        Assert.Contains("OUTPUT inserted.*", sql.Claim, StringComparison.Ordinal);
+        Assert.Contains("sp_getapplock", sql.Claim, StringComparison.Ordinal);
+        Assert.Contains("THROW 51000", sql.Claim, StringComparison.Ordinal);
+        Assert.Contains("@cand_limit", sql.Claim, StringComparison.Ordinal);
+
+        // The busy check, scoped to (source, aggregate_id), runs at every occurrence. SQL Server
+        // has no separate locking CTE, so the check appears once fewer than PostgreSQL.
+        Assert.Equal(2, CountOccurrences(sql.Claim, "[aggregate_id] = "));
+    }
+
+    private static int CountOccurrences(string haystack, string needle)
+    {
+        var count = 0;
+        var index = 0;
+
+        while ((index = haystack.IndexOf(needle, index, StringComparison.Ordinal)) >= 0)
+        {
+            count++;
+            index += needle.Length;
+        }
+
+        return count;
     }
 
     [Theory]
