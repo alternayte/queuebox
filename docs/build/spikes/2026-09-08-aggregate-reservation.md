@@ -629,13 +629,29 @@ remains, so there is nothing left to compete with. Re-measured cold with the set
 
 **Contention and deadlocks (SQL Server).** Multi-worker measurement found that, without
 serialization, concurrent SQL Server claimants on one source deadlock: throughput collapsed
-from 111.8 claims/sec at one worker to 5.3 claims/sec at two workers, with 686 deadlock retries
+from a single-worker rate to roughly 5.3 claims/sec at two workers, with 686 deadlock retries
 needed to complete 20 successful claims, even with immediate retry-on-1205. Adding
-'sp_getapplock' scoped to the source, before the claim statement — the same pattern the shipped
-push relay already uses with 'pg_advisory_xact_lock' — removed the deadlocks entirely and
-restored throughput to 139.0/sec at 2 workers and 130.9/sec at 4. PostgreSQL needs no such
-change: 'FOR UPDATE SKIP LOCKED' never blocks waiting for a lock, so this class of deadlock
-cannot arise there, confirmed with 4 concurrent workers producing zero errors.
+'sp_getapplock' scoped to the source, before the claim statement — analogous to, but not the same
+pattern as, the shipped push relay's whole-table 'pg_advisory_xact_lock' (the push lock serializes
+every source together; this lock serializes only claims on one source) — removed the deadlocks
+entirely. PostgreSQL needs no such change: 'FOR UPDATE SKIP LOCKED' never blocks waiting for a
+lock, so this class of deadlock cannot arise there, confirmed with 4 concurrent workers producing
+zero errors.
+
+**The per-source SQL Server ceiling, and what an operator must do differently on each dialect**
+(round 3). 'sp_getapplock' is exclusive per source, held for the whole claim transaction, so every
+worker claiming against one source queues for that same lock. The measured single-active-claimant
+rate was roughly 110-140 claims/sec at `batch = 25` against the test pool (one run each of 111.8
+and 139.0 claims/sec; at this sample size, run-to-run variance between separate `sqlcmd`
+connections is large enough to explain that spread, so it is reported as a range, not as evidence
+that a second worker made the system faster). **This rate is a ceiling for that source, not a
+floor to scale from**: two SQL Server workers on one source do not claim at twice the rate of one,
+and a client library must plan capacity around it, not around adding workers. PostgreSQL is the
+opposite: because SKIP LOCKED cannot form a wait-for cycle, multiple workers on one PostgreSQL
+source genuinely divide the work and add throughput. Consequently: **on PostgreSQL, add more
+workers on the same source to raise its throughput; on SQL Server, adding workers on the same
+source raises nothing past the first one — raise throughput by adding more sources (sharding the
+workload), or accept the roughly 110-140 claims/sec per-source ceiling.**
 
 'cand_limit' is now sized by a rule rather than a fixed guess, on both dialects:
 ```
@@ -728,19 +744,28 @@ WHERE target.id = locked.id
 RETURNING target.*;
 ```
 
-### Final statement, SQL Server (adds sp_getapplock; supersedes the round-1 version)
+### Final statement, SQL Server (adds the checked sp_getapplock return; supersedes round 2)
 ```sql
 -- Required isolation: READ COMMITTED. Tested explicitly with READ_COMMITTED_SNAPSHOT ON
 -- (Azure SQL's default), because UPDLOCK is a physical lock unaffected by RCSI's snapshot reads.
 --
--- sp_getapplock serializes claims per source. Without it, two concurrent claimants on one
--- source deadlock: each holds UPDLOCK rows from two independently-ordered index scans (the
--- 'pending' branch by scheduled_at, the 'processing' branch by lease_expires_at) and then joins
--- them into one UPDATE, so two transactions can acquire those locks in different relative order
--- and cycle. Measured: 5.3 claims/sec at 2 concurrent workers without this lock, against 111.8/sec
--- for one worker alone, even with immediate retry-on-1205. With the lock: 139.0/sec at 2 workers
--- and 130.9/sec at 4 workers, both zero deadlocks. This mirrors pg_advisory_xact_lock, which the
--- existing push relay (InboxRepository.claimPending) already takes before its own claim statement.
+-- sp_getapplock serializes claims per source, analogous to (not identical to) the whole-table
+-- pg_advisory_xact_lock the existing push relay (InboxRepository.claimPending) already takes:
+-- this lock is scoped to @src, not the whole table, because pull claims are already source-scoped
+-- (C-3) and different sources must not block each other. Without it, two concurrent claimants on
+-- one source deadlock (a textbook lock-order cycle between two independently-ordered UPDLOCK
+-- scans joined into one UPDATE): 5.3 claims/sec at 2 workers against ~110/sec for one worker
+-- alone, even with immediate retry-on-1205. With it: zero deadlocks, and a per-source throughput
+-- CEILING near 110-140 claims/sec regardless of worker count, because only one worker per source
+-- ever holds the lock at a time. Adding more workers on one source does not raise this ceiling.
+--
+-- sp_getapplock returns -1 on lock-request timeout and -3 on deadlock-victim WITHOUT raising an
+-- error by itself. An unchecked return proceeds to claim unserialized, silently reintroducing the
+-- deadlock this lock exists to prevent. The result is checked explicitly below and THROWn on a
+-- negative return, so a caller sees a loud, typed failure instead of a silent unserialized claim.
+-- A client library must treat this error as transient: back off and retry the whole call; it must
+-- NOT retry immediately (see the round-2 finding on immediate-retry livelock) and must NOT treat
+-- it as a data or logic error.
 BEGIN TRANSACTION;
 DECLARE @batch INT = :batch;
 DECLARE @lease_ms INT = :lease_ms;
@@ -749,7 +774,12 @@ DECLARE @src VARCHAR(255) = :source;
 DECLARE @lockresult INT;
 EXEC @lockresult = sp_getapplock @Resource = @src, @LockMode = 'Exclusive',
     @LockOwner = 'Transaction', @LockTimeout = 30000;
-WITH candidates AS (
+IF @lockresult < 0
+BEGIN
+    ROLLBACK TRANSACTION;
+    THROW 51000, 'inbox pull claim: sp_getapplock did not acquire the per-source claim lock', 1;
+END
+;WITH candidates AS (
     SELECT TOP (@cand_limit) id, aggregate_id, scheduled_at, created_at
     FROM inbox WITH (UPDLOCK, READPAST, ROWLOCK)
     WHERE consumption = 'pull' AND source = @src AND state = 'pending'
@@ -810,3 +840,44 @@ CREATE INDEX idx_inbox_pull_busy ON inbox (source, aggregate_id, lease_expires_a
     WHERE consumption = 'pull' AND state = 'processing';
 ```
 Do not create 'idx_inbox_pull_processing' or 'idx_inbox_agg_state_lease' from earlier rounds.
+
+---
+
+## Round 3 fix: a silent-failure defect, and gaps in what this document states
+
+Re-review verdicted all four round-2 findings ADDRESSED. Three remaining items were gaps in
+what THIS document states, not further defects, and have already been folded into the sections
+above (the SQL Server statement now checks 'sp_getapplock''s return value; the ceiling and
+dialect-asymmetry paragraph above states what an operator must do on each dialect; the wording
+fixes above replace "same pattern" with "analogous" and relabel the 111.8/139.0 pair as a
+noisy range). The fourth was a real defect, detailed here.
+
+**'sp_getapplock' returns a negative value on failure without raising an error.** -1 on
+lock-request timeout, -3 on being chosen as a deadlock victim, WITHOUT throwing. The round-2
+statement captured the return code and ignored it, so past the 30-second timeout under load, or
+on a deadlock-victim outcome, the claim would proceed completely unserialized — silently
+reintroducing the exact deadlock the lock exists to prevent, with no signal to the caller.
+
+**Fix, now in the statement above:** an explicit 'IF @lockresult < 0' check that rolls back and
+'THROW's. 'THROW' was chosen over 'RAISERROR' because it always terminates the batch — there is
+no path that logs a warning and falls through to the claim. A client library that sees this
+error must treat it as transient, back off, and retry the whole call; it must NOT retry
+immediately (round 2 already showed immediate retry can collapse throughput) and must NOT treat
+it as a data or logic error.
+
+**Proved by forcing a negative return.** Session A held 'sp_getapplock' on source 's' for 5
+seconds. Session B, started 0.5 seconds later, ran the claim with 'LockTimeout = 1000', short
+enough to expire while A still held it, against one seeded pending row. Session B raised
+'Msg 51000' and returned no rows:
+```
+Msg 51000, Level 16, State 1, Server ...
+inbox pull claim: sp_getapplock did not acquire the per-source claim lock
+```
+The seeded row was confirmed untouched afterward ('state = pending', 'claim_token = NULL').
+The claim failed loudly rather than proceeding unserialized or silently doing nothing.
+
+**The delayed-B probe was re-run against the actual shipped 'UNION ALL' statement,
+superseding the earlier single-branch variant used in rounds 1 and 2.** Same result: worker A
+committed a claim; worker B, whose 'pending'-branch read had already selected the same row
+before A's commit, found it excluded once its own locking stage re-validated the repeated
+predicate. Full transcript in the report's round 3 section.
