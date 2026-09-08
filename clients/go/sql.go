@@ -69,7 +69,7 @@ func DefaultSchema() Schema {
 // Both dialects bind POSITIONALLY, because the PostgreSQL driver accepts no named parameter.
 // PostgreSQL writes $1 and SQL Server writes @p1, so one database/sql call site serves both.
 type Statements struct {
-	// Claim takes rows. Parameters: source, batch, leaseMS.
+	// Claim takes rows. Parameters: source, batch, leaseMS, candLimit.
 	Claim string
 	// Renew extends the lease. Parameters: leaseMS, id, token.
 	Renew string
@@ -125,25 +125,91 @@ func postgresqlStatements(s Schema) Statements {
 			q(s.ID), id, q(s.Consumption), q(s.State), q(s.ClaimToken), token, q(s.LeaseExpiresAt))
 	}
 
-	return Statements{
-		Claim: fmt.Sprintf(`
+	// The claim takes at most one message per aggregate. A row whose aggregate already holds a
+	// message in state 'processing' under a live lease is not a candidate, and two rows of one
+	// aggregate never leave one claim together. The full readiness predicate repeats in the
+	// locking read and again in the final UPDATE, which restores the EvalPlanQual re-check:
+	// without it, two workers can claim the same row. The text follows
+	// examples/pull/sql/postgresql/claim.sql exactly; only the identifiers and the parameter
+	// placeholders move. $1 is source, $2 is batch, $3 is leaseMS, $4 is candLimit.
+	claim := fmt.Sprintf(`
 WITH candidates AS (
-    SELECT %[1]s FROM %[2]s
-    WHERE %[3]s = 'pull' AND %[4]s = $1
-      AND ((%[5]s = 'pending' AND %[6]s <= clock_timestamp())
-        OR (%[5]s = 'processing' AND %[7]s <= clock_timestamp()))
-    ORDER BY %[6]s, %[8]s
+    (
+        SELECT %[1]s, %[9]s, %[6]s, %[8]s
+        FROM %[2]s
+        WHERE %[3]s = 'pull' AND %[4]s = $1 AND %[5]s = 'pending'
+          AND %[6]s <= clock_timestamp()
+        ORDER BY %[6]s, %[8]s, %[1]s
+        LIMIT $4
+    )
+    UNION ALL
+    (
+        SELECT %[1]s, %[9]s, %[6]s, %[8]s
+        FROM %[2]s
+        WHERE %[3]s = 'pull' AND %[4]s = $1 AND %[5]s = 'processing'
+          AND %[7]s <= clock_timestamp()
+        ORDER BY %[6]s, %[8]s, %[1]s
+        LIMIT $4
+    )
+),
+ready AS (
+    SELECT %[1]s, %[9]s, %[6]s, %[8]s,
+           row_number() OVER (
+               PARTITION BY COALESCE(%[9]s, '#' || %[1]s::text)
+               ORDER BY %[6]s, %[8]s, %[1]s
+           ) AS rn
+    FROM candidates
+),
+eligible AS (
+    SELECT r.%[1]s, r.%[9]s, r.%[6]s, r.%[8]s
+    FROM ready AS r
+    WHERE r.rn = 1
+      AND (r.%[9]s IS NULL OR NOT EXISTS (
+            SELECT 1 FROM %[2]s AS busy
+            WHERE busy.%[9]s = r.%[9]s
+              AND busy.%[4]s = $1
+              AND busy.%[3]s = 'pull'
+              AND busy.%[5]s = 'processing'
+              AND busy.%[7]s > clock_timestamp()))
+    ORDER BY r.%[6]s, r.%[8]s, r.%[1]s
     LIMIT $2
+),
+locked AS (
+    SELECT i.%[1]s FROM %[2]s AS i
+    JOIN eligible AS e ON i.%[1]s = e.%[1]s
+    WHERE i.%[3]s = 'pull' AND i.%[4]s = $1
+      AND ((i.%[5]s = 'pending' AND i.%[6]s <= clock_timestamp())
+        OR (i.%[5]s = 'processing' AND i.%[7]s <= clock_timestamp()))
+      AND (i.%[9]s IS NULL OR NOT EXISTS (
+            SELECT 1 FROM %[2]s AS busy
+            WHERE busy.%[9]s = i.%[9]s
+              AND busy.%[4]s = $1
+              AND busy.%[3]s = 'pull'
+              AND busy.%[5]s = 'processing'
+              AND busy.%[7]s > clock_timestamp()))
     FOR UPDATE SKIP LOCKED
 )
 UPDATE %[2]s AS target
-SET %[5]s = 'processing', %[9]s = gen_random_uuid(),
-    %[10]s = clock_timestamp(),
+SET %[5]s = 'processing', %[10]s = gen_random_uuid(), %[11]s = clock_timestamp(),
     %[7]s = clock_timestamp() + $3 * INTERVAL '1 millisecond'
-FROM candidates WHERE target.%[1]s = candidates.%[1]s
+FROM locked
+WHERE target.%[1]s = locked.%[1]s
+  AND target.%[3]s = 'pull' AND target.%[4]s = $1
+  AND ((target.%[5]s = 'pending' AND target.%[6]s <= clock_timestamp())
+    OR (target.%[5]s = 'processing' AND target.%[7]s <= clock_timestamp()))
+  AND (target.%[9]s IS NULL OR NOT EXISTS (
+        SELECT 1 FROM %[2]s AS busy
+        WHERE busy.%[9]s = target.%[9]s
+          AND busy.%[4]s = $1
+          AND busy.%[3]s = 'pull'
+          AND busy.%[5]s = 'processing'
+          AND busy.%[7]s > clock_timestamp()))
 RETURNING target.*`,
-			q(s.ID), q(s.Table), q(s.Consumption), q(s.Source), q(s.State), q(s.ScheduledAt),
-			q(s.LeaseExpiresAt), q(s.CreatedAt), q(s.ClaimToken), q(s.ClaimedAt)),
+		q(s.ID), q(s.Table), q(s.Consumption), q(s.Source), q(s.State), q(s.ScheduledAt),
+		q(s.LeaseExpiresAt), q(s.CreatedAt), q(s.AggregateID), q(s.ClaimToken), q(s.ClaimedAt))
+
+	return Statements{
+		Claim: claim,
 
 		Renew: fmt.Sprintf("UPDATE %s SET %s = clock_timestamp() + $1 * INTERVAL '1 millisecond'%s",
 			q(s.Table), q(s.LeaseExpiresAt), fence("$2", "$3")),
@@ -167,21 +233,86 @@ func sqlserverStatements(s Schema) Statements {
 			q(s.ID), id, q(s.Consumption), q(s.State), q(s.ClaimToken), token, q(s.LeaseExpiresAt))
 	}
 
-	return Statements{
-		Claim: fmt.Sprintf(`
-WITH candidates AS (
-    SELECT TOP (@p2) * FROM %[1]s WITH (UPDLOCK, READPAST, ROWLOCK)
-    WHERE %[2]s = 'pull' AND %[3]s = @p1
-      AND ((%[4]s = 'pending' AND %[5]s <= SYSUTCDATETIME())
-        OR (%[4]s = 'processing' AND %[6]s <= SYSUTCDATETIME()))
-    ORDER BY %[5]s, %[7]s
+	// The claim takes at most one message per aggregate, exactly as the PostgreSQL claim does.
+	// sp_getapplock serializes claims per source, scoped to @src so different sources do not
+	// block each other. It returns a negative value on a lock timeout or on a deadlock, and that
+	// return is checked and THROWn below rather than left to proceed unserialized: a caller must
+	// treat Msg 51000 as transient and back off before it retries the whole call. The local
+	// variable names (@qbBatch, @qbLeaseMs, @qbCandLimit) are the canonical names of
+	// examples/pull/sql/sqlserver/claim.sql, and they differ from the bound parameter names
+	// (@p1..@p4) on purpose: a DECLARE cannot reuse a bound parameter name in the same batch, or
+	// the claim fails on every call with Msg 134. @p1 is source, @p2 is batch, @p3 is leaseMS,
+	// @p4 is candLimit.
+	claim := fmt.Sprintf(`
+BEGIN TRANSACTION;
+DECLARE @qbBatch INT = @p2;
+DECLARE @qbLeaseMs INT = @p3;
+DECLARE @qbCandLimit INT = @p4; -- LEAST(GREATEST(3 * @qbBatch, 50), 500)
+DECLARE @src VARCHAR(255) = @p1;
+DECLARE @lockresult INT;
+EXEC @lockresult = sp_getapplock @Resource = @src, @LockMode = 'Exclusive',
+    @LockOwner = 'Transaction', @LockTimeout = 30000;
+IF @lockresult < 0
+BEGIN
+    ROLLBACK TRANSACTION;
+    THROW 51000, 'inbox pull claim: sp_getapplock did not acquire the per-source claim lock', 1;
+END
+;WITH candidates AS (
+    SELECT TOP (@qbCandLimit) %[1]s, %[9]s, %[6]s, %[8]s
+    FROM %[2]s WITH (UPDLOCK, READPAST, ROWLOCK)
+    WHERE %[3]s = 'pull' AND %[4]s = @src AND %[5]s = 'pending'
+      AND %[6]s <= SYSUTCDATETIME()
+    ORDER BY %[6]s, %[8]s, %[1]s
+    UNION ALL
+    SELECT TOP (@qbCandLimit) %[1]s, %[9]s, %[6]s, %[8]s
+    FROM %[2]s WITH (UPDLOCK, READPAST, ROWLOCK)
+    WHERE %[3]s = 'pull' AND %[4]s = @src AND %[5]s = 'processing'
+      AND %[7]s <= SYSUTCDATETIME()
+    ORDER BY %[6]s, %[8]s, %[1]s
+),
+ready AS (
+    SELECT %[1]s, %[9]s, %[6]s, %[8]s,
+           ROW_NUMBER() OVER (
+               PARTITION BY COALESCE(%[9]s, '#' + CAST(%[1]s AS VARCHAR(36)))
+               ORDER BY %[6]s, %[8]s, %[1]s
+           ) AS rn
+    FROM candidates
+),
+eligible AS (
+    SELECT TOP (@qbBatch) r.%[1]s, r.%[9]s, r.%[6]s, r.%[8]s
+    FROM ready AS r
+    WHERE r.rn = 1
+      AND (r.%[9]s IS NULL OR NOT EXISTS (
+            SELECT 1 FROM %[2]s AS busy
+            WHERE busy.%[9]s = r.%[9]s
+              AND busy.%[4]s = @src
+              AND busy.%[3]s = 'pull'
+              AND busy.%[5]s = 'processing'
+              AND busy.%[7]s > SYSUTCDATETIME()))
+    ORDER BY r.%[6]s, r.%[8]s, r.%[1]s
 )
-UPDATE candidates
-SET %[4]s = 'processing', %[8]s = NEWID(), %[9]s = SYSUTCDATETIME(),
-    %[6]s = DATEADD(millisecond, @p3, SYSUTCDATETIME())
-OUTPUT INSERTED.*`,
-			q(s.Table), q(s.Consumption), q(s.Source), q(s.State), q(s.ScheduledAt),
-			q(s.LeaseExpiresAt), q(s.CreatedAt), q(s.ClaimToken), q(s.ClaimedAt)),
+UPDATE target
+SET %[5]s = 'processing', %[10]s = NEWID(), %[11]s = SYSUTCDATETIME(),
+    %[7]s = DATEADD(millisecond, @qbLeaseMs, SYSUTCDATETIME())
+OUTPUT inserted.*
+FROM %[2]s AS target WITH (UPDLOCK, ROWLOCK)
+JOIN eligible AS e ON target.%[1]s = e.%[1]s
+WHERE target.%[3]s = 'pull' AND target.%[4]s = @src
+  AND ((target.%[5]s = 'pending' AND target.%[6]s <= SYSUTCDATETIME())
+    OR (target.%[5]s = 'processing' AND target.%[7]s <= SYSUTCDATETIME()))
+  AND (target.%[9]s IS NULL OR NOT EXISTS (
+        SELECT 1 FROM %[2]s AS busy
+        WHERE busy.%[9]s = target.%[9]s
+          AND busy.%[4]s = @src
+          AND busy.%[3]s = 'pull'
+          AND busy.%[5]s = 'processing'
+          AND busy.%[7]s > SYSUTCDATETIME()));
+COMMIT TRANSACTION;`,
+		q(s.ID), q(s.Table), q(s.Consumption), q(s.Source), q(s.State), q(s.ScheduledAt),
+		q(s.LeaseExpiresAt), q(s.CreatedAt), q(s.AggregateID), q(s.ClaimToken), q(s.ClaimedAt))
+
+	return Statements{
+		Claim: claim,
 
 		Renew: fmt.Sprintf("UPDATE %s SET %s = DATEADD(millisecond, @p1, SYSUTCDATETIME())%s",
 			q(s.Table), q(s.LeaseExpiresAt), fence("@p2", "@p3")),
