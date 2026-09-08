@@ -16,6 +16,15 @@ import (
 // and retry the whole call, and it must never mark the message failed or dead.
 //
 // This item is SQL Server specific: PostgreSQL's claim takes no application lock of this kind.
+//
+// COVERAGE NOTE: this test proves the "never mark failed or dead" half of item 19, and that the
+// worker survives past the 30 second sp_getapplock timeout without crashing. It does NOT prove
+// the "must not retry immediately" half. Every claim attempt already blocks for the whole 30
+// second sp_getapplock timeout before it fails, so the gap between two failing claims is large
+// whether or not the worker adds a poll-interval backoff on top of it: the two cases are not
+// distinguishable from outside with the fixed 30 second lock timeout the canonical statement
+// declares. Proving the backoff itself needs a shorter, configurable lock timeout, which the
+// canonical SQL Server claim text does not expose as a parameter.
 func TestSQLServerClaimLockFailureIsTransient(t *testing.T) {
 	h := &sqlServerHarness{}
 	h.start(t)
@@ -88,8 +97,7 @@ func TestSQLServerClaimLockFailureIsTransient(t *testing.T) {
 		t.Error("the claim must have reported at least one transient failure while the lock was held")
 	}
 
-	// Release the lock. The worker did not crash and it did not retry immediately into the lock,
-	// so the very next poll must succeed.
+	// Release the lock. The worker did not crash, so the very next poll must succeed.
 	if _, err := holder.ExecContext(context.Background(),
 		"EXEC sp_releaseapplock @Resource = @p1, @LockOwner = 'Session';", source); err != nil {
 		t.Fatalf("the applock did not release: %v", err)

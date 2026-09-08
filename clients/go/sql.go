@@ -70,6 +70,14 @@ func DefaultSchema() Schema {
 // PostgreSQL writes $1 and SQL Server writes @p1, so one database/sql call site serves both.
 type Statements struct {
 	// Claim takes rows. Parameters: source, batch, leaseMS, candLimit.
+	//
+	// The SQL Server text carries its own transaction control (BEGIN TRANSACTION and COMMIT
+	// TRANSACTION) and it must own its transaction scope: run it alone, never nested inside a
+	// wider transaction. A wider transaction changes three things silently: the claimed rows
+	// stay uncommitted until the caller's own commit, a lock failure rolls back the caller's
+	// whole transaction instead of only the claim, and the per-source applock stays held for as
+	// long as the caller's transaction stays open instead of releasing at the claim's own
+	// commit.
 	Claim string
 	// Renew extends the lease. Parameters: leaseMS, id, token.
 	Renew string
@@ -103,6 +111,9 @@ func (s Schema) validate() error {
 //
 // The library uses it, and an application that wants to run one statement by hand can use it too.
 // Every identifier is quoted and checked, so a schema mapping cannot carry SQL.
+//
+// A caller who runs the SQL Server Claim by hand must run it alone, never nested inside a wider
+// transaction: see the Claim field for the three consequences of nesting it.
 func NewStatements(dialect Dialect, schema Schema) (Statements, error) {
 	if err := schema.validate(); err != nil {
 		return Statements{}, err

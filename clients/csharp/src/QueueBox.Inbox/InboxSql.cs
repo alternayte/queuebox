@@ -15,7 +15,18 @@ public sealed class InboxSql
         Dead = dead;
     }
 
-    /// <summary>Take up to <c>@batch</c> rows of <c>@source</c> for <c>@lease_ms</c>.</summary>
+    /// <summary>
+    /// Take up to <c>@batch</c> rows of <c>@source</c> for <c>@lease_ms</c>.
+    /// </summary>
+    /// <remarks>
+    /// The SQL Server text carries its own transaction control (<c>BEGIN TRANSACTION</c> and
+    /// <c>COMMIT TRANSACTION</c>) and it must own its transaction scope: run it alone, never
+    /// nested inside a wider transaction. A wider transaction changes three things silently: the
+    /// claimed rows stay uncommitted until the caller's own commit, a lock failure rolls back the
+    /// caller's whole transaction instead of only the claim, and the per-source applock stays
+    /// held for as long as the caller's transaction stays open instead of releasing at the
+    /// claim's own commit.
+    /// </remarks>
     public string Claim { get; }
 
     /// <summary>Extend the lease of <c>@id</c> under <c>@token</c>.</summary>
