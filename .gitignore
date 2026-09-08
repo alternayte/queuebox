@@ -95,3 +95,6 @@ client-libs-doc.md
 # .NET client libraries and examples
 obj/
 [Aa]rtifacts/
+
+# Subagent-driven development scratch. Not part of the product.
+.superpowers/
