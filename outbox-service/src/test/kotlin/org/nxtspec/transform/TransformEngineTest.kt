@@ -19,6 +19,16 @@ import kotlin.test.assertTrue
 
 class TransformEngineTest {
 
+    /**
+     * Timeout for a test that is not about timing.
+     *
+     * The production default in TransformEngine.evaluate is 100 milliseconds. A
+     * loaded build machine can exceed that default for even a trivial
+     * expression, so a test that only checks the transform result must pass
+     * this larger value. The production default itself must not change.
+     */
+    private val safeTimeoutMs = 5_000L
+
     private val engine = TransformEngine()
 
     private fun createContext(topic: String = "test.topic", attempt: Int = 1, source: String? = null) =
@@ -39,7 +49,7 @@ class TransformEngineTest {
         val payload = parseJson("""{"name": "Alice", "age": 30}""")
         val context = createContext()
 
-        val result = engine.evaluate("name", payload, context)
+        val result = engine.evaluate("name", payload, context, timeoutMs = safeTimeoutMs)
 
         assertTrue(result.isSuccess)
         assertEquals("Alice", result.getOrThrow().jsonPrimitive.content)
@@ -50,7 +60,12 @@ class TransformEngineTest {
         val payload = parseJson("""{"firstName": "John", "lastName": "Doe"}""")
         val context = createContext()
 
-        val result = engine.evaluate("""{"fullName": firstName & " " & lastName}""", payload, context)
+        val result = engine.evaluate(
+            """{"fullName": firstName & " " & lastName}""",
+            payload,
+            context,
+            timeoutMs = safeTimeoutMs
+        )
 
         assertTrue(result.isSuccess)
         assertEquals("John Doe", result.getOrThrow().jsonObject["fullName"]?.jsonPrimitive?.content)
@@ -61,7 +76,7 @@ class TransformEngineTest {
         val payload = parseJson("""{"user": {"name": "Bob", "email": "bob@example.com"}}""")
         val context = createContext()
 
-        val result = engine.evaluate("user.email", payload, context)
+        val result = engine.evaluate("user.email", payload, context, timeoutMs = safeTimeoutMs)
 
         assertTrue(result.isSuccess)
         assertEquals("bob@example.com", result.getOrThrow().jsonPrimitive.content)
@@ -72,7 +87,7 @@ class TransformEngineTest {
         val payload = parseJson("""{"name": "Alice"}""")
         val context = createContext()
 
-        val result = engine.evaluate("missing", payload, context)
+        val result = engine.evaluate("missing", payload, context, timeoutMs = safeTimeoutMs)
 
         assertTrue(result.isSuccess)
         assertEquals(JsonPrimitive(null as String?), result.getOrThrow())
@@ -85,7 +100,7 @@ class TransformEngineTest {
         val payload = parseJson("""{"items": [{"price": 10}, {"price": 20}, {"price": 30}]}""")
         val context = createContext()
 
-        val result = engine.evaluate("\$sum(items.price)", payload, context)
+        val result = engine.evaluate("\$sum(items.price)", payload, context, timeoutMs = safeTimeoutMs)
 
         assertTrue(result.isSuccess)
         assertEquals(60, result.getOrThrow().jsonPrimitive.int)
@@ -96,7 +111,7 @@ class TransformEngineTest {
         val payload = parseJson("""{"numbers": [1, 2, 3, 4, 5]}""")
         val context = createContext()
 
-        val result = engine.evaluate("numbers.(\$ * 2)", payload, context)
+        val result = engine.evaluate("numbers.(\$ * 2)", payload, context, timeoutMs = safeTimeoutMs)
 
         assertTrue(result.isSuccess)
         val array = result.getOrThrow().jsonArray
@@ -110,7 +125,7 @@ class TransformEngineTest {
         val payload = parseJson("""{"items": [{"status": "active"}, {"status": "inactive"}, {"status": "active"}]}""")
         val context = createContext()
 
-        val result = engine.evaluate("""items[status = "active"]""", payload, context)
+        val result = engine.evaluate("""items[status = "active"]""", payload, context, timeoutMs = safeTimeoutMs)
 
         assertTrue(result.isSuccess)
         val array = result.getOrThrow().jsonArray
@@ -124,7 +139,7 @@ class TransformEngineTest {
         val payload = parseJson("""{}""")
         val context = createContext()
 
-        val result = engine.evaluate("\$messageId", payload, context)
+        val result = engine.evaluate("\$messageId", payload, context, timeoutMs = safeTimeoutMs)
 
         assertTrue(result.isSuccess)
         assertEquals("550e8400-e29b-41d4-a716-446655440000", result.getOrThrow().jsonPrimitive.content)
@@ -135,7 +150,7 @@ class TransformEngineTest {
         val payload = parseJson("""{}""")
         val context = createContext(topic = "order.created")
 
-        val result = engine.evaluate("\$topic", payload, context)
+        val result = engine.evaluate("\$topic", payload, context, timeoutMs = safeTimeoutMs)
 
         assertTrue(result.isSuccess)
         assertEquals("order.created", result.getOrThrow().jsonPrimitive.content)
@@ -146,7 +161,7 @@ class TransformEngineTest {
         val payload = parseJson("""{}""")
         val context = createContext(attempt = 3)
 
-        val result = engine.evaluate("\$attempt", payload, context)
+        val result = engine.evaluate("\$attempt", payload, context, timeoutMs = safeTimeoutMs)
 
         assertTrue(result.isSuccess)
         assertEquals(3, result.getOrThrow().jsonPrimitive.int)
@@ -157,7 +172,7 @@ class TransformEngineTest {
         val payload = parseJson("""{}""")
         val context = createContext()
 
-        val result = engine.evaluate("\$timestamp", payload, context)
+        val result = engine.evaluate("\$timestamp", payload, context, timeoutMs = safeTimeoutMs)
 
         assertTrue(result.isSuccess)
         // Just verify it's a non-empty string (ISO-8601 timestamp)
@@ -169,7 +184,7 @@ class TransformEngineTest {
         val payload = parseJson("""{}""")
         val context = createContext(source = "webhook-api")
 
-        val result = engine.evaluate("\$source", payload, context)
+        val result = engine.evaluate("\$source", payload, context, timeoutMs = safeTimeoutMs)
 
         assertTrue(result.isSuccess)
         assertEquals("webhook-api", result.getOrThrow().jsonPrimitive.content)
@@ -180,7 +195,12 @@ class TransformEngineTest {
         val payload = parseJson("""{"orderId": "ORD-123"}""")
         val context = createContext(topic = "order.shipped")
 
-        val result = engine.evaluate("{\"order\": orderId, \"event\": \$topic}", payload, context)
+        val result = engine.evaluate(
+            "{\"order\": orderId, \"event\": \$topic}",
+            payload,
+            context,
+            timeoutMs = safeTimeoutMs
+        )
 
         assertTrue(result.isSuccess)
         val obj = result.getOrThrow().jsonObject
@@ -222,8 +242,8 @@ class TransformEngineTest {
         val context = createContext()
 
         // Evaluate twice with the same expression
-        engine.evaluate(expression, payload, context)
-        engine.evaluate(expression, payload, context)
+        engine.evaluate(expression, payload, context, timeoutMs = safeTimeoutMs)
+        engine.evaluate(expression, payload, context, timeoutMs = safeTimeoutMs)
 
         // Should only have one cached expression
         assertEquals(1, engine.cacheSize())
@@ -234,8 +254,8 @@ class TransformEngineTest {
         val payload = parseJson("""{"name": "Test"}""")
         val context = createContext()
 
-        engine.evaluate("name", payload, context)
-        engine.evaluate("name & '!'", payload, context)
+        engine.evaluate("name", payload, context, timeoutMs = safeTimeoutMs)
+        engine.evaluate("name & '!'", payload, context, timeoutMs = safeTimeoutMs)
 
         assertEquals(2, engine.cacheSize())
     }
@@ -245,7 +265,7 @@ class TransformEngineTest {
         val payload = parseJson("""{"name": "Test"}""")
         val context = createContext()
 
-        engine.evaluate("name", payload, context)
+        engine.evaluate("name", payload, context, timeoutMs = safeTimeoutMs)
         assertEquals(1, engine.cacheSize())
 
         engine.clearCache()
@@ -261,7 +281,7 @@ class TransformEngineTest {
 
         // Add 5 expressions to a cache with max size 3
         repeat(5) { i ->
-            smallCacheEngine.evaluate("x + $i", payload, context)
+            smallCacheEngine.evaluate("x + $i", payload, context, timeoutMs = safeTimeoutMs)
         }
 
         // Cache should not exceed max size
@@ -307,7 +327,7 @@ class TransformEngineTest {
         val payload = parseJson("""{"valid": "json"}""")
         val context = createContext()
 
-        val result = engine.evaluate("valid", payload, context)
+        val result = engine.evaluate("valid", payload, context, timeoutMs = safeTimeoutMs)
 
         assertTrue(result.isSuccess)
     }
@@ -317,7 +337,7 @@ class TransformEngineTest {
         val payload = parseJson("""{"x": 10, "y": 0}""")
         val context = createContext()
 
-        val result = engine.evaluate("x / y", payload, context)
+        val result = engine.evaluate("x / y", payload, context, timeoutMs = safeTimeoutMs)
 
         // JSONata may throw an error for division by zero or return a result
         // Either is acceptable behavior - we just verify it doesn't crash unexpectedly
@@ -329,7 +349,7 @@ class TransformEngineTest {
         val payload = parseJson("""{"num": "42"}""")
         val context = createContext()
 
-        val result = engine.evaluate("\$number(num) + 8", payload, context)
+        val result = engine.evaluate("\$number(num) + 8", payload, context, timeoutMs = safeTimeoutMs)
 
         assertTrue(result.isSuccess)
         assertEquals(50, result.getOrThrow().jsonPrimitive.int)
@@ -366,7 +386,8 @@ class TransformEngineTest {
             }
             """.trimIndent(),
             payload,
-            context
+            context,
+            timeoutMs = safeTimeoutMs
         )
 
         assertTrue(result.isSuccess)
@@ -382,7 +403,7 @@ class TransformEngineTest {
         val payload = parseJson("""{}""")
         val context = createContext()
 
-        val result = engine.evaluate("\$now()", payload, context)
+        val result = engine.evaluate("\$now()", payload, context, timeoutMs = safeTimeoutMs)
 
         assertTrue(result.isSuccess)
         // $now() returns ISO-8601 timestamp string
@@ -397,7 +418,7 @@ class TransformEngineTest {
         val payload = parseJson("""{}""")
         val context = createContext()
 
-        val result = engine.evaluate("""{"empty": true}""", payload, context)
+        val result = engine.evaluate("""{"empty": true}""", payload, context, timeoutMs = safeTimeoutMs)
 
         assertTrue(result.isSuccess)
     }
@@ -407,7 +428,7 @@ class TransformEngineTest {
         val payload = parseJson("""{"items": []}""")
         val context = createContext()
 
-        val result = engine.evaluate("\$sum(items.price)", payload, context)
+        val result = engine.evaluate("\$sum(items.price)", payload, context, timeoutMs = safeTimeoutMs)
 
         assertTrue(result.isSuccess)
         // $sum on empty array returns 0 or undefined depending on JSONata implementation
@@ -420,7 +441,7 @@ class TransformEngineTest {
         val payload = parseJson("""{"greeting": "Hello, 世界! 🌍"}""")
         val context = createContext()
 
-        val result = engine.evaluate("greeting", payload, context)
+        val result = engine.evaluate("greeting", payload, context, timeoutMs = safeTimeoutMs)
 
         assertTrue(result.isSuccess)
         assertEquals("Hello, 世界! 🌍", result.getOrThrow().jsonPrimitive.content)
@@ -432,7 +453,7 @@ class TransformEngineTest {
         val context = createContext()
 
         // In JSONata, 'not' is a function $not(), not an operator
-        val result = engine.evaluate("active and \$not(verified)", payload, context)
+        val result = engine.evaluate("active and \$not(verified)", payload, context, timeoutMs = safeTimeoutMs)
 
         assertTrue(result.isSuccess)
         assertTrue(result.getOrThrow().jsonPrimitive.boolean)
