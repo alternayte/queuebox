@@ -1,5 +1,6 @@
 package org.nxtspec
 
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlin.test.Test
@@ -28,7 +29,7 @@ class MessageRouterTest {
     fun `should match exact topic when exact pattern`() {
         val router = createRouter("order.created" to "http-dest")
 
-        val result = router.route("order.created")
+        val result = router.route(OutboxMessage(topic = "order.created", payload = JsonObject(emptyMap())))
 
         assertNotNull(result)
         assertEquals("http-dest", (result.destination as Destination.Http).name)
@@ -38,7 +39,7 @@ class MessageRouterTest {
     fun `should not match different topic when exact pattern`() {
         val router = createRouter("order.created" to "http-dest")
 
-        val result = router.route("order.cancelled")
+        val result = router.route(OutboxMessage(topic = "order.cancelled", payload = JsonObject(emptyMap())))
 
         assertNull(result)
     }
@@ -47,17 +48,17 @@ class MessageRouterTest {
     fun `should match glob pattern when single wildcard`() {
         val router = createRouter("order.*" to "order-dest")
 
-        assertNotNull(router.route("order.created"))
-        assertNotNull(router.route("order.cancelled"))
-        assertNotNull(router.route("order.shipped"))
+        assertNotNull(router.route(OutboxMessage(topic = "order.created", payload = JsonObject(emptyMap()))))
+        assertNotNull(router.route(OutboxMessage(topic = "order.cancelled", payload = JsonObject(emptyMap()))))
+        assertNotNull(router.route(OutboxMessage(topic = "order.shipped", payload = JsonObject(emptyMap()))))
     }
 
     @Test
     fun `should not match different prefix when single wildcard`() {
         val router = createRouter("order.*" to "order-dest")
 
-        assertNull(router.route("user.created"))
-        assertNull(router.route("payment.processed"))
+        assertNull(router.route(OutboxMessage(topic = "user.created", payload = JsonObject(emptyMap()))))
+        assertNull(router.route(OutboxMessage(topic = "payment.processed", payload = JsonObject(emptyMap()))))
     }
 
     @Test
@@ -65,16 +66,16 @@ class MessageRouterTest {
         val router = createRouter("order.*" to "order-dest")
 
         // Single wildcard should not match multiple segments
-        assertNull(router.route("order.item.created"))
+        assertNull(router.route(OutboxMessage(topic = "order.item.created", payload = JsonObject(emptyMap()))))
     }
 
     @Test
     fun `should match multi-segment when double wildcard`() {
         val router = createRouter("events.**" to "events-dest")
 
-        assertNotNull(router.route("events.user.created"))
-        assertNotNull(router.route("events.order.item.added"))
-        assertNotNull(router.route("events.a.b.c.d"))
+        assertNotNull(router.route(OutboxMessage(topic = "events.user.created", payload = JsonObject(emptyMap()))))
+        assertNotNull(router.route(OutboxMessage(topic = "events.order.item.added", payload = JsonObject(emptyMap()))))
+        assertNotNull(router.route(OutboxMessage(topic = "events.a.b.c.d", payload = JsonObject(emptyMap()))))
     }
 
     @Test
@@ -82,7 +83,7 @@ class MessageRouterTest {
         val router = createRouter("events.**" to "events-dest")
 
         // Double wildcard should also match single segments
-        assertNotNull(router.route("events.created"))
+        assertNotNull(router.route(OutboxMessage(topic = "events.created", payload = JsonObject(emptyMap()))))
     }
 
     @Test
@@ -92,7 +93,7 @@ class MessageRouterTest {
             "order.*" to "general-dest"
         )
 
-        val result = router.route("order.created")
+        val result = router.route(OutboxMessage(topic = "order.created", payload = JsonObject(emptyMap())))
 
         assertNotNull(result)
         assertEquals("specific-dest", (result.destination as Destination.Http).name)
@@ -105,7 +106,7 @@ class MessageRouterTest {
             "order.*" to "general-dest"
         )
 
-        val result = router.route("order.cancelled")
+        val result = router.route(OutboxMessage(topic = "order.cancelled", payload = JsonObject(emptyMap())))
 
         assertNotNull(result)
         assertEquals("general-dest", (result.destination as Destination.Http).name)
@@ -115,7 +116,7 @@ class MessageRouterTest {
     fun `should return null when no route matches`() {
         val router = createRouter("order.*" to "order-dest")
 
-        val result = router.route("user.created")
+        val result = router.route(OutboxMessage(topic = "user.created", payload = JsonObject(emptyMap())))
 
         assertNull(result)
     }
@@ -124,7 +125,7 @@ class MessageRouterTest {
     fun `should return null when routes list is empty`() {
         val router = MessageRouter(emptyList(), emptyMap())
 
-        val result = router.route("any.topic")
+        val result = router.route(OutboxMessage(topic = "any.topic", payload = JsonObject(emptyMap())))
 
         assertNull(result)
     }
@@ -134,7 +135,7 @@ class MessageRouterTest {
         val routes = listOf(RouteConfig(topicPattern = "order.*", destination = "missing-dest"))
         val router = MessageRouter(routes, emptyMap())
 
-        val result = router.route("order.created")
+        val result = router.route(OutboxMessage(topic = "order.created", payload = JsonObject(emptyMap())))
 
         assertNull(result)
     }
@@ -144,7 +145,7 @@ class MessageRouterTest {
         // F-004: a null routing key lets the destination apply its own fallback template.
         val router = createRouter("order.*" to "dest")
 
-        val result = router.route("order.created")
+        val result = router.route(OutboxMessage(topic = "order.created", payload = JsonObject(emptyMap())))
 
         assertNotNull(result)
         assertNull(result.routingKey)
@@ -164,7 +165,7 @@ class MessageRouterTest {
         )
         val router = MessageRouter(routes, destinations)
 
-        val result = router.route("order.created")
+        val result = router.route(OutboxMessage(topic = "order.created", payload = JsonObject(emptyMap())))
 
         assertNotNull(result)
         assertEquals("routed.order.created.events", result.routingKey)
@@ -184,7 +185,7 @@ class MessageRouterTest {
         )
         val router = MessageRouter(routes, destinations)
 
-        val result = router.route("order.created")
+        val result = router.route(OutboxMessage(topic = "order.created", payload = JsonObject(emptyMap())))
 
         assertNotNull(result)
         assertEquals("routed.order.created.events", result.routingKey)
@@ -194,28 +195,28 @@ class MessageRouterTest {
     fun `should handle pattern with wildcard in middle`() {
         val router = createRouter("order.*.completed" to "dest")
 
-        assertNotNull(router.route("order.123.completed"))
-        assertNotNull(router.route("order.abc.completed"))
-        assertNull(router.route("order.completed"))
-        assertNull(router.route("order.123.456.completed"))
+        assertNotNull(router.route(OutboxMessage(topic = "order.123.completed", payload = JsonObject(emptyMap()))))
+        assertNotNull(router.route(OutboxMessage(topic = "order.abc.completed", payload = JsonObject(emptyMap()))))
+        assertNull(router.route(OutboxMessage(topic = "order.completed", payload = JsonObject(emptyMap()))))
+        assertNull(router.route(OutboxMessage(topic = "order.123.456.completed", payload = JsonObject(emptyMap()))))
     }
 
     @Test
     fun `should handle multiple wildcards in pattern`() {
         val router = createRouter("*.*.created" to "dest")
 
-        assertNotNull(router.route("order.item.created"))
-        assertNotNull(router.route("user.profile.created"))
-        assertNull(router.route("order.created"))
+        assertNotNull(router.route(OutboxMessage(topic = "order.item.created", payload = JsonObject(emptyMap()))))
+        assertNotNull(router.route(OutboxMessage(topic = "user.profile.created", payload = JsonObject(emptyMap()))))
+        assertNull(router.route(OutboxMessage(topic = "order.created", payload = JsonObject(emptyMap()))))
     }
 
     @Test
     fun `should be case sensitive`() {
         val router = createRouter("Order.Created" to "dest")
 
-        assertNotNull(router.route("Order.Created"))
-        assertNull(router.route("order.created"))
-        assertNull(router.route("ORDER.CREATED"))
+        assertNotNull(router.route(OutboxMessage(topic = "Order.Created", payload = JsonObject(emptyMap()))))
+        assertNull(router.route(OutboxMessage(topic = "order.created", payload = JsonObject(emptyMap()))))
+        assertNull(router.route(OutboxMessage(topic = "ORDER.CREATED", payload = JsonObject(emptyMap()))))
     }
 
     // Payload-based routing key tests
@@ -237,7 +238,7 @@ class MessageRouterTest {
             put("region", JsonPrimitive("us-east"))
         }
 
-        val result = router.route("order.created", payload)
+        val result = router.route(OutboxMessage(topic = "order.created", payload = payload))
 
         assertNotNull(result)
         assertEquals("events.us-east.order.created", result.routingKey)
@@ -257,7 +258,7 @@ class MessageRouterTest {
         )
         val router = MessageRouter(routes, destinations)
 
-        val result = router.route("order.created", null)
+        val result = router.route(OutboxMessage(topic = "order.created", payload = JsonObject(emptyMap())))
 
         assertNotNull(result)
         assertEquals("routed.order.created", result.routingKey)
@@ -278,7 +279,7 @@ class MessageRouterTest {
         val router = MessageRouter(routes, destinations)
         val payload = buildJsonObject {}
 
-        val result = router.route("order.created", payload)
+        val result = router.route(OutboxMessage(topic = "order.created", payload = payload))
 
         assertNotNull(result)
         assertEquals("events..order.created", result.routingKey)
@@ -300,7 +301,7 @@ class MessageRouterTest {
         val router = MessageRouter(routes, destinations)
         val payload = buildJsonObject {}
 
-        val result = router.route("order.created", payload)
+        val result = router.route(OutboxMessage(topic = "order.created", payload = payload))
 
         assertNotNull(result)
         assertEquals("events.default.order.created", result.routingKey)
@@ -328,7 +329,7 @@ class MessageRouterTest {
             )
         }
 
-        val result = router.route("order.created", payload)
+        val result = router.route(OutboxMessage(topic = "order.created", payload = payload))
 
         assertNotNull(result)
         assertEquals("events.eu-west", result.routingKey)
@@ -351,7 +352,7 @@ class MessageRouterTest {
             put("eventType", JsonPrimitive("order.created"))
         }
 
-        val result = router.route("order.created", payload)
+        val result = router.route(OutboxMessage(topic = "order.created", payload = payload))
 
         assertNotNull(result)
         assertEquals("events.order.created", result.routingKey)
@@ -374,7 +375,7 @@ class MessageRouterTest {
             put("ignored", JsonPrimitive("field"))
         }
 
-        val result = router.route("order.created", payload)
+        val result = router.route(OutboxMessage(topic = "order.created", payload = payload))
 
         assertNotNull(result)
         assertEquals("routed.order.created.events", result.routingKey)
@@ -386,39 +387,43 @@ class MessageRouterTest {
     fun `should match topic that contains regex metacharacters`() {
         val router = createRouter("order.a+b" to "plus-dest")
 
-        assertNotNull(router.route("order.a+b"))
-        assertNull(router.route("order.aab"))
-        assertNull(router.route("order.ab"))
+        assertNotNull(router.route(OutboxMessage(topic = "order.a+b", payload = JsonObject(emptyMap()))))
+        assertNull(router.route(OutboxMessage(topic = "order.aab", payload = JsonObject(emptyMap()))))
+        assertNull(router.route(OutboxMessage(topic = "order.ab", payload = JsonObject(emptyMap()))))
     }
 
     @Test
     fun `should match topic that contains parentheses and brackets`() {
         val parens = createRouter("order.(x)" to "paren-dest")
-        assertNotNull(parens.route("order.(x)"))
-        assertNull(parens.route("order.x"))
+        assertNotNull(parens.route(OutboxMessage(topic = "order.(x)", payload = JsonObject(emptyMap()))))
+        assertNull(parens.route(OutboxMessage(topic = "order.x", payload = JsonObject(emptyMap()))))
 
         val brackets = createRouter("order.[y]" to "bracket-dest")
-        assertNotNull(brackets.route("order.[y]"))
-        assertNull(brackets.route("order.y"))
+        assertNotNull(brackets.route(OutboxMessage(topic = "order.[y]", payload = JsonObject(emptyMap()))))
+        assertNull(brackets.route(OutboxMessage(topic = "order.y", payload = JsonObject(emptyMap()))))
     }
 
     @Test
     fun `should match topic that contains the legacy placeholder token`() {
         val literal = createRouter("order.\u00A7\u00A7\u00A7" to "token-dest")
-        assertNotNull(literal.route("order.\u00A7\u00A7\u00A7"))
-        assertNull(literal.route("order.anything.else"))
+        assertNotNull(
+            literal.route(OutboxMessage(topic = "order.\u00A7\u00A7\u00A7", payload = JsonObject(emptyMap())))
+        )
+        assertNull(literal.route(OutboxMessage(topic = "order.anything.else", payload = JsonObject(emptyMap()))))
 
         val withWildcard = createRouter("\u00A7\u00A7\u00A7.**" to "token-glob-dest")
-        assertNotNull(withWildcard.route("\u00A7\u00A7\u00A7.a.b"))
-        assertNull(withWildcard.route("other.a.b"))
+        assertNotNull(
+            withWildcard.route(OutboxMessage(topic = "\u00A7\u00A7\u00A7.a.b", payload = JsonObject(emptyMap())))
+        )
+        assertNull(withWildcard.route(OutboxMessage(topic = "other.a.b", payload = JsonObject(emptyMap()))))
     }
 
     @Test
     fun `should anchor the pattern so a partial match is rejected`() {
         val router = createRouter("order.created" to "dest")
 
-        assertNull(router.route("prefix.order.created"))
-        assertNull(router.route("order.created.suffix"))
+        assertNull(router.route(OutboxMessage(topic = "prefix.order.created", payload = JsonObject(emptyMap()))))
+        assertNull(router.route(OutboxMessage(topic = "order.created.suffix", payload = JsonObject(emptyMap()))))
     }
 
     @Test
@@ -441,8 +446,8 @@ class MessageRouterTest {
         )
 
         repeat(100) { index ->
-            router.route("order.created.$index")
-            router.route("user.updated.$index")
+            router.route(OutboxMessage(topic = "order.created.$index", payload = JsonObject(emptyMap())))
+            router.route(OutboxMessage(topic = "user.updated.$index", payload = JsonObject(emptyMap())))
         }
 
         assertEquals(2, compileCount)

@@ -83,6 +83,12 @@ sealed interface Destination {
     data class RabbitMQ(
         val name: String,
         val url: String,
+        /**
+         * The exchange name, or a template that renders one exchange name per row. F-091. A
+         * template can read `{{ topic }}`, `{{ key }}`, `{{ aggregateType }}`, or a payload
+         * field. A publisher must reject a row whose rendered exchange is empty, and it must
+         * never fall back to the AMQP default exchange.
+         */
         val exchange: String,
         val exchangeType: String = "topic",
         val routingKeyTemplate: String = "{{ topic }}",

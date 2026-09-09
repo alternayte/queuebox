@@ -78,7 +78,7 @@ class LoggingTest {
         coEvery { repository.reclaimStale(any()) } returns 0
 
         val router = mockk<MessageRouter>()
-        every { router.route(any(), any()) } returns RoutingResult(destination, null)
+        every { router.route(any()) } returns RoutingResult(destination, null)
 
         val config = OutboxConfig(pollIntervalMs = 30, batchSize = 10, maxAttempts = 5)
         val poller = OutboxPoller(
@@ -123,7 +123,7 @@ class LoggingTest {
         coEvery { repository.reclaimStale(any()) } returns 0
 
         val router = mockk<MessageRouter>()
-        every { router.route(any(), any()) } returns RoutingResult(destination, null)
+        every { router.route(any()) } returns RoutingResult(destination, null)
 
         val config = OutboxConfig(pollIntervalMs = 30, batchSize = 10, maxAttempts = 5)
         val poller = OutboxPoller(

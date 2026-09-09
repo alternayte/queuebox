@@ -164,7 +164,7 @@ class OutboxPoller(
     private suspend fun processMessage(message: OutboxMessage) {
         val startTime = System.currentTimeMillis()
 
-        val routingResult = router.route(message.topic, message.payload)
+        val routingResult = router.route(message)
         if (routingResult == null) {
             // No route found, mark as dead
             if (repository.markDead(message.id, message.claimToken, "No route matches topic '${message.topic}'")) {
@@ -240,7 +240,7 @@ class OutboxPoller(
             publisher.publish(
                 messageToPublish,
                 routingResult.destination,
-                PublishContext(routingKey = routingResult.routingKey)
+                PublishContext(routingKey = routingResult.routingKey, resolvedAddress = routingResult.resolvedAddress)
             ).fold(
                 onSuccess = {
                     if (repository.markSent(message.id, message.claimToken)) {

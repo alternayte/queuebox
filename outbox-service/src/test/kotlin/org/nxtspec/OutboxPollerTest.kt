@@ -68,7 +68,7 @@ class OutboxPollerTest {
 
         coEvery { repository.markDead(any(), any(), any()) } returns true
         coEvery { repository.countByState("pending") } returns 5L
-        every { router.route(any(), any()) } returns routingResult
+        every { router.route(any()) } returns routingResult
         every { publisher.supports(any()) } returns true
         coEvery { publisher.publish(any(), any(), any()) } returns Result.success(Unit)
 
@@ -113,7 +113,7 @@ class OutboxPollerTest {
 
         coEvery { repository.markDead(any(), any(), any()) } returns true
         coEvery { repository.countByState("pending") } returns 0L
-        every { router.route(any(), any()) } returns null
+        every { router.route(any()) } returns null
 
         val poller = OutboxPoller(
             config = defaultConfig,
@@ -154,7 +154,7 @@ class OutboxPollerTest {
 
         coEvery { repository.markDead(any(), any(), any()) } returns true
         coEvery { repository.countByState("pending") } returns 0L
-        every { router.route(any(), any()) } returns routingResult
+        every { router.route(any()) } returns routingResult
         every { publisher.supports(any()) } returns false
 
         val poller = OutboxPoller(
@@ -195,7 +195,7 @@ class OutboxPollerTest {
 
         coEvery { repository.markDead(any(), any(), any()) } returns true
         coEvery { repository.countByState("pending") } returns 0L
-        every { router.route(any(), any()) } returns routingResult
+        every { router.route(any()) } returns routingResult
         every { publisher.supports(any()) } returns true
         coEvery { publisher.publish(any(), any(), any()) } returns Result.success(Unit)
 
@@ -237,7 +237,7 @@ class OutboxPollerTest {
 
         coEvery { repository.markDead(any(), any(), any()) } returns true
         coEvery { repository.countByState("pending") } returns 0L
-        every { router.route(any(), any()) } returns routingResult
+        every { router.route(any()) } returns routingResult
         every { publisher.supports(any()) } returns true
         coEvery { publisher.publish(any(), any(), any()) } returns Result.failure(RuntimeException("Connection failed"))
 
@@ -279,7 +279,7 @@ class OutboxPollerTest {
 
         coEvery { repository.markDead(any(), any(), any()) } returns true
         coEvery { repository.countByState("pending") } returns 0L
-        every { router.route(any(), any()) } returns routingResult
+        every { router.route(any()) } returns routingResult
         every { publisher.supports(any()) } returns true
         coEvery { publisher.publish(any(), any(), any()) } returns Result.failure(RuntimeException("Connection failed"))
 
@@ -323,7 +323,7 @@ class OutboxPollerTest {
 
         coEvery { repository.markDead(any(), any(), any()) } returns true
         coEvery { repository.countByState("pending") } returns 0L
-        every { router.route(any(), any()) } returns routingResult
+        every { router.route(any()) } returns routingResult
         every { publisher.supports(any()) } returns true
         coEvery { publisher.publish(any(), any(), any()) } returns Result.success(Unit)
         coEvery { transformPipeline.transform(any(), any(), any(), capture(contexts)) } returns
@@ -370,7 +370,7 @@ class OutboxPollerTest {
 
         coEvery { repository.markDead(any(), any(), any()) } returns true
         coEvery { repository.countByState("pending") } returns 0L
-        every { router.route(any(), any()) } returns routingResult
+        every { router.route(any()) } returns routingResult
         every { publisher.supports(any()) } returns true
         coEvery { publisher.publish(any(), any(), any()) } returns Result.success(Unit)
         coEvery { transformPipeline.transform(any(), any(), any(), any()) } returns
@@ -418,7 +418,7 @@ class OutboxPollerTest {
 
         coEvery { repository.markDead(any(), any(), any()) } returns true
         coEvery { repository.countByState("pending") } returns 0L
-        every { router.route(any(), any()) } returns routingResult
+        every { router.route(any()) } returns routingResult
         every { publisher.supports(any()) } returns true
         coEvery { publisher.publish(any(), any(), any()) } returns Result.success(Unit)
         coEvery { transformPipeline.transform(any(), any(), any(), any()) } returns
@@ -465,7 +465,7 @@ class OutboxPollerTest {
 
         coEvery { repository.markDead(any(), any(), any()) } returns true
         coEvery { repository.countByState("pending") } returns 0L
-        every { router.route(any(), any()) } returns routingResult
+        every { router.route(any()) } returns routingResult
         every { publisher.supports(any()) } returns true
         coEvery { transformPipeline.transform(any(), any(), any(), any()) } returns
             TransformResult.Error("Transform failed")
@@ -511,7 +511,7 @@ class OutboxPollerTest {
 
         coEvery { repository.markDead(any(), any(), any()) } returns true
         coEvery { repository.countByState("pending") } returns 0L
-        every { router.route(any(), any()) } returns routingResult
+        every { router.route(any()) } returns routingResult
         every { publisher.supports(any()) } returns true
         coEvery { transformPipeline.transform(any(), any(), any(), any()) } returns
             TransformResult.DeadLetter("Fatal error")
@@ -556,7 +556,7 @@ class OutboxPollerTest {
 
         coEvery { repository.markDead(any(), any(), any()) } returns true
         coEvery { repository.countByState("pending") } returns 0L
-        every { router.route(any(), any()) } returns routingResult
+        every { router.route(any()) } returns routingResult
         every { publisher.supports(any()) } returns true
         coEvery { publisher.publish(any(), any(), any()) } returns Result.success(Unit)
 
@@ -633,7 +633,7 @@ class OutboxPollerTest {
         coEvery { repository.scheduleRetry(any(), any(), any(), any()) } returns true
 
         coEvery { repository.markDead(any(), any(), any()) } returns true
-        every { router.route(any(), any()) } returns routingResult
+        every { router.route(any()) } returns routingResult
         every { publisher.supports(any()) } returns true
         coEvery { publisher.publish(any(), any(), any()) } returns Result.success(Unit)
 
@@ -672,7 +672,7 @@ class OutboxPollerTest {
         } throws RuntimeException("Database error") andThen listOf(message) andThen
             emptyList()
         coEvery { repository.countByState("pending") } returns 0L
-        every { router.route(any(), any()) } returns routingResult
+        every { router.route(any()) } returns routingResult
         every { publisher.supports(any()) } returns true
         coEvery { publisher.publish(any(), any(), any()) } returns Result.success(Unit)
 
@@ -784,7 +784,7 @@ class OutboxPollerTest {
 
         coEvery { repository.markDead(any(), any(), any()) } returns true
         coEvery { repository.countByState("pending") } returns 0L
-        every { router.route(any(), any()) } returns routingResult
+        every { router.route(any()) } returns routingResult
         every { publisher.supports(any()) } returns true
         coEvery { publisher.publish(any(), any(), any()) } returns Result.success(Unit)
         coEvery { transformPipeline.transform(any(), any(), any(), any()) } returns
@@ -829,7 +829,7 @@ class OutboxPollerTest {
 
         coEvery { repository.markDead(any(), any(), any()) } returns true
         coEvery { repository.countByState("pending") } returns 0L
-        every { router.route(any(), any()) } returns routingResult
+        every { router.route(any()) } returns routingResult
         every { publisher.supports(any()) } returns true
         coEvery { publisher.publish(any(), any(), any()) } returns Result.success(Unit)
 
@@ -873,7 +873,7 @@ class OutboxPollerTest {
 
         coEvery { repository.markDead(any(), any(), any()) } returns true
         coEvery { repository.countByState("pending") } returns 0L
-        every { router.route(any(), any()) } returns routingResult
+        every { router.route(any()) } returns routingResult
         every { publisher.supports(any()) } returns true
         coEvery { publisher.publish(any(), any(), any()) } returns Result.success(Unit)
 
@@ -989,7 +989,7 @@ class OutboxPollerTest {
 
         coEvery { repository.markDead(any(), any(), any()) } returns true
         coEvery { repository.reclaimStale(any()) } returns 0
-        every { router.route(any(), any()) } returns routingResult
+        every { router.route(any()) } returns routingResult
         every { publisher.supports(destination) } returns true
         coEvery { publisher.publish(any(), any(), any()) } returns Result.success(Unit)
 
@@ -1006,7 +1006,11 @@ class OutboxPollerTest {
         poller.shutdown()
 
         coVerify {
-            publisher.publish(any(), destination, PublishContext(routingKey = "eu.high.order.created"))
+            publisher.publish(
+                any(),
+                destination,
+                PublishContext(routingKey = "eu.high.order.created", resolvedAddress = routingResult.resolvedAddress)
+            )
         }
     }
 
@@ -1031,7 +1035,7 @@ class OutboxPollerTest {
 
         coEvery { repository.markDead(any(), any(), any()) } returns true
         coEvery { repository.reclaimStale(any()) } returns 0
-        every { router.route(any(), any()) } returns RoutingResult(destination, null)
+        every { router.route(any()) } returns RoutingResult(destination, null)
         every { publisher.supports(destination) } returns true
         coEvery { publisher.publish(any(), any(), any()) } coAnswers {
             kotlinx.coroutines.delay(Long.MAX_VALUE)
@@ -1084,8 +1088,8 @@ class OutboxPollerTest {
 
         coEvery { repository.markDead(any(), any(), any()) } returns true
         coEvery { repository.reclaimStale(any()) } returns 0
-        every { router.route(any(), any()) } answers {
-            if (firstArg<String>() == failing.topic) {
+        every { router.route(any()) } answers {
+            if (firstArg<OutboxMessage>().topic == failing.topic) {
                 error("router exploded")
             }
             RoutingResult(destination, null)
@@ -1148,7 +1152,7 @@ class OutboxPollerTest {
 
         coEvery { repository.markDead(any(), any(), any()) } returns true
         coEvery { repository.reclaimStale(any()) } returns 0
-        every { router.route(any(), any()) } returns RoutingResult(destination, null)
+        every { router.route(any()) } returns RoutingResult(destination, null)
 
         val poller = OutboxPoller(
             config = defaultConfig.copy(concurrency = 8),

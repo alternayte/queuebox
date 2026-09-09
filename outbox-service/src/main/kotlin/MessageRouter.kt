@@ -1,19 +1,21 @@
 package org.nxtspec
 
-import kotlinx.serialization.json.JsonElement
-
 /**
  * Result of routing a message to a destination.
  *
  * @property destination The resolved destination to publish to
  * @property routingKey The routing key that the route resolved, or null when the route sets no
  *   routingKeyTemplate. A null value lets the destination apply its own fallback. See F-004.
+ * @property resolvedAddress The exchange, topic, or subject that the row resolved from the
+ *   destination's address template. A publisher must use this value and never read the
+ *   destination's own address field again. See F-091.
  * @property routeTransform Optional transform configured at the route level
  * @property destinationTransform Optional transform configured at the destination level
  */
 data class RoutingResult(
     val destination: Destination,
     val routingKey: String?,
+    val resolvedAddress: String = "",
     val routeTransform: TransformConfig? = null,
     val destinationTransform: TransformConfig? = null
 )
@@ -41,44 +43,54 @@ class MessageRouter(
         routes.map { it to patternCompiler(it.topicPattern) }
 
     /**
-     * Routes a topic to its destination, including any configured transforms.
+     * Routes an outbox row to its destination, including any configured transforms and the
+     * resolved address for the destination's exchange, topic, or subject. F-091.
      *
-     * @param topic The message topic to route
-     * @param payload Optional payload for dynamic routing key substitution
-     * @return RoutingResult with destination and transforms, or null if no route matches
+     * @param row The outbox row to route
+     * @return RoutingResult with destination, resolved address, and transforms, or null if no
+     *   route matches
      */
-    fun route(topic: String, payload: JsonElement? = null): RoutingResult? {
-        val matchedRoute = compiledRoutes.firstOrNull { (_, regex) -> regex.matches(topic) }?.first
+    fun route(row: OutboxMessage): RoutingResult? {
+        val matchedRoute = compiledRoutes.firstOrNull { (_, regex) -> regex.matches(row.topic) }?.first
         return matchedRoute?.let {
             val destination = destinations[it.destination] ?: return null
+            val context = RoutingKeyRenderer.RowContext(row.topic, row.key, row.aggregateType, row.payload)
             val template = it.routingKeyTemplate
-            val routingKey = when {
-                template == null -> null
-                payload != null -> {
+            val routingKey = when (template) {
+                null -> null
+                else -> {
                     val missingFieldDefault = it.routingKeyMissingFieldDefault
                     val renderer = if (missingFieldDefault != null) {
                         RoutingKeyRenderer(missingFieldDefault)
                     } else {
                         routingKeyRenderer
                     }
-                    renderer.render(template, topic, payload)
+                    renderer.render(template, context)
                 }
-                else -> renderLegacyTemplate(template, topic)
             }
             RoutingResult(
                 destination = destination,
                 routingKey = routingKey,
+                resolvedAddress = resolveAddress(destination, context),
                 routeTransform = it.transform,
                 destinationTransform = destinationTransforms[it.destination]
             )
         }
     }
 
-    private fun renderLegacyTemplate(template: String, topic: String): String {
-        // Simple template rendering: replace {{ topic }} with actual topic
-        return template
-            .replace("{{ topic }}", topic)
-            .replace("{{topic}}", topic)
+    /**
+     * Renders the destination's own address template against the row. F-091. The address is the
+     * RabbitMQ exchange, the Kafka topic, the NATS subject, or the HTTP path, depending on the
+     * destination type.
+     */
+    private fun resolveAddress(destination: Destination, context: RoutingKeyRenderer.RowContext): String {
+        val template = when (destination) {
+            is Destination.RabbitMQ -> destination.exchange
+            is Destination.Kafka -> destination.topic
+            is Destination.Nats -> destination.subject
+            is Destination.Http -> destination.path
+        }
+        return routingKeyRenderer.render(template, context)
     }
 }
 
