@@ -138,4 +138,11 @@ class StartupValidatorTest {
 
         StartupValidator.validateAddressTemplates(config)
     }
+
+    @Test
+    fun `a payload prefixed field starts cleanly`() {
+        val config = configWith(exchange = "public.{{ payload.orderId }}.v1", exchangeFrom = null)
+
+        StartupValidator.validateAddressTemplates(config)
+    }
 }

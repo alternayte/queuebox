@@ -628,7 +628,7 @@ private fun kafkaInboxConsumers(
     }
 
 /** Maps one configured destination to its domain type. Extracted from `main` for its size. */
-private fun toDestination(name: String, destConfig: DestinationConfig): Destination = when (destConfig) {
+internal fun toDestination(name: String, destConfig: DestinationConfig): Destination = when (destConfig) {
     is DestinationConfig.Http -> Destination.Http(
         name = name,
         baseUrl = destConfig.baseUrl,
@@ -667,6 +667,7 @@ private fun toDestination(name: String, destConfig: DestinationConfig): Destinat
         url = destConfig.url,
         exchange = destConfig.exchange,
         exchangeType = destConfig.exchangeType,
+        routingKeyTemplate = destConfig.routingKeyTemplate,
         headers = destConfig.headers,
         exchangeFrom = destConfig.exchangeFrom
     )

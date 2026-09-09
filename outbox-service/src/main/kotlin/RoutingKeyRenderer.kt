@@ -19,7 +19,7 @@ import kotlinx.serialization.json.JsonPrimitive
  */
 class RoutingKeyRenderer(private val defaultValue: String = "") {
     // Pattern to match {{ field }} placeholders with optional spaces
-    private val placeholderPattern = Regex("""\{\{\s*([^}]+?)\s*}}""")
+    private val placeholderPattern = PLACEHOLDER_PATTERN
 
     /**
      * The fields of one outbox row that a template can read. F-091.
@@ -96,6 +96,13 @@ class RoutingKeyRenderer(private val defaultValue: String = "") {
          * beginning with one of these prefixes reads from the message payload.
          */
         val PERMITTED_TEMPLATE_FIELD_PREFIXES: Set<String> = setOf("payload.", "data.")
+
+        /**
+         * Matches one `{{ field }}` placeholder in a template. A startup validator consults this
+         * pattern, rather than carrying its own copy, so a change to how a placeholder is written
+         * cannot leave the renderer and the validator reading a template two different ways.
+         */
+        val PLACEHOLDER_PATTERN: Regex = Regex("""\{\{\s*([^}]+?)\s*}}""")
     }
 
     private fun extractPayloadField(payload: JsonElement, path: String): String? {

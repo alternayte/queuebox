@@ -284,6 +284,8 @@ sealed class DestinationConfig {
         val url: String,
         val exchange: String,
         val exchangeType: String = "topic",
+        /** The routing key template. `{{ topic }}`, `{{ key }}`, and `{{ aggregateType }}` render. */
+        val routingKeyTemplate: String = "{{ topic }}",
         val headers: Map<String, String> = emptyMap(),
         /**
          * The name of a row column to read the exchange name from, verbatim. F-091. A value here
@@ -297,8 +299,8 @@ sealed class DestinationConfig {
          * F-038: an AMQP URI carries the broker password, so the printed form masks it.
          */
         override fun toString(): String = "RabbitMQ(url=${CredentialMasking.maskUrl(url)}, exchange=$exchange, " +
-            "exchangeType=$exchangeType, headers=${CredentialMasking.maskHeaders(headers)}, " +
-            "exchangeFrom=$exchangeFrom, transform=$transform)"
+            "exchangeType=$exchangeType, routingKeyTemplate=$routingKeyTemplate, " +
+            "headers=${CredentialMasking.maskHeaders(headers)}, exchangeFrom=$exchangeFrom, transform=$transform)"
     }
 }
 

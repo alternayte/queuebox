@@ -49,9 +49,6 @@ object StartupValidator {
         }
     }
 
-    /** Matches one `{{ field }}` placeholder in an address template. See [RoutingKeyRenderer]. */
-    private val placeholderPattern = Regex("""\{\{\s*([^}]+?)\s*}}""")
-
     /**
      * Validates every RabbitMQ `exchange`, Kafka `topic`, and NATS `subject` template, and every
      * `exchangeFrom`, `topicFrom`, and `subjectFrom` column name, on every configured
@@ -86,7 +83,7 @@ object StartupValidator {
     }
 
     private fun validateTemplate(template: String, destinationName: String, fieldName: String) {
-        placeholderPattern.findAll(template).forEach { match ->
+        RoutingKeyRenderer.PLACEHOLDER_PATTERN.findAll(template).forEach { match ->
             val field = match.groupValues[1].trim()
             val permitted = field in RoutingKeyRenderer.PERMITTED_TEMPLATE_FIELDS ||
                 RoutingKeyRenderer.PERMITTED_TEMPLATE_FIELD_PREFIXES.any { field.startsWith(it) }
