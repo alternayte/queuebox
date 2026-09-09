@@ -24,6 +24,7 @@ class ColumnMappingWiringTest {
                 id = "o_id",
                 topic = "o_topic",
                 key = "o_key",
+                aggregateType = "o_aggregate_type",
                 payload = "o_payload",
                 headers = "o_headers",
                 state = "o_state",
@@ -77,6 +78,7 @@ class ColumnMappingWiringTest {
         assertEquals("o_id", mapping.id)
         assertEquals("o_topic", mapping.topic)
         assertEquals("o_key", mapping.key)
+        assertEquals("o_aggregate_type", mapping.aggregateType, "The aggregate type column must be wired.")
         assertEquals("o_payload", mapping.payload)
         assertEquals("o_headers", mapping.headers)
         assertEquals("o_state", mapping.state)

@@ -22,6 +22,7 @@ class SqlServerRepositoryFactory(
         id = columnMapping.outbox.id,
         topic = columnMapping.outbox.topic,
         key = columnMapping.outbox.key,
+        aggregateType = columnMapping.outbox.aggregateType,
         payload = columnMapping.outbox.payload,
         headers = columnMapping.outbox.headers,
         state = columnMapping.outbox.state,

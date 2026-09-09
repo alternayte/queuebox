@@ -444,6 +444,7 @@ internal fun columnMappingData(database: DatabaseConfig): ColumnMappingData = Co
         id = database.columnMapping.outbox.id,
         topic = database.columnMapping.outbox.topic,
         key = database.columnMapping.outbox.key,
+        aggregateType = database.columnMapping.outbox.aggregateType,
         payload = database.columnMapping.outbox.payload,
         headers = database.columnMapping.outbox.headers,
         state = database.columnMapping.outbox.state,

@@ -152,50 +152,51 @@ class PostgresMigratorTest {
             poolSize = 5
         )
         val dataSource = DatabaseFactory.create(config)
+        try {
+            // Migrate only up to V8, so the row insert below happens against the schema that
+            // predates this feature.
+            Flyway.configure()
+                .dataSource(dataSource)
+                .locations(PostgresMigrator.LOCATION)
+                .baselineOnMigrate(true)
+                .baselineVersion("0")
+                .target("8")
+                .load()
+                .migrate()
 
-        // Migrate only up to V8, so the row insert below happens against the schema that
-        // predates this feature.
-        Flyway.configure()
-            .dataSource(dataSource)
-            .locations(PostgresMigrator.LOCATION)
-            .baselineOnMigrate(true)
-            .baselineVersion("0")
-            .target("8")
-            .load()
-            .migrate()
-
-        val rowCount = 5
-        dataSource.connection.use { connection ->
-            connection.prepareStatement(
-                "INSERT INTO outbox (id, topic, payload, state, attempt, max_attempts, " +
-                    "scheduled_at, created_at, updated_at) " +
-                    "VALUES (gen_random_uuid(), ?, '{}'::jsonb, 'pending', 0, 5, now(), now(), now())"
-            ).use { stmt ->
-                repeat(rowCount) {
-                    stmt.setString(1, "order.created")
-                    stmt.addBatch()
+            val rowCount = 5
+            dataSource.connection.use { connection ->
+                connection.prepareStatement(
+                    "INSERT INTO outbox (id, topic, payload, state, attempt, max_attempts, " +
+                        "scheduled_at, created_at, updated_at) " +
+                        "VALUES (gen_random_uuid(), ?, '{}'::jsonb, 'pending', 0, 5, now(), now(), now())"
+                ).use { stmt ->
+                    repeat(rowCount) {
+                        stmt.setString(1, "order.created")
+                        stmt.addBatch()
+                    }
+                    stmt.executeBatch()
                 }
-                stmt.executeBatch()
+                connection.commit()
             }
-            connection.commit()
-        }
 
-        val applied = PostgresMigrator().migrate(dataSource)
-        assertTrue(applied >= 1, "V9 must run against the already-populated database")
+            val applied = PostgresMigrator().migrate(dataSource)
+            assertTrue(applied >= 1, "V9 must run against the already-populated database")
 
-        dataSource.connection.use { connection ->
-            connection.createStatement().use { stmt ->
-                stmt.executeQuery("SELECT COUNT(*) FROM outbox").use { rs ->
-                    rs.next()
-                    assertEquals(rowCount, rs.getInt(1), "Every pre-existing row must survive the migration")
-                }
-                stmt.executeQuery("SELECT COUNT(*) FROM outbox WHERE aggregate_type IS NOT NULL").use { rs ->
-                    rs.next()
-                    assertEquals(0, rs.getInt(1), "Every pre-existing row must have a null aggregate_type")
+            dataSource.connection.use { connection ->
+                connection.createStatement().use { stmt ->
+                    stmt.executeQuery("SELECT COUNT(*) FROM outbox").use { rs ->
+                        rs.next()
+                        assertEquals(rowCount, rs.getInt(1), "Every pre-existing row must survive the migration")
+                    }
+                    stmt.executeQuery("SELECT COUNT(*) FROM outbox WHERE aggregate_type IS NOT NULL").use { rs ->
+                        rs.next()
+                        assertEquals(0, rs.getInt(1), "Every pre-existing row must have a null aggregate_type")
+                    }
                 }
             }
+        } finally {
+            DatabaseFactory.close(dataSource)
         }
-
-        DatabaseFactory.close(dataSource)
     }
 }
