@@ -29,6 +29,7 @@ bounded.
 | `queuebox_outbox_messages_total` | counter | `status` = `sent`, `failed` or `dead` | The outbox messages that reached each terminal status. |
 | `queuebox_outbox_messages_pending` | gauge | none | The outbox messages that wait for a publish. |
 | `queuebox_outbox_messages_reclaimed_total` | counter | none | The outbox messages that returned to pending after a stale claim. |
+| `queuebox_outbox_oldest_pending_age_seconds` | gauge | none | The age in seconds of the oldest outbox row in state `pending`. The value is zero when no row is pending. A count of pending rows cannot separate a busy relay from a dead one, so this is the metric to alert on. The value refreshes on the relay poll cycle, at most once per `outbox.pendingGaugeIntervalMs`, so it can lag reality by up to that interval. The gauge does not run a query on each scrape. |
 | `queuebox_claims_lost_total` | counter | `component` | The terminal writes that lost the claim. Another replica owned the message. |
 | `queuebox_outbox_process_errors_total` | counter | none | The errors that stopped the processing of one outbox message. |
 | `queuebox_outbox_processing_duration_seconds` | summary | none | The time to process one outbox message. The summary carries the 50th, 95th and 99th percentile. |
@@ -42,6 +43,7 @@ bounded.
 | `queuebox_inbox_messages_total` | counter | `status` = `new`, `forwarded` or `duplicate` | The inbox messages per status. |
 | `queuebox_inbox_relay_errors_total` | counter | none | The errors of the inbox relay. |
 | `queuebox_inbox_rejections_total` | counter | `reason` = `extraction_failed`, `transform_failed` or `storage_failed` | The inbox messages that QueueBox rejected, per reason. |
+| `queuebox_inbox_oldest_pending_age_seconds` | gauge | none | The age in seconds of the oldest inbox row in state `pending`. The value is zero when no row is pending. A count of pending rows cannot separate a busy relay from a dead one, so this is the metric to alert on. The value refreshes on the relay poll cycle, at most once per `inbox.relay.pendingGaugeIntervalMs`, so it can lag reality by up to that interval. The gauge does not run a query on each scrape. |
 | `queuebox_cleanup_messages_deleted_total` | counter | `table` | The rows that the retention cleanup deleted, per table. |
 | `queuebox_cleanup_duration_seconds` | summary | `table` | The time of one cleanup run, per table. |
 | `queuebox_cleanup_duration_seconds_max` | gauge | `table` | The longest cleanup run of the current window. |
