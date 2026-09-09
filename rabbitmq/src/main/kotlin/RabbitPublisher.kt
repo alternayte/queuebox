@@ -61,7 +61,7 @@ class RabbitPublisher(
             holder.mutex.withLock {
                 withContext(Dispatchers.IO) {
                     val channel = openChannel(holder)
-                    val exchange = resolveExchange(dest, message, context)
+                    val exchange = resolveExchange(dest, context)
                     declareExchangeIfNeeded(holder, channel, dest, exchange)
                     val messageId = message.id.toString()
                     holder.returnedIds.remove(messageId)
@@ -156,24 +156,20 @@ class RabbitPublisher(
     }
 
     /**
-     * Renders the exchange for one row from the destination's exchange template. F-091. A route
-     * can already have resolved the address, in which case that value wins. Otherwise the
-     * exchange is rendered directly from the row, so a publisher called outside the router still
-     * gets one exchange per row.
+     * Validates the exchange the router already resolved for this row. F-091. The router is the
+     * single place that renders a destination's address template, so a publisher only checks the
+     * result and never renders one itself.
      *
      * @throws RabbitPublishException when the rendered exchange is empty. An empty exchange name
      *   is the AMQP default exchange, which delivers straight to a queue named after the routing
      *   key. That delivery is silent and wrong, so the row must fail instead.
      */
-    private fun resolveExchange(dest: Destination.RabbitMQ, message: OutboxMessage, context: PublishContext): String {
-        val exchange = context.resolvedAddress ?: RoutingKeyRenderer().render(
-            dest.exchange,
-            RoutingKeyRenderer.RowContext(message.topic, message.key, message.aggregateType, message.payload)
-        )
+    private fun resolveExchange(dest: Destination.RabbitMQ, context: PublishContext): String {
+        val exchange = context.resolvedAddress
         if (exchange.isBlank()) {
             throw RabbitPublishException(
                 "Destination '${dest.name}' rendered an empty exchange from template '${dest.exchange}'. " +
-                    "The message is not published, and the AMQP default exchange is never used."
+                    "QueueBox does not publish the message, and it never uses the AMQP default exchange."
             )
         }
         return exchange

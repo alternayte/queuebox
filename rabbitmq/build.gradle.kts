@@ -17,7 +17,6 @@ dependencies {
     implementation(project(":core"))
     implementation(project(":config"))
     implementation(project(":inbox-service")) // For InboxTransformPipeline
-    implementation(project(":outbox-service")) // For RoutingKeyRenderer. F-091.
 
     // RabbitMQ client
     implementation(libs.amqp.client)

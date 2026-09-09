@@ -15,7 +15,7 @@ package org.nxtspec
 data class RoutingResult(
     val destination: Destination,
     val routingKey: String?,
-    val resolvedAddress: String = "",
+    val resolvedAddress: String,
     val routeTransform: TransformConfig? = null,
     val destinationTransform: TransformConfig? = null
 )

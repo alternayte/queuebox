@@ -245,7 +245,7 @@ class MessageRouterTest {
     }
 
     @Test
-    fun `should use legacy template when payload is null`() {
+    fun `should render the topic placeholder for a row with an empty payload`() {
         val destinations = mapOf(
             "dest" to Destination.Http(name = "dest", baseUrl = "http://localhost")
         )
@@ -451,5 +451,47 @@ class MessageRouterTest {
         }
 
         assertEquals(2, compileCount)
+    }
+
+    // --- F-091: the router resolves the destination's own address template per row ---
+
+    @Test
+    fun `should render the RabbitMQ exchange template with the row aggregate type`() {
+        val destinations = mapOf(
+            "dest" to Destination.RabbitMQ(
+                name = "dest",
+                url = "amqp://localhost",
+                exchange = "public.orders.{{ aggregateType }}.v1",
+                exchangeType = "topic"
+            )
+        )
+        val routes = listOf(RouteConfig(topicPattern = "order.*", destination = "dest"))
+        val router = MessageRouter(routes, destinations)
+
+        val result = router.route(
+            OutboxMessage(topic = "order.created", aggregateType = "Task", payload = JsonObject(emptyMap()))
+        )
+
+        assertNotNull(result)
+        assertEquals("public.orders.Task.v1", result.resolvedAddress)
+    }
+
+    @Test
+    fun `should render an empty resolvedAddress when the row has no aggregate type`() {
+        val destinations = mapOf(
+            "dest" to Destination.RabbitMQ(
+                name = "dest",
+                url = "amqp://localhost",
+                exchange = "{{ aggregateType }}",
+                exchangeType = "topic"
+            )
+        )
+        val routes = listOf(RouteConfig(topicPattern = "order.*", destination = "dest"))
+        val router = MessageRouter(routes, destinations)
+
+        val result = router.route(OutboxMessage(topic = "order.created", payload = JsonObject(emptyMap())))
+
+        assertNotNull(result)
+        assertEquals("", result.resolvedAddress)
     }
 }

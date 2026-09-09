@@ -113,7 +113,7 @@ class RabbitPublisherIntegrationTest {
             payload = JsonObject(mapOf("orderId" to JsonPrimitive("12345")))
         )
 
-        val result = publisher.publish(message, destination)
+        val result = publisher.publish(message, destination, PublishContext(resolvedAddress = destination.exchange))
 
         assertTrue(result.isSuccess, "Publish should succeed: ${result.exceptionOrNull()?.message}")
     }
@@ -136,7 +136,7 @@ class RabbitPublisherIntegrationTest {
             payload = JsonObject(mapOf("userId" to JsonPrimitive("user-123")))
         )
 
-        val result = publisher.publish(message, destination)
+        val result = publisher.publish(message, destination, PublishContext(resolvedAddress = destination.exchange))
 
         assertTrue(result.isSuccess, "Publish should succeed: ${result.exceptionOrNull()?.message}")
     }
@@ -164,8 +164,8 @@ class RabbitPublisherIntegrationTest {
             payload = JsonObject(mapOf("msg" to JsonPrimitive("second")))
         )
 
-        val first = publisher.publish(message1, destination)
-        val second = publisher.publish(message2, destination)
+        val first = publisher.publish(message1, destination, PublishContext(resolvedAddress = destination.exchange))
+        val second = publisher.publish(message2, destination, PublishContext(resolvedAddress = destination.exchange))
 
         assertTrue(first.isSuccess, "The first publish must succeed")
         assertTrue(second.isSuccess, "The second publish must reuse the cached channel")
@@ -189,7 +189,7 @@ class RabbitPublisherIntegrationTest {
             payload = JsonObject(mapOf("data" to JsonPrimitive("test")))
         )
 
-        val result = publisher.publish(message, destination)
+        val result = publisher.publish(message, destination, PublishContext(resolvedAddress = destination.exchange))
 
         assertTrue(result.isSuccess, "Direct exchange publish should succeed")
     }
@@ -225,7 +225,7 @@ class RabbitPublisherIntegrationTest {
             payload = JsonObject(mapOf("data" to JsonPrimitive("test")))
         )
 
-        val result = publisher.publish(message, destination)
+        val result = publisher.publish(message, destination, PublishContext(resolvedAddress = destination.exchange))
         assertTrue(result.isSuccess, "Publish should succeed")
 
         // Consume and verify headers
@@ -267,7 +267,11 @@ class RabbitPublisherIntegrationTest {
 
         // The publisher declares the exchange when it opens the channel. F-022 makes this
         // first publish fail, because the new exchange has no binding yet.
-        val firstResult = publisher.publish(message, destination)
+        val firstResult = publisher.publish(
+            message,
+            destination,
+            PublishContext(resolvedAddress = destination.exchange)
+        )
         assertTrue(firstResult.isFailure, "An unroutable publish must fail")
 
         // Verify the exchange was actually created
@@ -284,7 +288,8 @@ class RabbitPublisherIntegrationTest {
         bindQueue(uniqueExchange, "topic", "test.topic")
         val secondResult = publisher.publish(
             message.copy(id = UUID.randomUUID()),
-            destination
+            destination,
+            PublishContext(resolvedAddress = destination.exchange)
         )
         assertTrue(
             secondResult.isSuccess,
@@ -315,8 +320,16 @@ class RabbitPublisherIntegrationTest {
             payload = JsonObject(emptyMap())
         )
 
-        val taskResult = publisher.publish(taskMessage, destination, PublishContext(routingKey = "orders.created"))
-        val orderResult = publisher.publish(orderMessage, destination, PublishContext(routingKey = "orders.created"))
+        val taskResult = publisher.publish(
+            taskMessage,
+            destination,
+            PublishContext(routingKey = "orders.created", resolvedAddress = "public.orders.Task.v1")
+        )
+        val orderResult = publisher.publish(
+            orderMessage,
+            destination,
+            PublishContext(routingKey = "orders.created", resolvedAddress = "public.orders.Order.v1")
+        )
 
         assertTrue(taskResult.isSuccess, "Task publish should succeed: ${taskResult.exceptionOrNull()?.message}")
         assertTrue(orderResult.isSuccess, "Order publish should succeed: ${orderResult.exceptionOrNull()?.message}")
@@ -342,10 +355,15 @@ class RabbitPublisherIntegrationTest {
             }
         }
 
-        // The row sets no aggregate type, so the template renders an empty string.
+        // The row sets no aggregate type, so the router renders an empty string for this
+        // destination's template and hands it to the publisher as the resolved address.
         val row = OutboxMessage(topic = "orders.created", payload = JsonObject(emptyMap()))
 
-        val result = publisher.publish(row, destination, PublishContext(routingKey = "orders.created"))
+        val result = publisher.publish(
+            row,
+            destination,
+            PublishContext(routingKey = "orders.created", resolvedAddress = "")
+        )
 
         assertTrue(result.isFailure, "An empty rendered exchange must fail the row")
         val message = result.exceptionOrNull()?.message
@@ -376,12 +394,12 @@ class RabbitPublisherIntegrationTest {
             val taskResult = publisher.publish(
                 OutboxMessage(topic = "orders.created", aggregateType = "Task", payload = JsonObject(emptyMap())),
                 destination,
-                PublishContext(routingKey = "orders.created")
+                PublishContext(routingKey = "orders.created", resolvedAddress = "public.orders.Task.v1")
             )
             val orderResult = publisher.publish(
                 OutboxMessage(topic = "orders.created", aggregateType = "Order", payload = JsonObject(emptyMap())),
                 destination,
-                PublishContext(routingKey = "orders.created")
+                PublishContext(routingKey = "orders.created", resolvedAddress = "public.orders.Order.v1")
             )
             assertTrue(taskResult.isSuccess)
             assertTrue(orderResult.isSuccess)

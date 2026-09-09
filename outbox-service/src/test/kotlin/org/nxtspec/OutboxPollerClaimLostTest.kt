@@ -75,7 +75,7 @@ class OutboxPollerClaimLostTest {
         coEvery { repository.claimBatch(any(), any()) } returns listOf(message) andThen emptyList()
         coEvery { repository.countByState("pending") } returns 0L
         coEvery { repository.markSent(any(), any()) } returns false
-        every { router.route(any()) } returns RoutingResult(destination, "test.topic")
+        every { router.route(any()) } returns RoutingResult(destination, "test.topic", resolvedAddress = "test-address")
         every { publisher.supports(any()) } returns true
         coEvery { publisher.publish(any(), any(), any()) } returns Result.success(Unit)
 
@@ -100,7 +100,7 @@ class OutboxPollerClaimLostTest {
         coEvery { repository.claimBatch(any(), any()) } returns listOf(message) andThen emptyList()
         coEvery { repository.countByState("pending") } returns 0L
         coEvery { repository.scheduleRetry(any(), any(), any(), any()) } returns false
-        every { router.route(any()) } returns RoutingResult(destination, "test.topic")
+        every { router.route(any()) } returns RoutingResult(destination, "test.topic", resolvedAddress = "test-address")
         every { publisher.supports(any()) } returns true
         coEvery { publisher.publish(any(), any(), any()) } returns Result.failure(RuntimeException("boom"))
 
@@ -143,7 +143,7 @@ class OutboxPollerClaimLostTest {
         coEvery { repository.claimBatch(any(), any()) } returns listOf(message) andThen emptyList()
         coEvery { repository.countByState("pending") } returns 0L
         coEvery { repository.markSent(any(), any()) } returns true
-        every { router.route(any()) } returns RoutingResult(destination, "test.topic")
+        every { router.route(any()) } returns RoutingResult(destination, "test.topic", resolvedAddress = "test-address")
         every { publisher.supports(any()) } returns true
         coEvery { publisher.publish(any(), any(), any()) } returns Result.success(Unit)
 

@@ -56,7 +56,7 @@ class OutboxPollerTest {
 
         val message = createTestMessage()
         val destination = createHttpDestination()
-        val routingResult = RoutingResult(destination, "test.topic")
+        val routingResult = RoutingResult(destination, "test.topic", resolvedAddress = "test-address")
 
         coEvery { repository.claimBatch(any(), any()) } returns listOf(message) andThen emptyList()
 
@@ -142,7 +142,7 @@ class OutboxPollerTest {
 
         val message = createTestMessage()
         val destination = createHttpDestination()
-        val routingResult = RoutingResult(destination, "test.topic")
+        val routingResult = RoutingResult(destination, "test.topic", resolvedAddress = "test-address")
 
         coEvery { repository.claimBatch(any(), any()) } returns listOf(message) andThen emptyList()
 
@@ -183,7 +183,7 @@ class OutboxPollerTest {
 
         val message = createTestMessage()
         val destination = createHttpDestination()
-        val routingResult = RoutingResult(destination, "test.topic")
+        val routingResult = RoutingResult(destination, "test.topic", resolvedAddress = "test-address")
 
         coEvery { repository.claimBatch(any(), any()) } returns listOf(message) andThen emptyList()
 
@@ -225,7 +225,7 @@ class OutboxPollerTest {
 
         val message = createTestMessage(attempt = 0)
         val destination = createHttpDestination()
-        val routingResult = RoutingResult(destination, "test.topic")
+        val routingResult = RoutingResult(destination, "test.topic", resolvedAddress = "test-address")
 
         coEvery { repository.claimBatch(any(), any()) } returns listOf(message) andThen emptyList()
 
@@ -267,7 +267,7 @@ class OutboxPollerTest {
 
         val message = createTestMessage(attempt = 5, maxAttempts = 5)
         val destination = createHttpDestination()
-        val routingResult = RoutingResult(destination, "test.topic")
+        val routingResult = RoutingResult(destination, "test.topic", resolvedAddress = "test-address")
 
         coEvery { repository.claimBatch(any(), any()) } returns listOf(message) andThen emptyList()
 
@@ -310,7 +310,8 @@ class OutboxPollerTest {
         val message = createTestMessage(attempt = 0)
         val destination = createHttpDestination()
         val transformConfig = TransformConfig(expression = "{ transformed: true }")
-        val routingResult = RoutingResult(destination, "test.topic", routeTransform = transformConfig)
+        val routingResult =
+            RoutingResult(destination, "test.topic", resolvedAddress = "test-address", routeTransform = transformConfig)
         val contexts = mutableListOf<org.nxtspec.transform.TransformContext>()
 
         coEvery { repository.claimBatch(any(), any()) } returns listOf(message) andThen emptyList()
@@ -357,7 +358,8 @@ class OutboxPollerTest {
         val message = createTestMessage()
         val destination = createHttpDestination()
         val transformConfig = TransformConfig(expression = "{ transformed: true }")
-        val routingResult = RoutingResult(destination, "test.topic", routeTransform = transformConfig)
+        val routingResult =
+            RoutingResult(destination, "test.topic", resolvedAddress = "test-address", routeTransform = transformConfig)
         val transformedPayload = JsonObject(mapOf("transformed" to JsonPrimitive(true)))
 
         coEvery { repository.claimBatch(any(), any()) } returns listOf(message) andThen emptyList()
@@ -405,7 +407,8 @@ class OutboxPollerTest {
         val message = createTestMessage()
         val destination = createHttpDestination()
         val transformConfig = TransformConfig(expression = "{ transformed: true }")
-        val routingResult = RoutingResult(destination, "test.topic", routeTransform = transformConfig)
+        val routingResult =
+            RoutingResult(destination, "test.topic", resolvedAddress = "test-address", routeTransform = transformConfig)
         val transformedPayload = JsonObject(mapOf("transformed" to JsonPrimitive(true)))
 
         coEvery { repository.claimBatch(any(), any()) } returns listOf(message) andThen emptyList()
@@ -453,7 +456,8 @@ class OutboxPollerTest {
         val message = createTestMessage(attempt = 0)
         val destination = createHttpDestination()
         val transformConfig = TransformConfig(expression = "{ invalid }")
-        val routingResult = RoutingResult(destination, "test.topic", routeTransform = transformConfig)
+        val routingResult =
+            RoutingResult(destination, "test.topic", resolvedAddress = "test-address", routeTransform = transformConfig)
 
         coEvery { repository.claimBatch(any(), any()) } returns listOf(message) andThen emptyList()
 
@@ -499,7 +503,8 @@ class OutboxPollerTest {
         val message = createTestMessage()
         val destination = createHttpDestination()
         val transformConfig = TransformConfig(expression = "{ invalid }")
-        val routingResult = RoutingResult(destination, "test.topic", routeTransform = transformConfig)
+        val routingResult =
+            RoutingResult(destination, "test.topic", resolvedAddress = "test-address", routeTransform = transformConfig)
 
         coEvery { repository.claimBatch(any(), any()) } returns listOf(message) andThen emptyList()
 
@@ -544,7 +549,8 @@ class OutboxPollerTest {
         val message = createTestMessage()
         val destination = createHttpDestination()
         val transformConfig = TransformConfig(expression = "{ transformed: true }")
-        val routingResult = RoutingResult(destination, "test.topic", routeTransform = transformConfig)
+        val routingResult =
+            RoutingResult(destination, "test.topic", resolvedAddress = "test-address", routeTransform = transformConfig)
 
         coEvery { repository.claimBatch(any(), any()) } returns listOf(message) andThen emptyList()
 
@@ -622,7 +628,7 @@ class OutboxPollerTest {
 
         val message = createTestMessage()
         val destination = createHttpDestination()
-        val routingResult = RoutingResult(destination, "test.topic")
+        val routingResult = RoutingResult(destination, "test.topic", resolvedAddress = "test-address")
 
         coEvery { repository.claimBatch(any(), any()) } returns listOf(message) andThen emptyList()
 
@@ -664,7 +670,7 @@ class OutboxPollerTest {
 
         val message = createTestMessage()
         val destination = createHttpDestination()
-        val routingResult = RoutingResult(destination, "test.topic")
+        val routingResult = RoutingResult(destination, "test.topic", resolvedAddress = "test-address")
 
         // First call throws exception, second call returns message
         coEvery {
@@ -771,7 +777,13 @@ class OutboxPollerTest {
         val message = createTestMessage()
         val destination = createHttpDestination()
         val destTransformConfig = TransformConfig(expression = "{ fromDest: true }")
-        val routingResult = RoutingResult(destination, "test.topic", destinationTransform = destTransformConfig)
+        val routingResult =
+            RoutingResult(
+                destination,
+                "test.topic",
+                resolvedAddress = "test-address",
+                destinationTransform = destTransformConfig
+            )
         val transformedPayload = JsonObject(mapOf("fromDest" to JsonPrimitive(true)))
 
         coEvery { repository.claimBatch(any(), any()) } returns listOf(message) andThen emptyList()
@@ -817,7 +829,7 @@ class OutboxPollerTest {
         val message1 = createTestMessage(topic = "topic.1")
         val message2 = createTestMessage(topic = "topic.2")
         val destination = createHttpDestination()
-        val routingResult = RoutingResult(destination, "test.topic")
+        val routingResult = RoutingResult(destination, "test.topic", resolvedAddress = "test-address")
 
         coEvery { repository.claimBatch(any(), any()) } returns listOf(message1, message2) andThen emptyList()
 
@@ -861,7 +873,14 @@ class OutboxPollerTest {
         val message = createTestMessage()
         val destination = createHttpDestination()
         // No transforms configured
-        val routingResult = RoutingResult(destination, "test.topic", routeTransform = null, destinationTransform = null)
+        val routingResult =
+            RoutingResult(
+                destination,
+                "test.topic",
+                resolvedAddress = "test-address",
+                routeTransform = null,
+                destinationTransform = null
+            )
 
         coEvery { repository.claimBatch(any(), any()) } returns listOf(message) andThen emptyList()
 
@@ -977,7 +996,7 @@ class OutboxPollerTest {
 
         val message = createTestMessage(topic = "order.created")
         val destination = createHttpDestination()
-        val routingResult = RoutingResult(destination, "eu.high.order.created")
+        val routingResult = RoutingResult(destination, "eu.high.order.created", resolvedAddress = "test-address")
 
         coEvery { repository.claimBatch(any(), any()) } returns listOf(message) andThen emptyList()
 
@@ -1035,7 +1054,7 @@ class OutboxPollerTest {
 
         coEvery { repository.markDead(any(), any(), any()) } returns true
         coEvery { repository.reclaimStale(any()) } returns 0
-        every { router.route(any()) } returns RoutingResult(destination, null)
+        every { router.route(any()) } returns RoutingResult(destination, null, resolvedAddress = "test-address")
         every { publisher.supports(destination) } returns true
         coEvery { publisher.publish(any(), any(), any()) } coAnswers {
             kotlinx.coroutines.delay(Long.MAX_VALUE)
@@ -1092,7 +1111,7 @@ class OutboxPollerTest {
             if (firstArg<OutboxMessage>().topic == failing.topic) {
                 error("router exploded")
             }
-            RoutingResult(destination, null)
+            RoutingResult(destination, null, resolvedAddress = "test-address")
         }
         every { publisher.supports(destination) } returns true
         coEvery { publisher.publish(any(), any(), any()) } returns Result.success(Unit)
@@ -1152,7 +1171,7 @@ class OutboxPollerTest {
 
         coEvery { repository.markDead(any(), any(), any()) } returns true
         coEvery { repository.reclaimStale(any()) } returns 0
-        every { router.route(any()) } returns RoutingResult(destination, null)
+        every { router.route(any()) } returns RoutingResult(destination, null, resolvedAddress = "test-address")
 
         val poller = OutboxPoller(
             config = defaultConfig.copy(concurrency = 8),

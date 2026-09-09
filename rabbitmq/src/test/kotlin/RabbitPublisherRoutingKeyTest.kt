@@ -92,7 +92,11 @@ class RabbitPublisherRoutingKeyTest {
         // RoutingKeyRendererTest covers the rendering itself.
         val routingKey = "eu.high.order.created"
 
-        val result = publisher.publish(message, destination, PublishContext(routingKey = routingKey))
+        val result = publisher.publish(
+            message,
+            destination,
+            PublishContext(routingKey = routingKey, resolvedAddress = exchange)
+        )
 
         assertTrue(result.isSuccess, "Publish must succeed: ${result.exceptionOrNull()?.message}")
 
@@ -133,7 +137,11 @@ class RabbitPublisherRoutingKeyTest {
             payload = JsonObject(mapOf("userId" to JsonPrimitive("user-123")))
         )
 
-        val result = publisher.publish(message, destination, PublishContext(routingKey = null))
+        val result = publisher.publish(
+            message,
+            destination,
+            PublishContext(routingKey = null, resolvedAddress = exchange)
+        )
 
         assertTrue(result.isSuccess)
 
