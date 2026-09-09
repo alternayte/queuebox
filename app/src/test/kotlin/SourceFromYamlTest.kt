@@ -22,14 +22,15 @@ import kotlin.test.assertTrue
  */
 class SourceFromYamlTest {
 
-    private fun loadRabbitMqSource(yaml: String): SourceConfig.RabbitMQ {
+    private fun loadConfig(yaml: String): org.nxtspec.QueueBoxConfig {
         val configFile = File.createTempFile("queuebox-source-from-yaml", ".yml")
         configFile.deleteOnExit()
         configFile.writeText(yaml)
-
-        val config = ConfigLoader.load(env = { mapOf("QUEUEBOX_CONFIG_FILE" to configFile.absolutePath) })
-        return assertIs<SourceConfig.RabbitMQ>(config.sources.getValue("orders-queue"))
+        return ConfigLoader.load(env = { mapOf("QUEUEBOX_CONFIG_FILE" to configFile.absolutePath) })
     }
+
+    private fun loadRabbitMqSource(yaml: String): SourceConfig.RabbitMQ =
+        assertIs<SourceConfig.RabbitMQ>(loadConfig(yaml).sources.getValue("orders-queue"))
 
     @Test
     fun `a RabbitMQ declareQueue true arrives on the consumer configuration`() {
@@ -88,6 +89,82 @@ class SourceFromYamlTest {
         assertEquals("id", source.attributeHeaders.idempotencyKey)
 
         val consumerConfig = rabbitConsumerConfig("orders-queue", source)
+        assertEquals("id", consumerConfig.attributeHeaders.idempotencyKey)
+        assertEquals("aggregateId", consumerConfig.attributeHeaders.aggregateId)
+        assertEquals("eventType", consumerConfig.attributeHeaders.eventType)
+    }
+
+    /**
+     * F-100: a Kafka source names the header that carries the idempotency key. Deleting the line
+     * `attributeHeaders = source.attributeHeaders` in `kafkaConsumerConfig` breaks no other test
+     * in the suite. It must break this one.
+     */
+    @Test
+    fun `a Kafka attributeHeaders block arrives on the consumer configuration`() {
+        val config = loadConfig(
+            """
+            database:
+              url: jdbc:postgresql://localhost:5432/queuebox
+              username: postgres
+              password: secret
+
+            sources:
+              orders-topic:
+                type: kafka
+                bootstrapServers: broker-1:9092
+                topics: [orders]
+                groupId: queuebox-orders
+                attributeHeaders:
+                  idempotencyKey: id
+                  aggregateId: aggregateId
+                  eventType: eventType
+            """.trimIndent()
+        )
+        val source = assertIs<SourceConfig.Kafka>(config.sources.getValue("orders-topic"))
+
+        // The default is "x-idempotency-key", so a value of "id" here can arrive only through
+        // the real Hoplite parse, not through a config object built by hand.
+        assertEquals("id", source.attributeHeaders.idempotencyKey)
+
+        val consumerConfig = kafkaConsumerConfig("orders-topic", source)
+        assertEquals("id", consumerConfig.attributeHeaders.idempotencyKey)
+        assertEquals("aggregateId", consumerConfig.attributeHeaders.aggregateId)
+        assertEquals("eventType", consumerConfig.attributeHeaders.eventType)
+    }
+
+    /**
+     * F-100: a NATS source names the header that carries the idempotency key. Deleting the line
+     * `attributeHeaders = source.attributeHeaders` in `natsConsumerConfig` breaks no other test
+     * in the suite. It must break this one.
+     */
+    @Test
+    fun `a NATS attributeHeaders block arrives on the consumer configuration`() {
+        val config = loadConfig(
+            """
+            database:
+              url: jdbc:postgresql://localhost:5432/queuebox
+              username: postgres
+              password: secret
+
+            sources:
+              orders-stream:
+                type: nats
+                servers: nats://localhost:4222
+                stream: ORDERS
+                durable: queuebox-orders
+                attributeHeaders:
+                  idempotencyKey: id
+                  aggregateId: aggregateId
+                  eventType: eventType
+            """.trimIndent()
+        )
+        val source = assertIs<SourceConfig.Nats>(config.sources.getValue("orders-stream"))
+
+        // The default is "x-idempotency-key", so a value of "id" here can arrive only through
+        // the real Hoplite parse, not through a config object built by hand.
+        assertEquals("id", source.attributeHeaders.idempotencyKey)
+
+        val consumerConfig = natsConsumerConfig("orders-stream", source)
         assertEquals("id", consumerConfig.attributeHeaders.idempotencyKey)
         assertEquals("aggregateId", consumerConfig.attributeHeaders.aggregateId)
         assertEquals("eventType", consumerConfig.attributeHeaders.eventType)

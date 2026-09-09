@@ -619,23 +619,7 @@ private fun kafkaInboxConsumers(
         sourceName to KafkaInboxConsumer(
             storeMessage = inboxRepository::store,
             extractor = extractor,
-            config = KafkaConsumerConfig(
-                sourceName = sourceName,
-                bootstrapServers = kafkaConfig.bootstrapServers,
-                topics = kafkaConfig.topics,
-                groupId = kafkaConfig.groupId,
-                consumption = kafkaConfig.consumption,
-                idempotencyKeyPath = kafkaConfig.idempotencyKeyPath,
-                aggregateIdPath = kafkaConfig.aggregateIdPath,
-                eventTypePath = kafkaConfig.eventTypePath,
-                autoOffsetReset = kafkaConfig.autoOffsetReset,
-                maxPollRecords = kafkaConfig.maxPollRecords,
-                securityProtocol = kafkaConfig.securityProtocol,
-                saslMechanism = kafkaConfig.saslMechanism,
-                saslUsername = kafkaConfig.saslUsername,
-                saslPassword = kafkaConfig.saslPassword,
-                attributeHeaders = kafkaConfig.attributeHeaders
-            ),
+            config = kafkaConsumerConfig(sourceName, kafkaConfig),
             metricsCollector = metricsCollector,
             transformPipeline = inboxTransformPipeline,
             sourceTransform = kafkaConfig.transform,
@@ -644,6 +628,31 @@ private fun kafkaInboxConsumers(
             storeDeadMessage = inboxRepository::storeDead
         )
     }
+
+/**
+ * Maps one Kafka source of the configuration onto the consumer configuration.
+ *
+ * Every documented field of the source must reach the consumer, the same rule as
+ * `rabbitConsumerConfig`.
+ */
+internal fun kafkaConsumerConfig(sourceName: String, source: SourceConfig.Kafka): KafkaConsumerConfig =
+    KafkaConsumerConfig(
+        sourceName = sourceName,
+        bootstrapServers = source.bootstrapServers,
+        topics = source.topics,
+        groupId = source.groupId,
+        consumption = source.consumption,
+        idempotencyKeyPath = source.idempotencyKeyPath,
+        aggregateIdPath = source.aggregateIdPath,
+        eventTypePath = source.eventTypePath,
+        autoOffsetReset = source.autoOffsetReset,
+        maxPollRecords = source.maxPollRecords,
+        securityProtocol = source.securityProtocol,
+        saslMechanism = source.saslMechanism,
+        saslUsername = source.saslUsername,
+        saslPassword = source.saslPassword,
+        attributeHeaders = source.attributeHeaders
+    )
 
 /** Maps one configured destination to its domain type. Extracted from `main` for its size. */
 internal fun toDestination(name: String, destConfig: DestinationConfig): Destination = when (destConfig) {
@@ -691,6 +700,30 @@ internal fun toDestination(name: String, destConfig: DestinationConfig): Destina
     )
 }
 
+/**
+ * Maps one NATS source of the configuration onto the consumer configuration.
+ *
+ * Every documented field of the source must reach the consumer, the same rule as
+ * `rabbitConsumerConfig`.
+ */
+internal fun natsConsumerConfig(sourceName: String, source: SourceConfig.Nats): NatsConsumerConfig = NatsConsumerConfig(
+    sourceName = sourceName,
+    servers = source.servers,
+    stream = source.stream,
+    durable = source.durable,
+    filterSubject = source.filterSubject,
+    consumption = source.consumption,
+    idempotencyKeyPath = source.idempotencyKeyPath,
+    aggregateIdPath = source.aggregateIdPath,
+    eventTypePath = source.eventTypePath,
+    ackWaitMs = source.ackWaitMs,
+    batchSize = source.batchSize,
+    username = source.username,
+    password = source.password,
+    token = source.token,
+    attributeHeaders = source.attributeHeaders
+)
+
 /** Builds one NATS consumer per NATS source. Extracted from `main` for the same reason. */
 private fun natsInboxConsumers(
     config: QueueBoxConfig,
@@ -705,23 +738,7 @@ private fun natsInboxConsumers(
         sourceName to NatsInboxConsumer(
             storeMessage = inboxRepository::store,
             extractor = extractor,
-            config = NatsConsumerConfig(
-                sourceName = sourceName,
-                servers = natsConfig.servers,
-                stream = natsConfig.stream,
-                durable = natsConfig.durable,
-                filterSubject = natsConfig.filterSubject,
-                consumption = natsConfig.consumption,
-                idempotencyKeyPath = natsConfig.idempotencyKeyPath,
-                aggregateIdPath = natsConfig.aggregateIdPath,
-                eventTypePath = natsConfig.eventTypePath,
-                ackWaitMs = natsConfig.ackWaitMs,
-                batchSize = natsConfig.batchSize,
-                username = natsConfig.username,
-                password = natsConfig.password,
-                token = natsConfig.token,
-                attributeHeaders = natsConfig.attributeHeaders
-            ),
+            config = natsConsumerConfig(sourceName, natsConfig),
             metricsCollector = metricsCollector,
             transformPipeline = inboxTransformPipeline,
             sourceTransform = natsConfig.transform,

@@ -375,12 +375,14 @@ sealed class SourceConfig {
         val aggregateIdPath: String? = null,
         /**
          * Optional JSONPath to the event type in the message body. The consumer reads this path
-         * first, and it falls back to the `x-event-type` record header.
+         * first, and it falls back to the record header that `attributeHeaders.eventType` names,
+         * which defaults to `x-event-type`.
          */
         val eventTypePath: String? = null,
         /**
-         * Declares that every producer of these topics sets the `x-event-type` record header.
-         * See the RabbitMQ source for why the declaration is explicit.
+         * Declares that every producer of these topics sets the record header that
+         * `attributeHeaders.eventType` names. See the RabbitMQ source for why the declaration
+         * is explicit.
          */
         val eventTypeFromHeader: Boolean = false,
         /**
@@ -432,7 +434,10 @@ sealed class SourceConfig {
         val idempotencyKeyPath: String = "$.id",
         val aggregateIdPath: String? = null,
         val eventTypePath: String? = null,
-        /** Declares that every publisher sets the `x-event-type` message header. */
+        /**
+         * Declares that every publisher sets the message header that `attributeHeaders.eventType`
+         * names.
+         */
         val eventTypeFromHeader: Boolean = false,
         /** How long JetStream waits for the acknowledgement before it redelivers. */
         val ackWaitMs: Long = 30000,
@@ -466,11 +471,13 @@ sealed class SourceConfig {
         val aggregateIdPath: String? = null,
         /**
          * Optional JSONPath to the event type in the message body, like the HTTP source.
-         * The consumer reads this path first, and it falls back to the `x-event-type` header.
+         * The consumer reads this path first, and it falls back to the header that
+         * `attributeHeaders.eventType` names, which defaults to `x-event-type`.
          */
         val eventTypePath: String? = null,
         /**
-         * Declares that every publisher of this queue sets the `x-event-type` header.
+         * Declares that every publisher of this queue sets the header that
+         * `attributeHeaders.eventType` names.
          *
          * The header is the only other source of the event type. Set this to true to use
          * `{{ eventType }}` in the topic template without an `eventTypePath`. The declaration
