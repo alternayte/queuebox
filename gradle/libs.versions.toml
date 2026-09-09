@@ -38,7 +38,7 @@ jacoco = "0.8.13"
 # Most of these arrive through the embedded capture connector, which brings the Kafka Connect
 # runtime with it.
 jacksonFloor = "2.21.4"
-nettyFloor = "4.2.16.Final"
+nettyFloor = "4.2.17.Final"
 kafkaFloor = "4.1.2"
 jettyFloor = "12.0.36"
 jsonSmartFloor = "2.5.2"
