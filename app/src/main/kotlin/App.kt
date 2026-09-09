@@ -44,12 +44,23 @@ private inline fun <T> startupStep(what: String, block: () -> T): T = try {
     throw StartupFailedException("QueueBox could not $what. Reason: ${ErrorSanitizer.sanitize(e)}")
 }
 
-fun main() {
+fun main() = runApp()
+
+/**
+ * Runs the real startup sequence. `main` calls this with the real environment. A test calls it
+ * with a fake one, so a test can prove that a startup step which reads the configuration, for
+ * example [StartupValidator.validateAddressTemplates], actually runs from the real start, and
+ * not only from a unit test of the validator alone.
+ *
+ * @param env Supplier of the environment. A test replaces it. See [ConfigLoader.load].
+ */
+@Suppress("LongMethod")
+internal fun runApp(env: () -> Map<String, String> = { System.getenv() }) {
     // Load configuration
     // Eleventh review gate B1. This was the FIRST statement of `main` and the only startup call
     // that no guard covered. A malformed YAML makes SnakeYAML quote the offending source lines,
     // including a password line, into the exception message, and nothing above `main` catches it.
-    val config = startupStep("read its configuration") { ConfigLoader.load() }
+    val config = startupStep("read its configuration") { ConfigLoader.load(env = env) }
 
     // Create Prometheus registry for metrics
     val prometheusRegistry = PrometheusMeterRegistry(PrometheusConfig.DEFAULT)
@@ -59,6 +70,10 @@ fun main() {
     // the schema first.
     // F-057: an invalid transform expression must stop the start, not every message.
     startupStep("validate the configured transforms") { StartupValidator.validateTransforms(config) }
+
+    // F-092: an address template that names an unknown field, or a *From column outside the
+    // permitted set, must stop the start, not fail one row at a time in production.
+    startupStep("validate the configured address templates") { StartupValidator.validateAddressTemplates(config) }
 
     // Convert config destinations to domain Destinations
     val destinations = config.destinations.mapValues { (name, destConfig) ->
@@ -444,6 +459,7 @@ internal fun columnMappingData(database: DatabaseConfig): ColumnMappingData = Co
         id = database.columnMapping.outbox.id,
         topic = database.columnMapping.outbox.topic,
         key = database.columnMapping.outbox.key,
+        aggregateType = database.columnMapping.outbox.aggregateType,
         payload = database.columnMapping.outbox.payload,
         headers = database.columnMapping.outbox.headers,
         state = database.columnMapping.outbox.state,
@@ -612,7 +628,7 @@ private fun kafkaInboxConsumers(
     }
 
 /** Maps one configured destination to its domain type. Extracted from `main` for its size. */
-private fun toDestination(name: String, destConfig: DestinationConfig): Destination = when (destConfig) {
+internal fun toDestination(name: String, destConfig: DestinationConfig): Destination = when (destConfig) {
     is DestinationConfig.Http -> Destination.Http(
         name = name,
         baseUrl = destConfig.baseUrl,
@@ -631,7 +647,8 @@ private fun toDestination(name: String, destConfig: DestinationConfig): Destinat
         saslMechanism = destConfig.saslMechanism,
         saslUsername = destConfig.saslUsername,
         saslPassword = destConfig.saslPassword,
-        timeoutMs = destConfig.timeoutMs
+        timeoutMs = destConfig.timeoutMs,
+        topicFrom = destConfig.topicFrom
     )
     is DestinationConfig.Nats -> Destination.Nats(
         name = name,
@@ -642,14 +659,17 @@ private fun toDestination(name: String, destConfig: DestinationConfig): Destinat
         username = destConfig.username,
         password = destConfig.password,
         token = destConfig.token,
-        timeoutMs = destConfig.timeoutMs
+        timeoutMs = destConfig.timeoutMs,
+        subjectFrom = destConfig.subjectFrom
     )
     is DestinationConfig.RabbitMQ -> Destination.RabbitMQ(
         name = name,
         url = destConfig.url,
         exchange = destConfig.exchange,
         exchangeType = destConfig.exchangeType,
-        headers = destConfig.headers
+        routingKeyTemplate = destConfig.routingKeyTemplate,
+        headers = destConfig.headers,
+        exchangeFrom = destConfig.exchangeFrom
     )
 }
 

@@ -136,15 +136,30 @@ destinations:
                                           # a hostile or a runaway expression.
       onError: Fail                       # 'Fail', 'Skip' or 'Dead'. Write the exact case.
 
+  # `exchange`, `topic`, and `subject` below can each be a literal name, or a template with
+  # `{{ ... }}` placeholders. A template can read `{{ topic }}`, `{{ key }}`, and
+  # `{{ aggregateType }}`, or a payload field through `{{ payload.fieldName }}` or
+  # `{{ data.fieldName }}`. A placeholder that names any other field fails the start, and the
+  # failure names both the field and the destination.
+  #
+  # `exchangeFrom`, `topicFrom`, and `subjectFrom` each name a row column instead, and each wins
+  # over its template. The permitted column names are exactly `aggregate_type`, `topic`, and
+  # `key`, spelled with the underscore. A column name outside this set also fails the start, and
+  # the failure names both the column and the destination. This set is not the template set: a
+  # column name follows this database spelling, never the template's camel case.
   events-exchange:
     type: rabbitmq
     url: amqp://localhost:5672
-    exchange: events
+    exchange: events                  # Or a template: "public.orders.{{ aggregateType }}.v1"
+    exchangeFrom: null                 # A row column instead: 'aggregate_type', 'topic', or 'key'.
+                                       # Wins over `exchange`, and the template is not rendered.
     exchangeType: topic
   events-topic:
     type: kafka
     bootstrapServers: broker-1:9092,broker-2:9092
-    topic: orders
+    topic: orders                     # Or a template: "public.orders.{{ aggregateType }}.v1"
+    topicFrom: null                    # A row column instead: 'aggregate_type', 'topic', or 'key'.
+                                       # Wins over `topic`, and the template is not rendered.
     keyTemplate: "{{ key }}"          # '{{ topic }}' also renders. An empty result sends no key.
     timeoutMs: 30000                  # The whole publish budget, at least 2000
     securityProtocol: PLAINTEXT       # PLAINTEXT, SSL, SASL_PLAINTEXT or SASL_SSL
@@ -156,7 +171,9 @@ destinations:
   events-subject:
     type: nats
     servers: nats://localhost:4222    # A comma separates several servers
-    subject: orders.created
+    subject: orders.created           # Or a template: "public.orders.{{ aggregateType }}.v1"
+    subjectFrom: null                  # A row column instead: 'aggregate_type', 'topic', or 'key'.
+                                       # Wins over `subject`, and the template is not rendered.
     jetStream: true                   # false publishes with no acknowledgement at all
     timeoutMs: 30000
     username: null                    # A username needs a password
@@ -444,7 +461,13 @@ These fields are required only when configuring specific features:
 |-------|----------|---------|
 | `url` | Yes | — |
 | `exchange` | Yes | — |
+| `exchangeFrom` | No | — (a row column, wins over `exchange`) |
 | `exchangeType` | No | `topic` |
+
+`exchange` can be a template. It can read `{{ topic }}`, `{{ key }}`, `{{ aggregateType }}`, or a
+payload field through `{{ payload.fieldName }}` or `{{ data.fieldName }}`. A different field name
+fails the start. `exchangeFrom`, when set, must be `aggregate_type`, `topic`, or `key`. A different
+column name also fails the start. Each failure names the offending value and the destination.
 
 **Routes** (each entry in `routes`):
 

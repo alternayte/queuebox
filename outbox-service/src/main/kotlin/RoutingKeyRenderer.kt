@@ -10,6 +10,8 @@ import kotlinx.serialization.json.JsonPrimitive
  *
  * Supports mustache-style placeholders:
  * - {{ topic }} - The message topic
+ * - {{ key }} - The message key of the outbox row
+ * - {{ aggregateType }} - The aggregate type of the outbox row
  * - {{ payload.fieldName }} - Access payload fields (JSON path)
  * - {{ data.nested.field }} - Access nested payload fields (alias for payload)
  *
@@ -17,31 +19,90 @@ import kotlinx.serialization.json.JsonPrimitive
  */
 class RoutingKeyRenderer(private val defaultValue: String = "") {
     // Pattern to match {{ field }} placeholders with optional spaces
-    private val placeholderPattern = Regex("""\{\{\s*([^}]+?)\s*}}""")
+    private val placeholderPattern = PLACEHOLDER_PATTERN
+
+    /**
+     * The fields of one outbox row that a template can read. F-091.
+     *
+     * @property topic The message topic.
+     * @property key The message key, or null when the row sets no key.
+     * @property aggregateType The aggregate type of the row, or null when the row sets none.
+     * @property payload The message payload for field extraction.
+     */
+    data class RowContext(val topic: String, val key: String?, val aggregateType: String?, val payload: JsonElement)
+
+    /**
+     * Renders a routing key template by substituting placeholders read from a row.
+     *
+     * @param template The routing key template with placeholders
+     * @param row The outbox row that supplies the field values
+     * @return The rendered routing key with all placeholders substituted
+     */
+    fun render(template: String, row: RowContext): String = placeholderPattern.replace(template) { match ->
+        resolveField(match.groupValues[1].trim(), row)
+    }
 
     /**
      * Renders a routing key template by substituting placeholders.
+     *
+     * This overload is deprecated. It builds a [RowContext] with a null `key` and a null
+     * `aggregateType`, then delegates to [render] with a row. A caller must migrate to
+     * [render] with a row so a template can read the key and the aggregate type.
      *
      * @param template The routing key template with placeholders
      * @param topic The message topic
      * @param payload The message payload for field extraction
      * @return The rendered routing key with all placeholders substituted
      */
+    @Deprecated(
+        "Use render(template, row: RowContext) so a template can read the key and the aggregate type.",
+        ReplaceWith("render(template, RoutingKeyRenderer.RowContext(topic, null, null, payload))")
+    )
     fun render(template: String, topic: String, payload: JsonElement): String =
-        placeholderPattern.replace(template) { match ->
-            val field = match.groupValues[1].trim()
-            resolveField(field, topic, payload)
-        }
+        render(template, RowContext(topic = topic, key = null, aggregateType = null, payload = payload))
 
-    private fun resolveField(field: String, topic: String, payload: JsonElement): String = when {
-        field == "topic" -> topic
-        field.startsWith("payload.") -> {
-            extractPayloadField(payload, field.removePrefix("payload.")) ?: defaultValue
+    private fun resolveField(field: String, row: RowContext): String {
+        val accessor = FIELD_ACCESSORS[field]
+        if (accessor != null) {
+            return accessor(row) ?: defaultValue
         }
-        field.startsWith("data.") -> {
-            extractPayloadField(payload, field.removePrefix("data.")) ?: defaultValue
+        val matchingPrefix = PERMITTED_TEMPLATE_FIELD_PREFIXES.firstOrNull { field.startsWith(it) }
+        if (matchingPrefix != null) {
+            return extractPayloadField(row.payload, field.removePrefix(matchingPrefix)) ?: defaultValue
         }
-        else -> defaultValue
+        return defaultValue
+    }
+
+    companion object {
+        /**
+         * How a routing key template reads each permitted field out of a row. This map is the
+         * single source of both the resolution behaviour and the permitted field names below,
+         * so a name can never appear in one without appearing in the other.
+         */
+        private val FIELD_ACCESSORS: Map<String, (RowContext) -> String?> = mapOf(
+            "topic" to { row -> row.topic },
+            "key" to { row -> row.key },
+            "aggregateType" to { row -> row.aggregateType }
+        )
+
+        /**
+         * The template fields a routing key template can read. F-091. A later task uses this
+         * set to validate a template at startup, so this set must stay the single source.
+         */
+        val PERMITTED_TEMPLATE_FIELDS: Set<String> = FIELD_ACCESSORS.keys
+
+        /**
+         * The prefixes a routing key template can read a nested field from. F-091. A field
+         * beginning with one of these prefixes reads from the message payload.
+         */
+        val PERMITTED_TEMPLATE_FIELD_PREFIXES: Set<String> = setOf("payload.", "data.")
+
+        /**
+         * Matches one `{{ field }}` placeholder in a template. A startup validator consults this
+         * pattern, rather than carrying its own copy, so a change to how a placeholder is written
+         * cannot leave the renderer and the validator reading a template two different ways.
+         */
+        val PLACEHOLDER_PATTERN: Regex = Regex("""\{\{\s*([^}]+?)\s*}}""")
     }
 
     private fun extractPayloadField(payload: JsonElement, path: String): String? {

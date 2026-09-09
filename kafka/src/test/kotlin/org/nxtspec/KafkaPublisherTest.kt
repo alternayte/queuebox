@@ -5,8 +5,11 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import org.apache.kafka.clients.consumer.ConsumerConfig
 import org.apache.kafka.clients.consumer.KafkaConsumer
+import org.apache.kafka.clients.producer.MockProducer
 import org.apache.kafka.common.serialization.ByteArrayDeserializer
+import org.apache.kafka.common.serialization.ByteArraySerializer
 import org.apache.kafka.common.serialization.StringDeserializer
+import org.apache.kafka.common.serialization.StringSerializer
 import org.junit.jupiter.api.AfterAll
 import org.junit.jupiter.api.BeforeAll
 import org.junit.jupiter.api.Tag
@@ -79,7 +82,7 @@ class KafkaPublisherTest {
         )
 
         try {
-            val result = publisher.publish(message, destination(topic), PublishContext())
+            val result = publisher.publish(message, destination(topic), PublishContext(resolvedAddress = topic))
             assertTrue(result.isSuccess, "the publish must succeed: ${result.exceptionOrNull()}")
 
             val record = assertNotNull(readOne(topic), "the broker must hold the record")
@@ -100,7 +103,11 @@ class KafkaPublisherTest {
         val message = OutboxMessage(topic = "order.created", key = "from-row", payload = JsonObject(emptyMap()))
 
         try {
-            val result = publisher.publish(message, destination(topic), PublishContext(routingKey = "from-route"))
+            val result = publisher.publish(
+                message,
+                destination(topic),
+                PublishContext(routingKey = "from-route", resolvedAddress = topic)
+            )
             assertTrue(result.isSuccess)
             assertEquals("from-route", assertNotNull(readOne(topic)).first)
         } finally {
@@ -122,7 +129,7 @@ class KafkaPublisherTest {
             val result = publisher.publish(
                 OutboxMessage(topic = "order.created", payload = JsonObject(emptyMap())),
                 dest,
-                PublishContext()
+                PublishContext(resolvedAddress = dest.topic)
             )
             assertTrue(result.isFailure, "an unreachable broker must fail the publish")
             val message = result.exceptionOrNull()?.message.orEmpty()
@@ -138,6 +145,72 @@ class KafkaPublisherTest {
         try {
             assertTrue(publisher.supports(destination("any")))
             assertTrue(!publisher.supports(Destination.Http(name = "http", baseUrl = "https://example.com")))
+        } finally {
+            publisher.close()
+        }
+    }
+
+    @Test
+    fun `two aggregate types reach two topics through one destination`() = runBlocking {
+        val prefix = "out${UUID.randomUUID().toString().take(8)}"
+        val taskTopic = "$prefix.Task"
+        val orderTopic = "$prefix.Order"
+        val publisher = KafkaPublisher()
+        val dest = destination("$prefix.{{ aggregateType }}")
+
+        try {
+            val taskMessage = OutboxMessage(
+                topic = "orders.created",
+                aggregateType = "Task",
+                payload = JsonObject(mapOf("kind" to JsonPrimitive("task")))
+            )
+            val orderMessage = OutboxMessage(
+                topic = "orders.created",
+                aggregateType = "Order",
+                payload = JsonObject(mapOf("kind" to JsonPrimitive("order")))
+            )
+
+            val taskResult = publisher.publish(
+                taskMessage,
+                dest,
+                PublishContext(routingKey = "orders.created", resolvedAddress = taskTopic)
+            )
+            val orderResult = publisher.publish(
+                orderMessage,
+                dest,
+                PublishContext(routingKey = "orders.created", resolvedAddress = orderTopic)
+            )
+
+            assertTrue(taskResult.isSuccess, "task publish should succeed: ${taskResult.exceptionOrNull()}")
+            assertTrue(orderResult.isSuccess, "order publish should succeed: ${orderResult.exceptionOrNull()}")
+            assertEquals("""{"kind":"task"}""", assertNotNull(readOne(taskTopic)).second)
+            assertEquals("""{"kind":"order"}""", assertNotNull(readOne(orderTopic)).second)
+        } finally {
+            publisher.close()
+        }
+    }
+
+    @Test
+    fun `an empty resolved address fails the row and publishes nothing`() = runBlocking {
+        // A MockProducer accepts a send to any topic, including an empty one. If the publisher
+        // ever stopped checking the resolved address and let the send through, this producer
+        // would happily record it, and the assertion on its history would catch that.
+        val mockProducer = MockProducer<String, ByteArray>(true, null, StringSerializer(), ByteArraySerializer())
+        val publisher = KafkaPublisher(producerFactory = { mockProducer })
+        val dest = destination("{{ aggregateType }}")
+
+        try {
+            val result = publisher.publish(
+                OutboxMessage(topic = "orders.created", payload = JsonObject(emptyMap())),
+                dest,
+                PublishContext(routingKey = "orders.created", resolvedAddress = "")
+            )
+
+            assertTrue(result.isFailure, "an empty resolved topic must fail the row")
+            val message = result.exceptionOrNull()?.message
+            assertNotNull(message, "the failure must carry a message")
+            assertTrue(message.contains(dest.name), "the failure must name the destination")
+            assertTrue(mockProducer.history().isEmpty(), "no record must reach the producer")
         } finally {
             publisher.close()
         }

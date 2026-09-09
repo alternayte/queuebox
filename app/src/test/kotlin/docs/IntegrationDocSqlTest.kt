@@ -145,6 +145,56 @@ class IntegrationDocSqlTest {
     }
 
     /**
+     * The finding behind F-093 is that an adopter never found the `headers` column, because no
+     * documented insert named it beside its purpose. A test that only runs the SQL would pass even
+     * if a sample dropped `headers` or `aggregate_type` from its column list, so this asserts the
+     * CONTENT of the column list, not only that the statement executes.
+     */
+    @Test
+    fun `the primary insert sample names both headers and the aggregate type`() {
+        val blocks = readBlocks()
+        assertTrue(
+            blocks.any { it.dialect == "postgres" && it.setsHeadersAndAggregateType() },
+            "$DOC_PATH must hold a PostgreSQL insert that names both `headers` and `aggregate_type`"
+        )
+        assertTrue(
+            blocks.any { it.dialect == "sqlserver" && it.setsHeadersAndAggregateType() },
+            "$DOC_PATH must hold a SQL Server insert that names both `headers` and `aggregate_type`"
+        )
+    }
+
+    /**
+     * The Entity Framework Core mapping is the paragraph the finding is built on: the reporting
+     * adopter's entity mapped neither property, which is why they never saw a header. The block
+     * itself is C#, so it runs under no SQL harness, but this test guards its content the same way
+     * `setsHeadersAndAggregateType` guards the SQL column list: a rename or removal of either
+     * property must fail this test.
+     */
+    @Test
+    fun `the Entity Framework Core mapping names both properties`() {
+        val text = File(repositoryRoot(), DOC_PATH).readText()
+        val headingIndex = text.indexOf("### The Entity Framework Core mapping")
+        assertTrue(headingIndex >= 0, "$DOC_PATH must hold an Entity Framework Core mapping heading")
+        val fenceStart = text.indexOf("```", headingIndex)
+        assertTrue(fenceStart >= 0, "$DOC_PATH must hold a fenced block after the Entity Framework Core heading")
+        val bodyStart = text.indexOf('\n', fenceStart) + 1
+        val fenceEnd = text.indexOf("```", bodyStart)
+        assertTrue(
+            fenceEnd >= 0,
+            "$DOC_PATH holds an unterminated fenced block after the Entity Framework Core heading"
+        )
+        val body = text.substring(bodyStart, fenceEnd)
+        assertTrue(
+            Regex("\\bHeaders\\b").containsMatchIn(body),
+            "The Entity Framework Core mapping must map a `Headers` property"
+        )
+        assertTrue(
+            Regex("\\bAggregateType\\b").containsMatchIn(body),
+            "The Entity Framework Core mapping must map an `AggregateType` property"
+        )
+    }
+
+    /**
      * Binds the dialect under test as the default database of this JVM.
      *
      * Exposed resolves `newSuspendedTransaction` against one global default. This class drives
@@ -236,6 +286,21 @@ class IntegrationDocSqlTest {
 
     private data class SqlBlock(val dialect: String, val body: String) {
         fun insertsOutbox(): Boolean = Regex("(?i)insert\\s+into\\s+outbox").containsMatchIn(body)
+
+        /**
+         * True only when the outbox insert names BOTH `headers` and `aggregate_type` in its
+         * column list. Running the statement is not enough evidence: a sample that omits
+         * `headers` from the column list still executes, and that omission is the finding.
+         */
+        fun setsHeadersAndAggregateType(): Boolean {
+            val columnList = Regex("(?i)insert\\s+into\\s+outbox\\s*\\(([^)]*)\\)")
+                .find(body)
+                ?.groupValues
+                ?.get(1)
+                ?: return false
+            val columns = columnList.split(",").map { it.trim().trim('[', ']').lowercase() }
+            return columns.contains("headers") && columns.contains("aggregate_type")
+        }
     }
 
     private fun readBlocks(): List<SqlBlock> {

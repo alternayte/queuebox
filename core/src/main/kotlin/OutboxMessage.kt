@@ -12,6 +12,8 @@ data class OutboxMessage(
     val id: UUID = UUID.randomUUID(),
     val topic: String,
     val key: String? = null,
+    /** The aggregate type, which a destination template can render. F-090. */
+    val aggregateType: String? = null,
     val payload: JsonElement,
     val headers: Map<String, String> = emptyMap(),
     val state: MessageState = MessageState.Pending,

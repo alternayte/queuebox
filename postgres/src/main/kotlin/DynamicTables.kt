@@ -19,6 +19,7 @@ class DynamicOutboxTable(mapping: OutboxColumnMapping, tableName: String = "outb
     UUIDTable(tableName, mapping.id) {
     val topic: Column<String> = varchar(mapping.topic, 255)
     val key: Column<String?> = varchar(mapping.key, 255).nullable()
+    val aggregateType: Column<String?> = varchar(mapping.aggregateType, 255).nullable()
     val payload: Column<JsonElement> = jsonb(mapping.payload, Json.Default)
     val headers: Column<JsonElement> = jsonb<JsonElement>(mapping.headers, Json.Default).default(JsonObject(emptyMap()))
     val state: Column<String> = varchar(mapping.state, 50).default("pending")

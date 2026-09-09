@@ -110,6 +110,7 @@ class SqlServerOutboxRepository(
             it[id] = message.id
             it[topic] = message.topic
             it[key] = message.key
+            it[aggregateType] = message.aggregateType
             it[payload] = message.payload.toString()
             it[headers] = Json.encodeToString(MapSerializer(String.serializer(), String.serializer()), message.headers)
             it[state] = "pending"
@@ -295,6 +296,7 @@ class SqlServerOutboxRepository(
             id = this[table.id].value,
             topic = this[table.topic],
             key = this[table.key],
+            aggregateType = this[table.aggregateType],
             payload = Json.parseToJsonElement(this[table.payload]),
             headers = headers,
             state = stringToMessageState(this[table.state]),
@@ -316,6 +318,7 @@ class SqlServerOutboxRepository(
             id = UUID.fromString(getString(columnMapping.id)),
             topic = getString(columnMapping.topic),
             key = getString(columnMapping.key),
+            aggregateType = getString(columnMapping.aggregateType),
             payload = Json.parseToJsonElement(getString(columnMapping.payload)),
             headers = headers,
             state = stringToMessageState(getString(columnMapping.state)),

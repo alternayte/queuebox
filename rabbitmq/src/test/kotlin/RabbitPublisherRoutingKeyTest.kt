@@ -92,7 +92,11 @@ class RabbitPublisherRoutingKeyTest {
         // RoutingKeyRendererTest covers the rendering itself.
         val routingKey = "eu.high.order.created"
 
-        val result = publisher.publish(message, destination, PublishContext(routingKey = routingKey))
+        val result = publisher.publish(
+            message,
+            destination,
+            PublishContext(routingKey = routingKey, resolvedAddress = exchange)
+        )
 
         assertTrue(result.isSuccess, "Publish must succeed: ${result.exceptionOrNull()?.message}")
 
@@ -133,7 +137,19 @@ class RabbitPublisherRoutingKeyTest {
             payload = JsonObject(mapOf("userId" to JsonPrimitive("user-123")))
         )
 
-        val result = publisher.publish(message, destination, PublishContext(routingKey = null))
+        val result = publisher.publish(
+            message,
+            destination,
+            // In production MessageRouter renders the destination template and passes the
+            // result here. See "an aggregateType placeholder in the destination template
+            // renders to the row's aggregate type" below for a test that goes through the
+            // router itself.
+            PublishContext(
+                routingKey = null,
+                resolvedAddress = exchange,
+                resolvedDestinationRoutingKey = "events.user.signup.v1"
+            )
+        )
 
         assertTrue(result.isSuccess)
 
@@ -142,6 +158,63 @@ class RabbitPublisherRoutingKeyTest {
                 val response = channel.basicGet(queue, true)
                 assertNotNull(response, "The destination template must apply as the fallback")
                 assertEquals("events.user.signup.v1", response.envelope.routingKey)
+            }
+        }
+    }
+
+    @Test
+    fun `an aggregateType placeholder in the destination template renders to the row's aggregate type`() = runBlocking {
+        val exchange = "aggregate-type-exchange"
+        val queue = "aggregate-type-queue"
+        val boundKey = "events.invoice"
+
+        val factory = ConnectionFactory().apply { setUri(amqpUrl) }
+        factory.newConnection().use { connection ->
+            connection.createChannel().use { channel ->
+                channel.exchangeDeclare(exchange, "topic", true)
+                channel.queueDeclare(queue, true, false, false, null)
+                channel.queueBind(queue, exchange, boundKey)
+            }
+        }
+
+        val destination = Destination.RabbitMQ(
+            name = "aggregate-type-test",
+            url = amqpUrl,
+            exchange = exchange,
+            exchangeType = "topic",
+            routingKeyTemplate = "events.{{ aggregateType }}"
+        )
+
+        val message = OutboxMessage(
+            id = UUID.randomUUID(),
+            topic = "invoice.created",
+            aggregateType = "invoice",
+            payload = JsonObject(emptyMap())
+        )
+
+        // MessageRouter renders "events.{{ aggregateType }}" against the row before this
+        // publisher ever sees it. Editing MessageRouter.resolveDestinationRoutingKey to
+        // return null instead of the rendered template, or editing RabbitPublisher to fall
+        // back to `dest.routingKeyTemplate` before `context.resolvedDestinationRoutingKey`,
+        // makes this test fail: the routing key would arrive as the literal text
+        // "events.{{ aggregateType }}" and the bound queue would never receive the message.
+        val result = publisher.publish(
+            message,
+            destination,
+            PublishContext(
+                routingKey = null,
+                resolvedAddress = exchange,
+                resolvedDestinationRoutingKey = "events.invoice"
+            )
+        )
+
+        assertTrue(result.isSuccess, "Publish must succeed: ${result.exceptionOrNull()?.message}")
+
+        factory.newConnection().use { connection ->
+            connection.createChannel().use { channel ->
+                val response = channel.basicGet(queue, true)
+                assertNotNull(response, "The aggregateType placeholder must render before publish")
+                assertEquals(boundKey, response.envelope.routingKey)
             }
         }
     }

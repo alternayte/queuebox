@@ -9,6 +9,12 @@ the configuration schema and for the database schema.
 
 ## [Unreleased]
 
+### Added
+
+- A RabbitMQ destination can now set its own `routingKeyTemplate`. The router renders it against
+  the row and the publisher uses the result when the matched route sets no `routingKeyTemplate`
+  of its own. (F-091)
+
 ### Breaking changes
 
 - The pull client concurrency default is now one, in all three client libraries. It was the batch
@@ -16,6 +22,8 @@ the configuration schema and for the database schema.
   that reads a row and then writes it failed with a duplicate key error when it met a sibling
   message. To restore the old behaviour, set `MaxConcurrency` (C# and Go) or `maxConcurrency`
   (TypeScript) to the batch size. (F-088)
+- A route-level `routingKeyTemplate` no longer selects the NATS subject. Use the destination's
+  `subject` template or `subjectFrom` instead. (F-091)
 
 ## [0.1.0] — 2026-09-06
 

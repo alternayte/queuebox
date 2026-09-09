@@ -22,6 +22,7 @@ Each version number describes the same logical change on both databases.
 | `V6__add_consumption_and_leases.sql` | Add `consumption`, `claim_token`, `lease_expires_at`, and the inbox schedule, attempt and error columns. See [Upgrading to the claim contract of V6](#upgrading-to-the-claim-contract-of-v6). |
 | `V7__capture_state.sql` | Create `queuebox_capture_state`, so QueueBox can detect a lost durable volume and a changed capture configuration. |
 | `V8__add_pull_claim_indexes.sql` | Add the two indexes that the pull claim statement needs, one for a pending row of a source and one for a busy aggregate of a source. |
+| `V9__add_aggregate_type.sql` | Add the nullable `aggregate_type` column to the outbox, so a destination can render its exchange from the row. See F-090. |
 
 ## Policy
 

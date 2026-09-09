@@ -26,6 +26,7 @@ The shipped schema is `postgres/src/main/resources/db/postgresql/` and
 | `key` | `VARCHAR(255)` | `NVARCHAR(255)` | yes | none | the application. Optional. |
 | `payload` | `JSONB` | `NVARCHAR(MAX)` | no | none | the application. Required. |
 | `headers` | `JSONB` | `NVARCHAR(MAX)` | no | `'{}'` | the application. Optional. |
+| `aggregate_type` | `VARCHAR(255)` | `NVARCHAR(255)` | yes | none | the application. Optional. |
 | `state` | `VARCHAR(50)` | `NVARCHAR(50)` | no | `'pending'` | QueueBox |
 | `attempt` | `INTEGER` | `INT` | no | `0` | QueueBox |
 | `max_attempts` | `INTEGER` | `INT` | no | `5` | the application. QueueBox writes `outbox.maxAttempts` into every row it creates. |
@@ -94,8 +95,17 @@ CREATE TABLE IF NOT EXISTS orders (
 
 ### PostgreSQL
 
-The business write and the outbox insert run in one transaction. `payload` and `headers` are
+The outbox insert must run in the SAME transaction as the business write. That shared commit is the
+whole point of the outbox pattern: section 4 states the rule in full. `payload` and `headers` are
 `JSONB`, so a string literal is cast.
+
+The insert below names `headers` and `aggregate_type` beside the required columns. `headers` carries
+a header that the destination forwards on delivery. `aggregate_type` names the kind of business
+entity the row describes, for example `order`. A destination can render its exchange, its topic or
+its subject from `aggregate_type`, either through a template such as
+`public.orders.{{ aggregateType }}.v1` or through `exchangeFrom: aggregate_type`.
+[configuration.md](configuration.md) states both forms. Map both columns on the application entity,
+not only on the table: section 3 states the Entity Framework Core mapping.
 
 ```sql postgres
 BEGIN;
@@ -103,12 +113,13 @@ BEGIN;
 INSERT INTO orders (id, customer_id, amount)
 VALUES ('11111111-1111-1111-1111-111111111111', 'cust-42', 99.99);
 
-INSERT INTO outbox (topic, key, payload, headers)
+INSERT INTO outbox (topic, key, payload, headers, aggregate_type)
 VALUES (
     'order.created',
     'cust-42',
     '{"orderId":"11111111-1111-1111-1111-111111111111","amount":99.99}'::jsonb,
-    '{"X-Tenant":"acme"}'::jsonb
+    '{"X-Tenant":"acme"}'::jsonb,
+    'order'
 );
 
 COMMIT;
@@ -159,18 +170,25 @@ CREATE TABLE orders (
 );
 ```
 
+The outbox insert must run in the SAME transaction as the business write. That shared commit is the
+whole point of the outbox pattern: section 4 states the rule in full. The insert below names
+`headers` and `aggregate_type` beside the required columns, for the same reason the PostgreSQL
+insert above does: a destination can render its exchange, its topic or its subject from
+`aggregate_type`, and a destination forwards `headers` on delivery.
+
 ```sql sqlserver
 BEGIN TRANSACTION;
 
 INSERT INTO orders (id, customer_id, amount)
 VALUES ('11111111-1111-1111-1111-111111111111', N'cust-42', 99.99);
 
-INSERT INTO outbox (topic, [key], payload, headers)
+INSERT INTO outbox (topic, [key], payload, headers, aggregate_type)
 VALUES (
     N'order.created',
     N'cust-42',
     N'{"orderId":"11111111-1111-1111-1111-111111111111","amount":99.99}',
-    N'{"X-Tenant":"acme"}'
+    N'{"X-Tenant":"acme"}',
+    N'order'
 );
 
 COMMIT TRANSACTION;
@@ -198,6 +216,52 @@ table. Use the raw SQL above as the contract, and make sure of two things:
 1. The insert joins the transaction of the business write. Section 4 states the rule.
 2. `payload` and `headers` hold a JSON object. An ORM that stores a JSON string of a string breaks
    a transform and a routing key template.
+
+### The Entity Framework Core mapping
+
+An Entity Framework Core application maps an entity, not a table. An entity that omits a property
+for `headers`, or for `aggregate_type`, never writes that column, no matter what the table allows.
+The insert then carries no header and no aggregate type, and a consumer that depends on either
+reads nothing. `AggregateType` also needs an explicit column name: the default convention does not
+turn a PascalCase property into a snake_case column, so an entity without `HasColumnName` writes to
+no column at all and the insert fails. Map both properties on the outbox entity, and name their
+columns explicitly:
+
+```csharp
+public class OutboxMessage
+{
+    public Guid Id { get; set; }
+    public string Topic { get; set; } = default!;
+    public string? Key { get; set; }
+    public string Payload { get; set; } = default!;
+    public string Headers { get; set; } = "{}";
+    public string? AggregateType { get; set; }
+}
+
+public class OutboxMessageConfiguration : IEntityTypeConfiguration<OutboxMessage>
+{
+    public void Configure(EntityTypeBuilder<OutboxMessage> builder)
+    {
+        builder.ToTable("outbox");
+        builder.Property(m => m.Id).HasColumnName("id");
+        builder.Property(m => m.Topic).HasColumnName("topic");
+        builder.Property(m => m.Key).HasColumnName("key");
+        builder.Property(m => m.Payload).HasColumnName("payload").HasColumnType("jsonb");
+        builder.Property(m => m.Headers).HasColumnName("headers").HasColumnType("jsonb");
+        builder.Property(m => m.AggregateType).HasColumnName("aggregate_type");
+    }
+}
+```
+
+`HasColumnType("jsonb")` on `Headers` applies to PostgreSQL only. On SQL Server, call
+`HasColumnType("nvarchar(max)")` on `Headers` and `HasColumnType("nvarchar(255)")` on
+`AggregateType` instead, to match the shipped schema. Set `Headers` to a JSON object string, never
+to a null reference: the column is `NOT NULL`. Set `AggregateType` to the name of the business
+entity, for example `order`, so a destination can render its exchange, its topic or its subject from
+the column. Map `AggregateType` even when no destination reads it today, because an unmapped
+property leaves the column silently empty if a destination reads it later.
+
+This entity maps a table that QueueBox owns and migrates. Do not generate a migration from it.
 
 ---
 
