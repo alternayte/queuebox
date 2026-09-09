@@ -164,6 +164,37 @@ class IntegrationDocSqlTest {
     }
 
     /**
+     * The Entity Framework Core mapping is the paragraph the finding is built on: the reporting
+     * adopter's entity mapped neither property, which is why they never saw a header. The block
+     * itself is C#, so it runs under no SQL harness, but this test guards its content the same way
+     * `setsHeadersAndAggregateType` guards the SQL column list: a rename or removal of either
+     * property must fail this test.
+     */
+    @Test
+    fun `the Entity Framework Core mapping names both properties`() {
+        val text = File(repositoryRoot(), DOC_PATH).readText()
+        val headingIndex = text.indexOf("### The Entity Framework Core mapping")
+        assertTrue(headingIndex >= 0, "$DOC_PATH must hold an Entity Framework Core mapping heading")
+        val fenceStart = text.indexOf("```", headingIndex)
+        assertTrue(fenceStart >= 0, "$DOC_PATH must hold a fenced block after the Entity Framework Core heading")
+        val bodyStart = text.indexOf('\n', fenceStart) + 1
+        val fenceEnd = text.indexOf("```", bodyStart)
+        assertTrue(
+            fenceEnd >= 0,
+            "$DOC_PATH holds an unterminated fenced block after the Entity Framework Core heading"
+        )
+        val body = text.substring(bodyStart, fenceEnd)
+        assertTrue(
+            Regex("\\bHeaders\\b").containsMatchIn(body),
+            "The Entity Framework Core mapping must map a `Headers` property"
+        )
+        assertTrue(
+            Regex("\\bAggregateType\\b").containsMatchIn(body),
+            "The Entity Framework Core mapping must map an `AggregateType` property"
+        )
+    }
+
+    /**
      * Binds the dialect under test as the default database of this JVM.
      *
      * Exposed resolves `newSuspendedTransaction` against one global default. This class drives

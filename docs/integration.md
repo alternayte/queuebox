@@ -222,9 +222,12 @@ table. Use the raw SQL above as the contract, and make sure of two things:
 An Entity Framework Core application maps an entity, not a table. An entity that omits a property
 for `headers`, or for `aggregate_type`, never writes that column, no matter what the table allows.
 The insert then carries no header and no aggregate type, and a consumer that depends on either
-reads nothing. Map both properties on the outbox entity:
+reads nothing. `AggregateType` also needs an explicit column name: the default convention does not
+turn a PascalCase property into a snake_case column, so an entity without `HasColumnName` writes to
+no column at all and the insert fails. Map both properties on the outbox entity, and name their
+columns explicitly:
 
-```
+```csharp
 public class OutboxMessage
 {
     public Guid Id { get; set; }
@@ -234,13 +237,28 @@ public class OutboxMessage
     public string Headers { get; set; } = "{}";
     public string? AggregateType { get; set; }
 }
+
+public class OutboxMessageConfiguration : IEntityTypeConfiguration<OutboxMessage>
+{
+    public void Configure(EntityTypeBuilder<OutboxMessage> builder)
+    {
+        builder.ToTable("outbox");
+        builder.Property(m => m.Topic).HasColumnName("topic");
+        builder.Property(m => m.Key).HasColumnName("key");
+        builder.Property(m => m.Payload).HasColumnName("payload").HasColumnType("jsonb");
+        builder.Property(m => m.Headers).HasColumnName("headers").HasColumnType("jsonb");
+        builder.Property(m => m.AggregateType).HasColumnName("aggregate_type");
+    }
+}
 ```
 
-Configure `Headers` and `AggregateType` as the `jsonb` column type on PostgreSQL, or as
-`nvarchar(max)` and `nvarchar(255)` on SQL Server. Set `Headers` to a JSON object string, never to a
-null reference: the column is `NOT NULL`. Set `AggregateType` to the name of the business entity,
-for example `order`, so a destination can render its exchange, its topic or its subject from the
-column. Leave `AggregateType` unmapped only when no destination reads it.
+`HasColumnType("jsonb")` on `Headers` applies to PostgreSQL only. On SQL Server, call
+`HasColumnType("nvarchar(max)")` on `Headers` and `HasColumnType("nvarchar(255)")` on
+`AggregateType` instead, to match the shipped schema. Set `Headers` to a JSON object string, never
+to a null reference: the column is `NOT NULL`. Set `AggregateType` to the name of the business
+entity, for example `order`, so a destination can render its exchange, its topic or its subject from
+the column. Map `AggregateType` even when no destination reads it today, because an unmapped
+property leaves the column silently empty if a destination reads it later.
 
 ---
 
