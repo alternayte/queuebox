@@ -112,10 +112,29 @@ sealed interface Destination {
 
     companion object {
         /**
+         * How [RabbitMQ.exchangeFrom] reads each permitted column out of a row. This map is the
+         * single source of both the resolution behaviour and the permitted column names below,
+         * so a name can never appear in one without appearing in the other.
+         */
+        private val EXCHANGE_FROM_COLUMN_ACCESSORS: Map<String, (OutboxMessage) -> String?> = mapOf(
+            "aggregate_type" to { row -> row.aggregateType },
+            "topic" to { row -> row.topic },
+            "key" to { row -> row.key }
+        )
+
+        /**
          * The row columns that [RabbitMQ.exchangeFrom] can name. F-091. A startup validator
          * consults exactly this set, rather than carrying its own copy, so the permitted names
          * stay in one place.
          */
-        val PERMITTED_EXCHANGE_FROM_COLUMNS: Set<String> = setOf("aggregate_type", "topic", "key")
+        val PERMITTED_EXCHANGE_FROM_COLUMNS: Set<String> = EXCHANGE_FROM_COLUMN_ACCESSORS.keys
+
+        /**
+         * Reads the named column from a row, verbatim, for [RabbitMQ.exchangeFrom]. F-091.
+         * Returns null when the column name is outside the permitted set, or when the column
+         * value itself is null.
+         */
+        fun readExchangeFromColumn(column: String, row: OutboxMessage): String? =
+            EXCHANGE_FROM_COLUMN_ACCESSORS[column]?.invoke(row)
     }
 }

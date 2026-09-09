@@ -536,4 +536,46 @@ class MessageRouterTest {
         assertNotNull(result)
         assertEquals("", result.resolvedAddress)
     }
+
+    @Test
+    fun `an empty column value fails the row`() {
+        val destinations = mapOf(
+            "dest" to Destination.RabbitMQ(
+                name = "dest",
+                url = "amqp://localhost",
+                exchange = "public.orders.{{ aggregateType }}.v1",
+                exchangeFrom = "key"
+            )
+        )
+        val routes = listOf(RouteConfig(topicPattern = "order.*", destination = "dest"))
+        val router = MessageRouter(routes, destinations)
+
+        val result = router.route(
+            OutboxMessage(topic = "order.created", payload = JsonObject(emptyMap()), key = "")
+        )
+
+        assertNotNull(result)
+        assertEquals("", result.resolvedAddress)
+    }
+
+    @Test
+    fun `a column outside the permitted set fails the row`() {
+        val destinations = mapOf(
+            "dest" to Destination.RabbitMQ(
+                name = "dest",
+                url = "amqp://localhost",
+                exchange = "public.orders.{{ aggregateType }}.v1",
+                exchangeFrom = "payload"
+            )
+        )
+        val routes = listOf(RouteConfig(topicPattern = "order.*", destination = "dest"))
+        val router = MessageRouter(routes, destinations)
+
+        val result = router.route(
+            OutboxMessage(topic = "order.created", payload = JsonObject(emptyMap()), aggregateType = "Task")
+        )
+
+        assertNotNull(result)
+        assertEquals("", result.resolvedAddress)
+    }
 }
