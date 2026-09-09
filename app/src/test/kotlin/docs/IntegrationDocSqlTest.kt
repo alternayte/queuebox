@@ -145,6 +145,25 @@ class IntegrationDocSqlTest {
     }
 
     /**
+     * The finding behind F-093 is that an adopter never found the `headers` column, because no
+     * documented insert named it beside its purpose. A test that only runs the SQL would pass even
+     * if a sample dropped `headers` or `aggregate_type` from its column list, so this asserts the
+     * CONTENT of the column list, not only that the statement executes.
+     */
+    @Test
+    fun `the primary insert sample names both headers and the aggregate type`() {
+        val blocks = readBlocks()
+        assertTrue(
+            blocks.any { it.dialect == "postgres" && it.setsHeadersAndAggregateType() },
+            "$DOC_PATH must hold a PostgreSQL insert that names both `headers` and `aggregate_type`"
+        )
+        assertTrue(
+            blocks.any { it.dialect == "sqlserver" && it.setsHeadersAndAggregateType() },
+            "$DOC_PATH must hold a SQL Server insert that names both `headers` and `aggregate_type`"
+        )
+    }
+
+    /**
      * Binds the dialect under test as the default database of this JVM.
      *
      * Exposed resolves `newSuspendedTransaction` against one global default. This class drives
@@ -236,6 +255,21 @@ class IntegrationDocSqlTest {
 
     private data class SqlBlock(val dialect: String, val body: String) {
         fun insertsOutbox(): Boolean = Regex("(?i)insert\\s+into\\s+outbox").containsMatchIn(body)
+
+        /**
+         * True only when the outbox insert names BOTH `headers` and `aggregate_type` in its
+         * column list. Running the statement is not enough evidence: a sample that omits
+         * `headers` from the column list still executes, and that omission is the finding.
+         */
+        fun setsHeadersAndAggregateType(): Boolean {
+            val columnList = Regex("(?i)insert\\s+into\\s+outbox\\s*\\(([^)]*)\\)")
+                .find(body)
+                ?.groupValues
+                ?.get(1)
+                ?: return false
+            val columns = columnList.split(",").map { it.trim().trim('[', ']').lowercase() }
+            return columns.contains("headers") && columns.contains("aggregate_type")
+        }
     }
 
     private fun readBlocks(): List<SqlBlock> {
