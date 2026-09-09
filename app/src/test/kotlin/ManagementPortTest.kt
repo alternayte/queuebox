@@ -12,6 +12,7 @@ import io.micrometer.prometheusmetrics.PrometheusConfig
 import io.micrometer.prometheusmetrics.PrometheusMeterRegistry
 import io.mockk.every
 import io.mockk.mockk
+import org.nxtspec.repository.OutboxRepositoryInterface
 import org.nxtspec.AdminConfig
 import org.nxtspec.transform.TransformEngine
 import java.sql.SQLException
@@ -38,7 +39,8 @@ class ManagementPortTest {
             prometheusRegistry = PrometheusMeterRegistry(PrometheusConfig.DEFAULT),
             healthManager = healthManager(),
             adminConfig = AdminConfig(),
-            transformEngine = TransformEngine()
+            transformEngine = TransformEngine(),
+            outboxRepository = mockk<OutboxRepositoryInterface>(relaxed = true)
         )
     }
 
@@ -76,7 +78,8 @@ class ManagementPortTest {
                 prometheusRegistry = PrometheusMeterRegistry(PrometheusConfig.DEFAULT),
                 healthManager = healthManager(),
                 adminConfig = AdminConfig(),
-                transformEngine = TransformEngine()
+                transformEngine = TransformEngine(),
+                outboxRepository = mockk<OutboxRepositoryInterface>(relaxed = true)
             )
         }
 
@@ -95,7 +98,8 @@ class ManagementPortTest {
                 prometheusRegistry = PrometheusMeterRegistry(PrometheusConfig.DEFAULT),
                 healthManager = healthManager(),
                 adminConfig = AdminConfig(),
-                transformEngine = TransformEngine()
+                transformEngine = TransformEngine(),
+                outboxRepository = mockk<OutboxRepositoryInterface>(relaxed = true)
             )
         }
 

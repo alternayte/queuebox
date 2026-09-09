@@ -8,11 +8,15 @@ import io.ktor.server.routing.*
 import io.ktor.utils.io.*
 import kotlinx.datetime.Clock
 import org.nxtspec.AdminConfig
+import org.nxtspec.app.dto.ReplayErrorResponse
 import org.nxtspec.app.dto.TransformContextDto
 import org.nxtspec.app.dto.TransformTestRequest
 import org.nxtspec.app.dto.TransformTestResponse
 import org.nxtspec.auth.AuthResult
 import org.nxtspec.auth.InboxAuthValidator
+import org.nxtspec.repository.OutboxRepositoryInterface
+import org.nxtspec.repository.ReplayFilter
+import org.nxtspec.repository.ReplayResponse
 import org.nxtspec.transform.TransformContext
 import org.nxtspec.transform.TransformEngine
 import java.util.*
@@ -26,7 +30,8 @@ import java.util.*
 fun Application.configureAdminRoutes(
     admin: AdminConfig,
     authValidator: InboxAuthValidator,
-    transformEngine: TransformEngine
+    transformEngine: TransformEngine,
+    outboxRepository: OutboxRepositoryInterface
 ) {
     // F-034: the admin endpoint is remote compute, so it stays absent until an operator enables it.
     if (!admin.enabled) return
@@ -144,6 +149,50 @@ fun Application.configureAdminRoutes(
                         )
                     }
                 )
+            }
+
+            /**
+             * POST /admin/replay
+             *
+             * Moves the outbox rows that match the request filter, and that sit in state 'sent'
+             * or 'dead', back to state 'pending'. See F-096.
+             */
+            post("/replay") {
+                val authConfig = admin.auth
+                if (authConfig != null) {
+                    val result = authValidator.validate(call.request, authConfig)
+                    if (result is AuthResult.Failure) {
+                        // The message names the scheme only. It never names a credential value.
+                        call.respond(result.statusCode, ReplayErrorResponse(result.message))
+                        return@post
+                    }
+                }
+
+                val filter = try {
+                    call.receive<ReplayFilter>()
+                } catch (e: Exception) {
+                    call.respond(
+                        HttpStatusCode.BadRequest,
+                        ReplayErrorResponse("Invalid request: ${e.message}")
+                    )
+                    return@post
+                }
+
+                if (filter.isEmpty()) {
+                    // A replay of every row is never an accident. See F-096.
+                    call.respond(
+                        HttpStatusCode.BadRequest,
+                        ReplayErrorResponse("A replay needs at least one filter.")
+                    )
+                    return@post
+                }
+
+                val moved = outboxRepository.replay(filter)
+                // The response reports the count before an operator can lose it. The log
+                // records the filter, so an operator who loses the response can still find
+                // what they did. See F-096.
+                call.application.log.info("Replay moved {} row(s). Filter: {}", moved, filter)
+                call.respond(ReplayResponse(moved))
             }
         }
     }

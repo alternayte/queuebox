@@ -51,6 +51,8 @@ class RetentionBatchingTest {
             deleteCalls.add(state to eligible.size)
             return eligible.size
         }
+
+        override suspend fun replay(filter: org.nxtspec.repository.ReplayFilter): Long = 0L
     }
 
     private class FakeInboxRepository(rows: List<Row>) : InboxRepositoryInterface {

@@ -42,4 +42,16 @@ interface OutboxRepositoryInterface {
     suspend fun deleteOlderThan(state: String, cutoff: Instant, limit: Int): Int
 
     suspend fun deleteExceptMostRecent(state: String, keepCount: Int, limit: Int): Int
+
+    /**
+     * Moves every row that matches [filter] and sits in state 'sent' or 'dead' back to state
+     * 'pending'. The move resets `attempt` to 0 and clears `last_error`, because a dead row sits
+     * at its attempt ceiling and would fail once and return to dead without the reset. See F-096.
+     *
+     * A row in state 'pending' or 'processing' never moves, whatever the filter says, because
+     * the relay owns that row.
+     *
+     * @return the count of rows moved.
+     */
+    suspend fun replay(filter: ReplayFilter): Long
 }

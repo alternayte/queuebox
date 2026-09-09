@@ -289,7 +289,8 @@ internal fun runApp(env: () -> Map<String, String> = { System.getenv() }) {
             prometheusRegistry = prometheusRegistry,
             healthManager = healthManager,
             adminConfig = config.admin,
-            transformEngine = transformEngine
+            transformEngine = transformEngine,
+            outboxRepository = outboxRepository
         )
     }
 
@@ -308,7 +309,8 @@ internal fun runApp(env: () -> Map<String, String> = { System.getenv() }) {
                 prometheusRegistry = prometheusRegistry,
                 healthManager = healthManager,
                 adminConfig = config.admin,
-                transformEngine = transformEngine
+                transformEngine = transformEngine,
+                outboxRepository = outboxRepository
             )
         }
     }
@@ -521,11 +523,12 @@ fun Application.configureOperationalRoutes(
     prometheusRegistry: PrometheusMeterRegistry,
     healthManager: HealthManager,
     adminConfig: AdminConfig,
-    transformEngine: TransformEngine
+    transformEngine: TransformEngine,
+    outboxRepository: org.nxtspec.repository.OutboxRepositoryInterface
 ) {
     configureHealthRoutes(healthManager)
     configureMetricsRoutes(prometheusRegistry)
-    configureAdminRoutes(adminConfig, InboxAuthValidator(), transformEngine)
+    configureAdminRoutes(adminConfig, InboxAuthValidator(), transformEngine, outboxRepository)
 }
 
 /**
@@ -539,10 +542,11 @@ fun Application.configureDataPortOperationalRoutes(
     prometheusRegistry: PrometheusMeterRegistry,
     healthManager: HealthManager,
     adminConfig: AdminConfig,
-    transformEngine: TransformEngine
+    transformEngine: TransformEngine,
+    outboxRepository: org.nxtspec.repository.OutboxRepositoryInterface
 ) {
     if (managementPort != null) return
-    configureOperationalRoutes(prometheusRegistry, healthManager, adminConfig, transformEngine)
+    configureOperationalRoutes(prometheusRegistry, healthManager, adminConfig, transformEngine, outboxRepository)
 }
 
 /** Time that an in-flight request has to finish before the server stops. See F-029. */

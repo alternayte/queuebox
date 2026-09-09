@@ -63,6 +63,7 @@ class InboxRelayClaimLostTest {
         override suspend fun reclaimStale(olderThan: Duration): Int = 0
         override suspend fun deleteOlderThan(state: String, cutoff: Instant, limit: Int): Int = 0
         override suspend fun deleteExceptMostRecent(state: String, keepCount: Int, limit: Int): Int = 0
+        override suspend fun replay(filter: org.nxtspec.repository.ReplayFilter): Long = 0L
     }
 
     /** Rolls the recorded work back when the block throws, like a real transaction. */

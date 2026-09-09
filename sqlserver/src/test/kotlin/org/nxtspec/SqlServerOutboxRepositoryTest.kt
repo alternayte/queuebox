@@ -8,6 +8,7 @@ import kotlinx.datetime.Clock
 import kotlinx.serialization.json.JsonObject
 import org.junit.jupiter.api.RepeatedTest
 import org.junit.jupiter.api.Test
+import org.nxtspec.repository.ReplayFilter
 import java.util.Collections
 import java.util.UUID
 import kotlin.test.assertEquals
@@ -293,5 +294,60 @@ class SqlServerOutboxRepositoryTest : SqlServerTestBase() {
 
         assertTrue(claimed.any { it.id == message.id })
         assertNull(claimed.first { it.id == message.id }.aggregateType)
+    }
+
+    // --- Replay (F-096) ---
+
+    @Test
+    fun `replay moves a sent row back to pending and resets the attempt`() = runTest {
+        val id = insertOutboxMessage(state = "sent", attempt = 3)
+
+        val moved = repository.replay(ReplayFilter(ids = listOf(id)))
+
+        assertEquals(1L, moved)
+        val (state, attempt) = getOutboxMessageStateAndAttempt(id)
+        assertEquals("pending", state)
+        assertEquals(0, attempt)
+        assertNull(getOutboxLastError(id))
+    }
+
+    @Test
+    fun `replay leaves a processing row alone`() = runTest {
+        val id = insertOutboxMessage(state = "processing")
+
+        val moved = repository.replay(ReplayFilter(ids = listOf(id)))
+
+        // The relay owns a row in state 'processing'. Replay must never take it.
+        assertEquals(0L, moved)
+        assertEquals("processing", getOutboxMessageState(id))
+    }
+
+    @Test
+    fun `replay selects a time range`() = runTest {
+        val old = insertOutboxMessage(state = "sent")
+        setOutboxCreatedAt(old, Clock.System.now() - 1.hours)
+        val recent = insertOutboxMessage(state = "sent")
+        setOutboxCreatedAt(recent, Clock.System.now() - 10.seconds)
+
+        // SQL Server stores `created_at` as a local wall clock through the JDBC driver, exactly
+        // as `claimBatch` and `oldestPendingAgeSeconds` bind their time operands. The filter
+        // instant must bind the same way, or the comparison is wrong by the host's UTC offset.
+        val moved = repository.replay(ReplayFilter(createdAfter = Clock.System.now() - 60.seconds))
+
+        assertEquals(1L, moved)
+        assertEquals("sent", getOutboxMessageState(old))
+        assertEquals("pending", getOutboxMessageState(recent))
+    }
+
+    @Test
+    fun `replay never moves a row that fails the state filter even with a matching id`() = runTest {
+        val pendingId = insertOutboxMessage(state = "pending")
+
+        // state IN ('sent', 'dead') must gate every replay, so an id filter alone cannot move
+        // a pending row that the relay still owns.
+        val moved = repository.replay(ReplayFilter(ids = listOf(pendingId)))
+
+        assertEquals(0L, moved)
+        assertEquals("pending", getOutboxMessageState(pendingId))
     }
 }

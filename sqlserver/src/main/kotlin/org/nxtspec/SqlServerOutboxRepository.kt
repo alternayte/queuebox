@@ -24,6 +24,7 @@ import org.jetbrains.exposed.sql.selectAll
 import org.jetbrains.exposed.sql.transactions.TransactionManager
 import org.jetbrains.exposed.sql.update
 import org.nxtspec.repository.OutboxRepositoryInterface
+import org.nxtspec.repository.ReplayFilter
 import java.sql.ResultSet
 import java.sql.Timestamp
 import java.util.UUID
@@ -317,6 +318,72 @@ class SqlServerOutboxRepository(
             } else {
                 table.deleteWhere { (table.id inList ids) and (table.state eq state) }
             }
+        }
+    }
+
+    // F-096. `created_at` is a DATETIME2 column that the driver writes and reads through the
+    // JVM default calendar, so it holds a local wall clock rather than a UTC instant, exactly
+    // as the comment on `claimBatch` and `oldestPendingAgeSeconds` explains. A time-range
+    // operand therefore binds as a JDBC parameter here too, never through SYSUTCDATETIME(), or
+    // the comparison is wrong by the host's UTC offset.
+    override suspend fun replay(filter: ReplayFilter): Long = joinOrNewTransaction {
+        val now = Clock.System.now()
+        val nowTimestamp = Timestamp.from(
+            java.time.Instant.ofEpochSecond(now.epochSeconds, now.nanosecondsOfSecond.toLong())
+        )
+
+        val t = quoteSqlServerIdentifier(tableName)
+        val stateCol = quoteSqlServerIdentifier(columnMapping.state)
+        val attemptCol = quoteSqlServerIdentifier(columnMapping.attempt)
+        val lastErrorCol = quoteSqlServerIdentifier(columnMapping.lastError)
+        val scheduledAtCol = quoteSqlServerIdentifier(columnMapping.scheduledAt)
+        val updatedAtCol = quoteSqlServerIdentifier(columnMapping.updatedAt)
+        val createdAtCol = quoteSqlServerIdentifier(columnMapping.createdAt)
+        val topicCol = quoteSqlServerIdentifier(columnMapping.topic)
+        val idCol = quoteSqlServerIdentifier(columnMapping.id)
+
+        // The state filter is unconditional. No combination of the caller's filter fields can
+        // widen it, so a row the relay owns in state 'pending' or 'processing' can never move.
+        val conditions = mutableListOf("$stateCol IN ('sent', 'dead')")
+        val params = mutableListOf<Any>()
+
+        filter.createdAfter?.let {
+            conditions += "$createdAtCol > ?"
+            params += Timestamp.from(java.time.Instant.ofEpochSecond(it.epochSeconds, it.nanosecondsOfSecond.toLong()))
+        }
+        filter.createdBefore?.let {
+            conditions += "$createdAtCol < ?"
+            params += Timestamp.from(java.time.Instant.ofEpochSecond(it.epochSeconds, it.nanosecondsOfSecond.toLong()))
+        }
+        filter.topic?.let {
+            conditions += "$topicCol = ?"
+            params += it
+        }
+        filter.ids?.takeIf { it.isNotEmpty() }?.let { ids ->
+            conditions += "$idCol IN (${ids.joinToString(",") { "?" }})"
+            ids.forEach { params += it.toString() }
+        }
+
+        val sql = """
+            UPDATE $t
+            SET $stateCol = 'pending', $attemptCol = 0, $lastErrorCol = NULL,
+                $scheduledAtCol = ?, $updatedAtCol = ?
+            WHERE ${conditions.joinToString(" AND ")}
+        """.trimIndent()
+
+        val conn = TransactionManager.current().connection.connection as java.sql.Connection
+        conn.prepareStatement(sql).use { stmt ->
+            var index = 1
+            stmt.setTimestamp(index++, nowTimestamp)
+            stmt.setTimestamp(index++, nowTimestamp)
+            for (param in params) {
+                when (param) {
+                    is Timestamp -> stmt.setTimestamp(index++, param)
+                    is String -> stmt.setString(index++, param)
+                    else -> error("Unsupported replay parameter type: ${param::class}")
+                }
+            }
+            stmt.executeUpdate().toLong()
         }
     }
 

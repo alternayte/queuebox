@@ -22,6 +22,7 @@ import org.jetbrains.exposed.sql.selectAll
 import org.jetbrains.exposed.sql.transactions.TransactionManager
 import org.jetbrains.exposed.sql.update
 import org.nxtspec.repository.OutboxRepositoryInterface
+import org.nxtspec.repository.ReplayFilter
 import java.util.UUID
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
@@ -273,6 +274,31 @@ class OutboxRepository(
                 table.deleteWhere { (table.id inList ids) and (table.state eq state) }
             }
         }
+    }
+
+    // F-096. The column is TIMESTAMP WITH TIME ZONE, so an Instant binds through Exposed with
+    // no special care, unlike the SQL Server path.
+    override suspend fun replay(filter: ReplayFilter): Long = joinOrNewTransaction {
+        val now = Clock.System.now()
+        table.update({ replayCondition(filter) }) {
+            it[table.state] = "pending"
+            it[table.attempt] = 0
+            it[table.lastError] = null
+            it[table.scheduledAt] = now
+            it[table.updatedAt] = now
+            it[table.claimedAt] = null
+        }.toLong()
+    }
+
+    // The state filter is unconditional. No combination of the caller's filter fields can widen
+    // it, so a row the relay owns in state 'pending' or 'processing' can never move. See F-096.
+    private fun replayCondition(filter: ReplayFilter): org.jetbrains.exposed.sql.Op<Boolean> {
+        var condition: org.jetbrains.exposed.sql.Op<Boolean> = (table.state eq "sent") or (table.state eq "dead")
+        filter.createdAfter?.let { condition = condition and (table.createdAt greater it) }
+        filter.createdBefore?.let { condition = condition and (table.createdAt less it) }
+        filter.topic?.let { condition = condition and (table.topic eq it) }
+        filter.ids?.let { condition = condition and (table.id inList it) }
+        return condition
     }
 
     private fun java.sql.ResultSet.toOutboxMessage(): OutboxMessage {

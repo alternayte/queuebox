@@ -13,6 +13,7 @@ import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.RepeatedTest
 import org.junit.jupiter.api.Tag
 import org.junit.jupiter.api.Test
+import org.nxtspec.repository.ReplayFilter
 import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
@@ -340,5 +341,55 @@ class OutboxRepositoryTest : PostgresTestBase() {
 
         assertTrue(claimed.any { it.id == message.id })
         assertNull(claimed.first { it.id == message.id }.aggregateType)
+    }
+
+    // --- Replay (F-096) ---
+
+    @Test
+    fun `replay moves a sent row back to pending and resets the attempt`() = runBlocking {
+        val id = insertOutboxMessage(state = "sent", attempt = 3)
+
+        val moved = repository.replay(ReplayFilter(ids = listOf(id)))
+
+        assertEquals(1L, moved)
+        val (state, attempt) = getOutboxMessageStateAndAttempt(id)
+        assertEquals("pending", state)
+        assertEquals(0, attempt)
+        assertNull(getOutboxLastError(id))
+    }
+
+    @Test
+    fun `replay leaves a processing row alone`() = runBlocking {
+        val id = insertOutboxMessage(state = "processing")
+
+        val moved = repository.replay(ReplayFilter(ids = listOf(id)))
+
+        // The relay owns a row in state 'processing'. Replay must never take it.
+        assertEquals(0L, moved)
+        assertEquals("processing", getOutboxMessageState(id))
+    }
+
+    @Test
+    fun `replay selects a time range`() = runBlocking {
+        val old = insertOutboxMessage(state = "sent", createdAt = Clock.System.now() - 3600.seconds)
+        val recent = insertOutboxMessage(state = "sent", createdAt = Clock.System.now() - 10.seconds)
+
+        val moved = repository.replay(ReplayFilter(createdAfter = Clock.System.now() - 60.seconds))
+
+        assertEquals(1L, moved)
+        assertEquals("sent", getOutboxMessageState(old))
+        assertEquals("pending", getOutboxMessageState(recent))
+    }
+
+    @Test
+    fun `replay never moves a row that fails the state filter even with a matching id`() = runBlocking {
+        val pendingId = insertOutboxMessage(state = "pending")
+
+        // state IN ('sent', 'dead') must gate every replay, so an id filter alone cannot move
+        // a pending row that the relay still owns.
+        val moved = repository.replay(ReplayFilter(ids = listOf(pendingId)))
+
+        assertEquals(0L, moved)
+        assertEquals("pending", getOutboxMessageState(pendingId))
     }
 }

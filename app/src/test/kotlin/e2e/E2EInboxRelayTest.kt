@@ -196,6 +196,7 @@ class E2EInboxRelayTest : E2ETestBase() {
                 override suspend fun deleteOlderThan(state: String, cutoff: kotlinx.datetime.Instant, limit: Int): Int =
                     0
                 override suspend fun deleteExceptMostRecent(state: String, keepCount: Int, limit: Int): Int = 0
+                override suspend fun replay(filter: org.nxtspec.repository.ReplayFilter): Long = 0L
             }
         }
 
