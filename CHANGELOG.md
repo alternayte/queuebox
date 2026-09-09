@@ -9,6 +9,12 @@ the configuration schema and for the database schema.
 
 ## [Unreleased]
 
+### Added
+
+- A RabbitMQ destination can now set its own `routingKeyTemplate`. The router renders it against
+  the row and the publisher uses the result when the matched route sets no `routingKeyTemplate`
+  of its own. (F-091)
+
 ### Breaking changes
 
 - The pull client concurrency default is now one, in all three client libraries. It was the batch

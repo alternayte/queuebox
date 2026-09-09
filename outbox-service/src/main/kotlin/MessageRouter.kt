@@ -9,6 +9,10 @@ package org.nxtspec
  * @property resolvedAddress The exchange, topic, or subject that the row resolved from the
  *   destination's address template. A publisher must use this value and never read the
  *   destination's own address field again. See F-091.
+ * @property resolvedDestinationRoutingKey The destination's own routing key template, already
+ *   rendered against this row. Only a RabbitMQ destination carries one; every other destination
+ *   type resolves to null. A publisher must use this value and never render the destination's
+ *   own routing key template itself.
  * @property routeTransform Optional transform configured at the route level
  * @property destinationTransform Optional transform configured at the destination level
  */
@@ -16,6 +20,7 @@ data class RoutingResult(
     val destination: Destination,
     val routingKey: String?,
     val resolvedAddress: String,
+    val resolvedDestinationRoutingKey: String? = null,
     val routeTransform: TransformConfig? = null,
     val destinationTransform: TransformConfig? = null
 )
@@ -72,6 +77,7 @@ class MessageRouter(
                 destination = destination,
                 routingKey = routingKey,
                 resolvedAddress = resolveAddress(destination, context, row),
+                resolvedDestinationRoutingKey = resolveDestinationRoutingKey(destination, context),
                 routeTransform = it.transform,
                 destinationTransform = destinationTransforms[it.destination]
             )
@@ -80,8 +86,10 @@ class MessageRouter(
 
     /**
      * Renders the destination's own address template against the row. F-091. The address is the
-     * RabbitMQ exchange, the Kafka topic, the NATS subject, or the HTTP path, depending on the
-     * destination type.
+     * RabbitMQ exchange, the Kafka topic, or the NATS subject, depending on the destination
+     * type. An HTTP destination has no address template: [HttpPublisher][org.nxtspec.http.HttpPublisher]
+     * builds its URL from `baseUrl` and `path` directly, and this method resolves an empty string
+     * for it.
      *
      * A RabbitMQ destination that sets `exchangeFrom`, a Kafka destination that sets `topicFrom`,
      * or a NATS destination that sets `subjectFrom` reads that column instead, verbatim, and the
@@ -97,7 +105,7 @@ class MessageRouter(
             is Destination.RabbitMQ -> destination.exchangeFrom
             is Destination.Kafka -> destination.topicFrom
             is Destination.Nats -> destination.subjectFrom
-            is Destination.Http -> null
+            is Destination.Http -> return ""
         }
         if (addressFrom != null) {
             // F-091. The single source for both the permitted names and the accessor that reads
@@ -109,9 +117,26 @@ class MessageRouter(
             is Destination.RabbitMQ -> destination.exchange
             is Destination.Kafka -> destination.topic
             is Destination.Nats -> destination.subject
-            is Destination.Http -> destination.path
+            is Destination.Http -> return ""
         }
         return routingKeyRenderer.render(template, context)
+    }
+
+    /**
+     * Renders a RabbitMQ destination's own routing key template against the row. F-091. This is
+     * the fallback a route uses when it sets no `routingKeyTemplate` of its own. Rendering it
+     * here, once, keeps the rendering logic in one place: the `rabbitmq` module has no
+     * dependency on this module and must not render a template itself.
+     *
+     * @return The rendered routing key for a RabbitMQ destination, or null for every other
+     *   destination type, which carries no destination-level routing key template.
+     */
+    private fun resolveDestinationRoutingKey(
+        destination: Destination,
+        context: RoutingKeyRenderer.RowContext
+    ): String? = when (destination) {
+        is Destination.RabbitMQ -> routingKeyRenderer.render(destination.routingKeyTemplate, context)
+        is Destination.Kafka, is Destination.Nats, is Destination.Http -> null
     }
 }
 

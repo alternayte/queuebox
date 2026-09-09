@@ -243,6 +243,7 @@ public class OutboxMessageConfiguration : IEntityTypeConfiguration<OutboxMessage
     public void Configure(EntityTypeBuilder<OutboxMessage> builder)
     {
         builder.ToTable("outbox");
+        builder.Property(m => m.Id).HasColumnName("id");
         builder.Property(m => m.Topic).HasColumnName("topic");
         builder.Property(m => m.Key).HasColumnName("key");
         builder.Property(m => m.Payload).HasColumnName("payload").HasColumnType("jsonb");
@@ -259,6 +260,8 @@ to a null reference: the column is `NOT NULL`. Set `AggregateType` to the name o
 entity, for example `order`, so a destination can render its exchange, its topic or its subject from
 the column. Map `AggregateType` even when no destination reads it today, because an unmapped
 property leaves the column silently empty if a destination reads it later.
+
+This entity maps a table that QueueBox owns and migrates. Do not generate a migration from it.
 
 ---
 

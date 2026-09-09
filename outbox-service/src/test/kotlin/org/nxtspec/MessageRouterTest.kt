@@ -496,6 +496,46 @@ class MessageRouterTest {
     }
 
     @Test
+    fun `an aggregateType placeholder in the destination routing key template renders to the aggregate type`() {
+        val destinations = mapOf(
+            "dest" to Destination.RabbitMQ(
+                name = "dest",
+                url = "amqp://localhost",
+                exchange = "orders",
+                exchangeType = "topic",
+                routingKeyTemplate = "events.{{ aggregateType }}"
+            )
+        )
+        val routes = listOf(RouteConfig(topicPattern = "order.*", destination = "dest"))
+        val router = MessageRouter(routes, destinations)
+
+        val result = router.route(
+            OutboxMessage(topic = "order.created", aggregateType = "Task", payload = JsonObject(emptyMap()))
+        )
+
+        assertNotNull(result)
+        // Editing MessageRouter.resolveDestinationRoutingKey to return the template unrendered,
+        // or to return null for a RabbitMQ destination, makes this assertion fail: the value
+        // would arrive as the literal text "events.{{ aggregateType }}" or as null instead of
+        // "events.Task".
+        assertEquals("events.Task", result.resolvedDestinationRoutingKey)
+    }
+
+    @Test
+    fun `resolvedDestinationRoutingKey is null for a destination with no destination-level routing key template`() {
+        val destinations = mapOf(
+            "dest" to Destination.Http(name = "dest", baseUrl = "http://localhost:8080")
+        )
+        val routes = listOf(RouteConfig(topicPattern = "order.*", destination = "dest"))
+        val router = MessageRouter(routes, destinations)
+
+        val result = router.route(OutboxMessage(topic = "order.created", payload = JsonObject(emptyMap())))
+
+        assertNotNull(result)
+        assertNull(result.resolvedDestinationRoutingKey)
+    }
+
+    @Test
     fun `the column value wins over the template`() {
         val destinations = mapOf(
             "dest" to Destination.RabbitMQ(
@@ -538,7 +578,7 @@ class MessageRouterTest {
     }
 
     @Test
-    fun `an empty column value fails the row`() {
+    fun `an empty column value yields an empty resolvedAddress`() {
         val destinations = mapOf(
             "dest" to Destination.RabbitMQ(
                 name = "dest",

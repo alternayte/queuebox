@@ -240,7 +240,11 @@ class OutboxPoller(
             publisher.publish(
                 messageToPublish,
                 routingResult.destination,
-                PublishContext(routingKey = routingResult.routingKey, resolvedAddress = routingResult.resolvedAddress)
+                PublishContext(
+                    routingKey = routingResult.routingKey,
+                    resolvedAddress = routingResult.resolvedAddress,
+                    resolvedDestinationRoutingKey = routingResult.resolvedDestinationRoutingKey
+                )
             ).fold(
                 onSuccess = {
                     if (repository.markSent(message.id, message.claimToken)) {

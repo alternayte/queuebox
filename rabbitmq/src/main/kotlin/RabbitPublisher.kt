@@ -67,8 +67,13 @@ class RabbitPublisher(
                     holder.returnedIds.remove(messageId)
 
                     // F-004: the routing key that the route resolved wins. The destination
-                    // template is the fallback for a route that sets no routing key.
+                    // template is the fallback for a route that sets no routing key. F-091: the
+                    // router renders that fallback against the row before it reaches this
+                    // publisher, so `context.resolvedDestinationRoutingKey` is the value to use.
+                    // The literal `{{ topic }}` replace below is a last-resort fallback only for
+                    // a caller that bypasses MessageRouter and supplies no resolved value.
                     val routingKey = context.routingKey
+                        ?: context.resolvedDestinationRoutingKey
                         ?: dest.routingKeyTemplate
                             .replace("{{ topic }}", message.topic)
                             .replace("{{topic}}", message.topic)

@@ -113,11 +113,10 @@ A RabbitMQ destination is the exception. It holds one confirmed channel, and one
 time uses it, so `outbox.concurrency` raises throughput only across different destinations. An
 HTTP destination has no such limit.
 
-**Precedence.** `routingKeyTemplate` belongs to a route. QueueBox renders it, and the RabbitMQ
-publisher uses the result. A RabbitMQ destination has no `routingKeyTemplate` field, so you cannot
-configure a template on a destination. When the matched route sets no `routingKeyTemplate`, the
-publisher falls back to the built-in destination template `{{ topic }}`, and the routing key is
-therefore the message topic.
+**Precedence.** A route can set its own `routingKeyTemplate`. QueueBox renders it, and the
+RabbitMQ publisher uses the result. A RabbitMQ destination also has a `routingKeyTemplate` field,
+with the default `{{ topic }}`. When the matched route sets no `routingKeyTemplate`, the router
+renders the destination's template against the row instead, and the publisher uses that result.
 
 **RabbitMQ throughput.** The publisher awaits one broker confirm per message. A measured run gave
 1038 messages per second for 1000 messages on one destination. The test
