@@ -92,13 +92,30 @@ sealed interface Destination {
         val exchange: String,
         val exchangeType: String = "topic",
         val routingKeyTemplate: String = "{{ topic }}",
-        val headers: Map<String, String> = emptyMap()
+        val headers: Map<String, String> = emptyMap(),
+        /**
+         * The name of a row column to read the exchange name from, verbatim. F-091. A value here
+         * wins over [exchange], and the router does not render the template at all. The
+         * permitted names are exactly the set in [PERMITTED_EXCHANGE_FROM_COLUMNS]: these three
+         * are routing fields that an application sets deliberately, and a wider set would let a
+         * broker name come from data that was never meant for routing, for example the payload.
+         */
+        val exchangeFrom: String? = null
     ) : Destination {
         /**
          * F-038: an AMQP URI carries the broker password, so the printed form masks it.
          */
         override fun toString(): String = "RabbitMQ(name=$name, url=${CredentialMasking.maskUrl(url)}, " +
             "exchange=$exchange, exchangeType=$exchangeType, routingKeyTemplate=$routingKeyTemplate, " +
-            "headers=${CredentialMasking.maskHeaders(headers)})"
+            "headers=${CredentialMasking.maskHeaders(headers)}, exchangeFrom=$exchangeFrom)"
+    }
+
+    companion object {
+        /**
+         * The row columns that [RabbitMQ.exchangeFrom] can name. F-091. A startup validator
+         * consults exactly this set, rather than carrying its own copy, so the permitted names
+         * stay in one place.
+         */
+        val PERMITTED_EXCHANGE_FROM_COLUMNS: Set<String> = setOf("aggregate_type", "topic", "key")
     }
 }

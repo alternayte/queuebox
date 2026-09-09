@@ -82,8 +82,16 @@ class MessageRouter(
      * Renders the destination's own address template against the row. F-091. The address is the
      * RabbitMQ exchange, the Kafka topic, the NATS subject, or the HTTP path, depending on the
      * destination type.
+     *
+     * A RabbitMQ destination that sets `exchangeFrom` reads that column instead, verbatim, and
+     * the template is not rendered at all. A null column value yields an empty address, which
+     * the publisher already fails.
      */
     private fun resolveAddress(destination: Destination, context: RoutingKeyRenderer.RowContext): String {
+        val exchangeFrom = (destination as? Destination.RabbitMQ)?.exchangeFrom
+        if (exchangeFrom != null) {
+            return resolveExchangeFromColumn(exchangeFrom, context)
+        }
         val template = when (destination) {
             is Destination.RabbitMQ -> destination.exchange
             is Destination.Kafka -> destination.topic
@@ -91,6 +99,24 @@ class MessageRouter(
             is Destination.Http -> destination.path
         }
         return routingKeyRenderer.render(template, context)
+    }
+
+    /**
+     * Reads one permitted column from the row, verbatim, for [Destination.RabbitMQ.exchangeFrom].
+     * F-091. These three names are routing fields that an application sets deliberately, and a
+     * wider set would let a broker name come from data that was never meant for routing, for
+     * example the payload. A column outside the permitted set, or a null column value, yields an
+     * empty address, so the row fails rather than publish to a guessed name.
+     */
+    private fun resolveExchangeFromColumn(column: String, context: RoutingKeyRenderer.RowContext): String {
+        if (column !in Destination.PERMITTED_EXCHANGE_FROM_COLUMNS) return ""
+        val value = when (column) {
+            "aggregate_type" -> context.aggregateType
+            "topic" -> context.topic
+            "key" -> context.key
+            else -> null
+        }
+        return value ?: ""
     }
 }
 

@@ -494,4 +494,46 @@ class MessageRouterTest {
         assertNotNull(result)
         assertEquals("", result.resolvedAddress)
     }
+
+    @Test
+    fun `the column value wins over the template`() {
+        val destinations = mapOf(
+            "dest" to Destination.RabbitMQ(
+                name = "dest",
+                url = "amqp://localhost",
+                exchange = "public.orders.{{ aggregateType }}.v1",
+                exchangeFrom = "topic"
+            )
+        )
+        val routes = listOf(RouteConfig(topicPattern = "order.*", destination = "dest"))
+        val router = MessageRouter(routes, destinations)
+
+        val result = router.route(
+            OutboxMessage(topic = "order.created", payload = JsonObject(emptyMap()), aggregateType = "Task")
+        )
+
+        assertNotNull(result)
+        assertEquals("order.created", result.resolvedAddress)
+    }
+
+    @Test
+    fun `a null column value fails the row`() {
+        val destinations = mapOf(
+            "dest" to Destination.RabbitMQ(
+                name = "dest",
+                url = "amqp://localhost",
+                exchange = "public.orders.{{ aggregateType }}.v1",
+                exchangeFrom = "key"
+            )
+        )
+        val routes = listOf(RouteConfig(topicPattern = "order.*", destination = "dest"))
+        val router = MessageRouter(routes, destinations)
+
+        val result = router.route(
+            OutboxMessage(topic = "order.created", payload = JsonObject(emptyMap()), key = null)
+        )
+
+        assertNotNull(result)
+        assertEquals("", result.resolvedAddress)
+    }
 }
