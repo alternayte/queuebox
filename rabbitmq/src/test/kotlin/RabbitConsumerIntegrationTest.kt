@@ -364,6 +364,35 @@ class RabbitConsumerIntegrationTest {
         assertTrue(message.contains("declareQueue"), message)
     }
 
+    // F-097 narrowing: a channel failure that is NOT a missing queue must propagate with its own
+    // message, unchanged. A confidently wrong "set declareQueue" remedy for the wrong failure is
+    // worse than the broker's own text, because it sends an operator to a fix that will not help.
+    @Test
+    fun `a non-missing-queue failure keeps its own message`() = runBlocking {
+        val exclusiveQueue = "exclusive-${UUID.randomUUID()}"
+        val holderFactory = ConnectionFactory().apply { setUri(amqpUrl) }
+        val holderConnection = holderFactory.newConnection()
+        val holderChannel = holderConnection.createChannel()
+        try {
+            // An exclusive queue is usable only on the connection that declared it. A second
+            // connection that tries to consume it gets ACCESS_REFUSED (403), not NOT_FOUND (404).
+            holderChannel.queueDeclare(exclusiveQueue, false, true, false, null)
+
+            consumer = consumerFor(queue = exclusiveQueue)
+
+            val error = assertFailsWith<Exception> { consumer.start() }
+
+            val message = error.message ?: ""
+            assertTrue(
+                !message.contains("declareQueue"),
+                "A non-missing-queue failure must not carry the declareQueue remedy: $message"
+            )
+        } finally {
+            holderChannel.close()
+            holderConnection.close()
+        }
+    }
+
     @Test
     fun `declareQueue true creates the queue before the consumer starts`() = runBlocking {
         val queue = "declared-${UUID.randomUUID()}"

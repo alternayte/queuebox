@@ -4,6 +4,7 @@ import com.rabbitmq.client.AMQP
 import com.rabbitmq.client.Channel
 import com.rabbitmq.client.DefaultConsumer
 import com.rabbitmq.client.Envelope
+import com.rabbitmq.client.ShutdownSignalException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -109,7 +110,19 @@ class RabbitConsumer(
         channel = openChannel
 
         if (config.declareQueue) {
-            openChannel.queueDeclare(config.queueName, true, false, false, null)
+            try {
+                openChannel.queueDeclare(config.queueName, true, false, false, null)
+            } catch (e: Exception) {
+                throw RabbitConsumeException(
+                    "Declaring the queue '${config.queueName}' of source '${config.sourceName}' " +
+                        "failed. A common cause is that the queue already exists with " +
+                        "different arguments, for example a different durability. Check the " +
+                        "existing queue on the broker against the declaration QueueBox " +
+                        "attempted (durable, non-exclusive, non-autodelete), or set " +
+                        "'declareQueue: false' when the queue is already managed elsewhere.",
+                    e
+                )
+            }
         }
 
         val commands = kotlinx.coroutines.channels.Channel<AckCommand>(
@@ -143,14 +156,45 @@ class RabbitConsumer(
         consumerTag = try {
             openChannel.basicConsume(config.queueName, false, consumer)
         } catch (e: Exception) {
-            throw RabbitConsumeException(
-                "The queue '${config.queueName}' of source '${config.sourceName}' does not " +
-                    "exist. QueueBox does not declare a source queue by default, unlike the " +
-                    "destination exchange, which it always declares. Set 'declareQueue: true' " +
-                    "on the source to make QueueBox declare the queue before it consumes.",
-                e
-            )
+            val missingQueueSignal = findMissingQueueSignal(e)
+            if (missingQueueSignal != null) {
+                throw RabbitConsumeException(
+                    "The queue '${config.queueName}' of source '${config.sourceName}' does not " +
+                        "exist. QueueBox does not declare a source queue by default, unlike the " +
+                        "destination exchange, which it always declares. Set " +
+                        "'declareQueue: true' on the source to make QueueBox declare the queue " +
+                        "before it consumes.",
+                    e
+                )
+            }
+            // Some other channel-level failure, for example access-refused on the queue or a
+            // duplicate consumer tag. The three-part remedy above names a fix for a missing
+            // queue only, and a confidently wrong remedy is worse than the broker's own text,
+            // so every other failure propagates unchanged.
+            throw e
         }
+    }
+
+    /**
+     * Finds the [ShutdownSignalException] that carries AMQP reply code 404 NOT_FOUND, the code
+     * the broker uses for a queue that does not exist. The AMQP client wraps a synchronous RPC
+     * failure like `basicConsume` in an `IOException`, so the shutdown signal that carries the
+     * reply code is usually the cause rather than the caught exception itself. Every other reply
+     * code, for example 403 ACCESS_REFUSED, is a different failure with a different fix, so this
+     * returns null for it.
+     */
+    private fun findMissingQueueSignal(e: Throwable): ShutdownSignalException? {
+        var current: Throwable? = e
+        while (current != null) {
+            if (current is ShutdownSignalException) {
+                val reason = current.reason
+                if (reason is AMQP.Channel.Close && reason.replyCode == AMQP.NOT_FOUND) {
+                    return current
+                }
+            }
+            current = current.cause?.takeIf { it !== current }
+        }
+        return null
     }
 
     private fun applyAck(openChannel: Channel, command: AckCommand) {
