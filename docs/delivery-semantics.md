@@ -120,7 +120,7 @@ adopter must not treat them as the same rule.
 - In push mode, the relay reserves one in-flight message per aggregate_id across every source
   together. The relay is one process that reads every push row, so it needs no source term in
   its claim.
-- The relay forwards the messages of one aggregate one at a time, in the order of created_at.
+- The relay forwards the messages of one aggregate in the order of created_at.
 - In pull mode, the claim reserves one in-flight message per (source, aggregate_id), because a
   pull worker binds to one source. The claim never returns a message whose aggregate already
   holds a message in state `processing` on that same source, and the rule holds across every
@@ -129,7 +129,7 @@ adopter must not treat them as the same rule.
   source. A message of `aggregate_id` `A` on source `orders` and a message of the same
   `aggregate_id` `A` on source `payments` can run at the same time; the two sources do not see
   each other.
-- QueueBox preserves no order between two different aggregates.
+- QueueBox does not serialize the claim of two different aggregates.
 - A row with no aggregate_id takes part in no ordering.
 
 One difference from a log-based capture tool deserves a plain statement. A poller delivers in
@@ -156,14 +156,16 @@ concurrent claim, so workers on one source genuinely divide the work between the
 must size worker counts per dialect and must not assume a PostgreSQL sizing plan carries over to
 SQL Server, or the reverse.
 
-The SQL Server claim statement must own its transaction: it opens its own `BEGIN TRANSACTION`,
-it issues its own `COMMIT`, and it issues a `ROLLBACK` on the lock-failure path. The application
-lock releases at the outermost transaction. A caller that runs the claim inside a wider
-transaction leaves the claim uncommitted until the caller commits, loses its whole transaction
-on a lock failure, and holds the per-source lock for the remaining life of that wider
-transaction. `examples/pull/sql/sqlserver/claim.sql` and each of the three client libraries
-already carry this rule; see [`examples/pull/README.md`](../examples/pull/README.md) for the
-full statement.
+The SQL Server claim statement opens its own `BEGIN TRANSACTION`, issues its own `COMMIT`, and
+issues a `ROLLBACK` on the lock-failure path. The claim must be alone in that transaction: a
+caller must put no other application work in it, and the transaction must commit before any
+handler runs. This is exactly what the C#, Go and TypeScript client libraries do: each opens a
+transaction that contains only the claim and commits it before starting a handler. A caller that
+adds other work to the claim transaction, or that starts a handler before the commit, leaves the
+claim uncommitted until that wider transaction commits, loses the whole wider transaction on a
+lock failure, and holds the per-source lock for the remaining life of that wider transaction.
+`examples/pull/sql/sqlserver/claim.sql` and each of the three client libraries already carry this
+rule; see [`examples/pull/README.md`](../examples/pull/README.md) for the full statement.
 
 A driver whose request or command timeout is below thirty seconds breaks the SQL Server claim's
 error contract. The claim's application lock times out at ten seconds and raises Msg 51000. A

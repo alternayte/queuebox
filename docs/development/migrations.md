@@ -91,3 +91,14 @@ identity, the state identifier and a fingerprint of the capture settings, so Que
 detect a lost durable volume and a changed capture configuration. See
 [the capture guide](../capture.md). The table is unused while capture is disabled, which
 is the default.
+
+## Applying V8 to a populated database
+
+`V8__add_pull_claim_indexes.sql` uses plain `CREATE INDEX`. On both engines this locks out
+inserts to `inbox` for the duration of the build. Applying V8 to a populated database needs a
+maintenance window.
+
+The online alternative differs by engine. On SQL Server, use `CREATE INDEX ... WITH (ONLINE =
+ON)`, available on Enterprise Edition and on Azure SQL. On PostgreSQL, use `CREATE INDEX
+CONCURRENTLY`, run outside a transaction block. QueueBox does not use either alternative today;
+see the note in each `V8__add_pull_claim_indexes.sql` file.

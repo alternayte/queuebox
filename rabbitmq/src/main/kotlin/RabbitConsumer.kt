@@ -273,7 +273,8 @@ class RabbitConsumer(
     }
 
     /**
-     * Preserves a message that the transform rejected.
+     * Preserves a message that a transform rejected, or one that extraction rejected before any
+     * transform ran.
      *
      * The row is stored in state 'dead' in one transaction, so it is never claimable. The order
      * is mandatory. The row must be durable before the acknowledgement. A failed store therefore
@@ -286,8 +287,8 @@ class RabbitConsumer(
         rejectionReason: InboxRejectionReason = InboxRejectionReason.TRANSFORM_FAILED
     ) {
         log.warn(
-            "The transform rejected delivery {}. QueueBox stores the original payload and marks " +
-                "the row dead. Reason: {}",
+            "Delivery {} was rejected. QueueBox stores the original payload and marks the row " +
+                "dead. Reason: {}",
             envelope.deliveryTag,
             reason
         )

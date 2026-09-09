@@ -2,16 +2,17 @@
 -- message in state 'processing' under a live lease is not a candidate, and two rows of one
 -- aggregate never leave one claim together.
 --
--- The statement carries its own transaction control (BEGIN TRANSACTION and COMMIT TRANSACTION)
--- and it must own its transaction scope: a caller must run it alone, never nested inside a wider
--- transaction. Nesting it changes three things silently. First, the inner COMMIT only lowers
--- @@TRANCOUNT; the claim does not actually commit until the caller's outer transaction commits,
--- so the claimed rows stay uncommitted for as long as the caller's transaction stays open.
+-- The statement carries its own transaction control (BEGIN TRANSACTION and COMMIT TRANSACTION).
+-- The claim must be alone in that transaction: a caller must put no other application work in
+-- it, and the transaction must commit before any handler runs. A wider transaction around the
+-- claim, or a handler started before the commit, breaks three things silently. First, the inner
+-- COMMIT only lowers @@TRANCOUNT; the claim does not actually commit until the wider transaction
+-- commits, so the claimed rows stay uncommitted for as long as that transaction stays open.
 -- Second, on the lock-failure path the ROLLBACK unwinds @@TRANCOUNT to zero and destroys the
--- caller's whole transaction before the THROW fires, not only the claim. Third, @LockOwner =
--- 'Transaction' ties the applock to the outermost transaction, so a wider caller transaction
--- holds the per-source applock open for as long as it stays open, serializing every other claim
--- on that source behind it instead of releasing the lock as soon as the claim itself commits.
+-- wider transaction before the THROW fires, not only the claim. Third, @LockOwner = 'Transaction'
+-- ties the applock to the outermost transaction, so a wider transaction holds the per-source
+-- applock open for as long as it stays open, serializing every other claim on that source behind
+-- it instead of releasing the lock as soon as the claim itself commits.
 --
 -- Required isolation: READ COMMITTED. Tested explicitly with READ_COMMITTED_SNAPSHOT ON
 -- (Azure SQL's default), because UPDLOCK is a physical lock unaffected by RCSI's snapshot reads.

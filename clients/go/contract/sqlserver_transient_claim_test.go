@@ -19,7 +19,7 @@ import (
 //
 // COVERAGE NOTE: this test proves the "never mark failed or dead" half of item 19, and that the
 // worker survives past the 10 second sp_getapplock timeout without crashing. It does NOT prove
-// the "must not retry immediately" half. Every claim attempt already blocks for the whole 30
+// the "must not retry immediately" half. Every claim attempt already blocks for the whole 10
 // second sp_getapplock timeout before it fails, so the gap between two failing claims is large
 // whether or not the worker adds a poll-interval backoff on top of it: the two cases are not
 // distinguishable from outside with the fixed 10 second lock timeout the canonical statement

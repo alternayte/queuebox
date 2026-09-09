@@ -74,9 +74,9 @@ await worker.RunAsync(async (message, transaction, cancellationToken) => { /* ..
 ```
 
 Set the `Microsoft.Data.SqlClient` command timeout to at least 30 seconds. Its default
-is 30 seconds, equal to the old lock timeout, so a caller that leaves the default in
-place must still raise it: a tie counts as a loss. The SQL Server claim runs
-`sp_getapplock` with a 10 second lock timeout of its own, so the server always raises
+is 30 seconds, so a caller that leaves the default in place already meets this rule.
+The SQL Server claim runs `sp_getapplock` with a 10 second lock timeout of its own, so
+the server always raises
 Msg 51000 before a driver command timeout of 30 seconds or more can abort the call. A
 client-side abort does not roll back the claim's transaction, because the lock is held
 under `@LockOwner = 'Transaction'`. The symptom of a shorter command timeout is an

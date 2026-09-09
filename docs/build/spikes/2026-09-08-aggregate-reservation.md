@@ -903,3 +903,21 @@ and aborts the same way.
 **Fix:** `@LockTimeout` is now `10000`. Ten seconds sits below every driver default named above,
 so the server always raises `Msg 51000` before any driver aborts on its own. A caller must still
 set a driver request or command timeout of at least 30 seconds, as a second line of defence.
+
+## Follow-up, not yet done: index coverage for the reclaim branch
+
+V8 (`db/sqlserver/V8__add_pull_claim_indexes.sql` and the PostgreSQL equivalent) adds
+`idx_inbox_pull_pending` for the claim's first candidate branch and `idx_inbox_pull_busy` for
+the aggregate-reservation check. Neither index covers the claim's second candidate branch, the
+expired-lease reclaim path, which scans `WHERE state = 'processing' AND lease_expires_at <=
+now`, ordered by `scheduled_at, created_at, id`. `idx_inbox_pull_busy` leads on `aggregate_id`,
+so this branch still performs a full scan and an explicit sort.
+
+DECISION: do not add an index for this branch now. The reclaim branch runs only when a lease
+expires, and the last index added to this table without measurement had to be removed.
+
+WHAT TO MEASURE before adding an index: the row count in state `processing` with an expired
+lease under a realistic workload, the actual scan and sort cost this branch incurs at that row
+count, and whether an index on `(source, state, lease_expires_at)` (or a filtered index on
+`state = 'processing'`) removes that cost without raising write cost or lock contention on the
+same insert path `idx_inbox_pull_busy` already affects.

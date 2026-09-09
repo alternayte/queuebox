@@ -20,12 +20,12 @@ public sealed class InboxSql
     /// </summary>
     /// <remarks>
     /// The SQL Server text carries its own transaction control (<c>BEGIN TRANSACTION</c> and
-    /// <c>COMMIT TRANSACTION</c>) and it must own its transaction scope: run it alone, never
-    /// nested inside a wider transaction. A wider transaction changes three things silently: the
-    /// claimed rows stay uncommitted until the caller's own commit, a lock failure rolls back the
-    /// caller's whole transaction instead of only the claim, and the per-source applock stays
-    /// held for as long as the caller's transaction stays open instead of releasing at the
-    /// claim's own commit.
+    /// <c>COMMIT TRANSACTION</c>). The claim must be alone in that transaction: put no other
+    /// application work in it, and commit it before starting any handler. A wider transaction
+    /// around the claim changes three things silently: the claimed rows stay uncommitted until
+    /// the wider transaction commits, a lock failure rolls back that whole wider transaction
+    /// instead of only the claim, and the per-source applock stays held for as long as the wider
+    /// transaction stays open instead of releasing at the claim's own commit.
     /// </remarks>
     public string Claim { get; }
 

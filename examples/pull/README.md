@@ -16,7 +16,11 @@ The SQL files under `sql/postgresql` and `sql/sqlserver` are prepared statement
 contracts. Bind named parameters through your database library; do not interpolate
 values. `source` is the configured source name, `batch` is available worker capacity,
 `lease_ms` is a positive duration, `id` and `token` come from the claim result.
-Run claim in a short transaction and commit before starting work. SQL Server examples
+The claim must be alone in its own transaction, with no other application work in it, and that
+transaction must commit before any handler runs. A caller that adds other work to the claim
+transaction, or that starts a handler before the commit, leaves the claimed rows uncommitted
+until the wider transaction commits, loses the whole wider transaction on a lock failure, and
+holds the per-source lock for the remaining life of that wider transaction. SQL Server examples
 require READ COMMITTED, and they also work correctly with READ_COMMITTED_SNAPSHOT ON.
 `claim.sql` also binds `cand_limit`, a caller-computed bound on the candidate scan.
 Compute it as `LEAST(GREATEST(3 * batch, 50), 500)` and bind it on every call; it is

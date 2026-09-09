@@ -66,11 +66,11 @@ export interface InboxStatements {
    * Takes rows. Parameters: source, batch, leaseMs, candLimit.
    *
    * On SQL Server the text carries its own transaction control (BEGIN TRANSACTION and COMMIT
-   * TRANSACTION) and it must own its transaction scope: a caller must run it alone, never nested
-   * inside a wider transaction. A wider transaction leaves the claimed rows uncommitted until the
-   * caller's own commit, lets a lock failure destroy the caller's whole transaction instead of
-   * only the claim, and holds the per-source applock open for as long as the caller's own
-   * transaction stays open.
+   * TRANSACTION). The claim must be alone in that transaction: put no other application work in
+   * it, and commit it before starting any handler. A wider transaction around the claim leaves
+   * the claimed rows uncommitted until the wider transaction commits, lets a lock failure destroy
+   * that whole wider transaction instead of only the claim, and holds the per-source applock open
+   * for as long as the wider transaction stays open.
    */
   readonly claim: InboxStatement;
   /** Extends the lease. Parameters: leaseMs, id, token. */
@@ -227,10 +227,10 @@ WHERE ${q(s.id)} = ${id} AND ${q(s.consumption)} = 'pull' AND ${q(s.state)} = 'p
   // @p4 is candLimit.
   //
   // The statement carries its own transaction control (BEGIN TRANSACTION and COMMIT
-  // TRANSACTION) and it must own its transaction scope: a caller must run it alone, never nested
-  // inside a wider transaction. Nesting it stays uncommitted until the caller's own commit, lets
-  // a lock failure destroy the caller's whole transaction, and holds the per-source applock open
-  // for as long as the caller's own transaction stays open.
+  // TRANSACTION). The claim must be alone in that transaction, with no other application work in
+  // it, and it must commit before any handler runs. A wider transaction around the claim stays
+  // uncommitted until the wider transaction commits, lets a lock failure destroy that whole
+  // wider transaction, and holds the per-source applock open for as long as it stays open.
   const busy = (alias: string): string => `
             SELECT 1 FROM ${q(s.table)} AS busy
             WHERE busy.${q(s.aggregateId)} = ${alias}.${q(s.aggregateId)}
@@ -292,7 +292,7 @@ JOIN eligible AS e ON target.${q(s.id)} = e.${q(s.id)}
 WHERE target.${q(s.consumption)} = 'pull' AND target.${q(s.source)} = @src
   AND ((target.${q(s.state)} = 'pending' AND target.${q(s.scheduledAt)} <= SYSUTCDATETIME())
     OR (target.${q(s.state)} = 'processing' AND target.${q(s.leaseExpiresAt)} <= SYSUTCDATETIME()))
-  AND (target.${q(s.aggregateId)} IS NULL OR NOT EXISTS (${busy("target")}))
+  AND (target.${q(s.aggregateId)} IS NULL OR NOT EXISTS (${busy("target")}));
 COMMIT TRANSACTION;`,
       params: ["source", "batch", "leaseMs", "candLimit"],
     },

@@ -68,7 +68,7 @@ class OrderingGuaranteeTest : E2ETestBase() {
     }
 
     @Test
-    fun `the relay forwards the messages of one aggregate one at a time, in the order of created_at`() = runBlocking {
+    fun `the relay forwards the messages of one aggregate in the order of created_at`() = runBlocking {
         repeat(4) { n ->
             insertInboxMessage(
                 source = "s",
@@ -118,13 +118,13 @@ class OrderingGuaranteeTest : E2ETestBase() {
         }
 
     @Test
-    fun `QueueBox preserves no order between two different aggregates`() = runBlocking {
+    fun `QueueBox does not serialize the claim of two different aggregates`() = runBlocking {
         insertInboxMessage(source = "s", idempotencyKey = "a0", aggregateId = "agg-1", consumption = "pull")
         insertInboxMessage(source = "s", idempotencyKey = "b0", aggregateId = "agg-2", consumption = "pull")
 
         val claimed = claimPull(source = "s", batch = 10)
 
-        // Both aggregates leave one claim together. No reader can rely on an order between them.
+        // Both aggregates leave one claim together, so the claim did not serialize them.
         assertEquals(setOf("agg-1", "agg-2"), claimed.map { it.aggregateId }.toSet())
     }
 
