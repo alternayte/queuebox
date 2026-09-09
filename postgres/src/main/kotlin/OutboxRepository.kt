@@ -214,8 +214,10 @@ class OutboxRepository(
         conn.createStatement().use { stmt ->
             stmt.executeQuery(sql).use { rows ->
                 rows.next()
-                val age = rows.getDouble(1)
-                if (rows.wasNull()) 0.0 else age
+                // MIN over no pending rows is SQL NULL. The JDBC driver maps a NULL EXTRACT
+                // result to 0.0 on getDouble, and 0.0 is exactly the contract this method
+                // promises for that case, so no defensive wasNull() branch is needed here.
+                rows.getDouble(1)
             }
         }
     }
