@@ -52,7 +52,7 @@ class AdminRoutesTest {
     private fun Application.configureAdminApplication(admin: AdminConfig, engine: TransformEngine) {
         install(ContentNegotiation) { json() }
         // Call the production wiring, so the test covers the shipped route.
-        configureAdminRoutes(admin, InboxAuthValidator(), engine, mockk(relaxed = true))
+        configureAdminRoutes(admin, InboxAuthValidator(), engine, mockk(relaxed = true), mockk(relaxed = true))
     }
 
     @Test

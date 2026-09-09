@@ -290,7 +290,8 @@ internal fun runApp(env: () -> Map<String, String> = { System.getenv() }) {
             healthManager = healthManager,
             adminConfig = config.admin,
             transformEngine = transformEngine,
-            outboxRepository = outboxRepository
+            outboxRepository = outboxRepository,
+            messageRouter = router
         )
     }
 
@@ -310,7 +311,8 @@ internal fun runApp(env: () -> Map<String, String> = { System.getenv() }) {
                 healthManager = healthManager,
                 adminConfig = config.admin,
                 transformEngine = transformEngine,
-                outboxRepository = outboxRepository
+                outboxRepository = outboxRepository,
+                messageRouter = router
             )
         }
     }
@@ -524,11 +526,12 @@ fun Application.configureOperationalRoutes(
     healthManager: HealthManager,
     adminConfig: AdminConfig,
     transformEngine: TransformEngine,
-    outboxRepository: org.nxtspec.repository.OutboxRepositoryInterface
+    outboxRepository: org.nxtspec.repository.OutboxRepositoryInterface,
+    messageRouter: MessageRouter
 ) {
     configureHealthRoutes(healthManager)
     configureMetricsRoutes(prometheusRegistry)
-    configureAdminRoutes(adminConfig, InboxAuthValidator(), transformEngine, outboxRepository)
+    configureAdminRoutes(adminConfig, InboxAuthValidator(), transformEngine, outboxRepository, messageRouter)
 }
 
 /**
@@ -543,10 +546,18 @@ fun Application.configureDataPortOperationalRoutes(
     healthManager: HealthManager,
     adminConfig: AdminConfig,
     transformEngine: TransformEngine,
-    outboxRepository: org.nxtspec.repository.OutboxRepositoryInterface
+    outboxRepository: org.nxtspec.repository.OutboxRepositoryInterface,
+    messageRouter: MessageRouter
 ) {
     if (managementPort != null) return
-    configureOperationalRoutes(prometheusRegistry, healthManager, adminConfig, transformEngine, outboxRepository)
+    configureOperationalRoutes(
+        prometheusRegistry,
+        healthManager,
+        adminConfig,
+        transformEngine,
+        outboxRepository,
+        messageRouter
+    )
 }
 
 /** Time that an in-flight request has to finish before the server stops. See F-029. */

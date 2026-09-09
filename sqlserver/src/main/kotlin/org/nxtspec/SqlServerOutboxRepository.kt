@@ -327,47 +327,20 @@ class SqlServerOutboxRepository(
     // operand therefore binds as a JDBC parameter here too, never through SYSUTCDATETIME(), or
     // the comparison is wrong by the host's UTC offset.
     override suspend fun replay(filter: ReplayFilter): Long = joinOrNewTransaction {
-        val now = Clock.System.now()
-        val nowTimestamp = Timestamp.from(
-            java.time.Instant.ofEpochSecond(now.epochSeconds, now.nanosecondsOfSecond.toLong())
-        )
+        val nowTimestamp = Clock.System.now().toSqlServerTimestamp()
 
-        val t = quoteSqlServerIdentifier(tableName)
-        val stateCol = quoteSqlServerIdentifier(columnMapping.state)
-        val attemptCol = quoteSqlServerIdentifier(columnMapping.attempt)
-        val lastErrorCol = quoteSqlServerIdentifier(columnMapping.lastError)
-        val scheduledAtCol = quoteSqlServerIdentifier(columnMapping.scheduledAt)
-        val updatedAtCol = quoteSqlServerIdentifier(columnMapping.updatedAt)
-        val createdAtCol = quoteSqlServerIdentifier(columnMapping.createdAt)
-        val topicCol = quoteSqlServerIdentifier(columnMapping.topic)
-        val idCol = quoteSqlServerIdentifier(columnMapping.id)
-
-        // The state filter is unconditional. No combination of the caller's filter fields can
-        // widen it, so a row the relay owns in state 'pending' or 'processing' can never move.
-        val conditions = mutableListOf("$stateCol IN ('sent', 'dead')")
-        val params = mutableListOf<Any>()
-
-        filter.createdAfter?.let {
-            conditions += "$createdAtCol > ?"
-            params += Timestamp.from(java.time.Instant.ofEpochSecond(it.epochSeconds, it.nanosecondsOfSecond.toLong()))
-        }
-        filter.createdBefore?.let {
-            conditions += "$createdAtCol < ?"
-            params += Timestamp.from(java.time.Instant.ofEpochSecond(it.epochSeconds, it.nanosecondsOfSecond.toLong()))
-        }
-        filter.topic?.let {
-            conditions += "$topicCol = ?"
-            params += it
-        }
-        filter.ids?.takeIf { it.isNotEmpty() }?.let { ids ->
-            conditions += "$idCol IN (${ids.joinToString(",") { "?" }})"
-            ids.forEach { params += it.toString() }
-        }
+        val (conditions, params) = replayWhereClause(filter)
 
         val sql = """
-            UPDATE $t
-            SET $stateCol = 'pending', $attemptCol = 0, $lastErrorCol = NULL,
-                $scheduledAtCol = ?, $updatedAtCol = ?
+            UPDATE ${quoteSqlServerIdentifier(tableName)}
+            SET ${quoteSqlServerIdentifier(columnMapping.state)} = 'pending',
+                ${quoteSqlServerIdentifier(columnMapping.attempt)} = 0,
+                ${quoteSqlServerIdentifier(columnMapping.lastError)} = NULL,
+                ${quoteSqlServerIdentifier(columnMapping.scheduledAt)} = ?,
+                ${quoteSqlServerIdentifier(columnMapping.updatedAt)} = ?,
+                ${quoteSqlServerIdentifier(columnMapping.claimedAt)} = NULL,
+                ${quoteSqlServerIdentifier(columnMapping.claimToken)} = NULL,
+                ${quoteSqlServerIdentifier(columnMapping.leaseExpiresAt)} = NULL
             WHERE ${conditions.joinToString(" AND ")}
         """.trimIndent()
 
@@ -384,6 +357,59 @@ class SqlServerOutboxRepository(
                 }
             }
             stmt.executeUpdate().toLong()
+        }
+    }
+
+    // F-096. Builds the WHERE clause and its bound parameters, in the same order, for `replay`.
+    // The state filter is unconditional: it is the first condition, and no combination of the
+    // caller's filter fields can widen it, so a row the relay owns in state 'pending' or
+    // 'processing' can never move.
+    private fun replayWhereClause(filter: ReplayFilter): Pair<List<String>, List<Any>> {
+        val stateCol = quoteSqlServerIdentifier(columnMapping.state)
+        val createdAtCol = quoteSqlServerIdentifier(columnMapping.createdAt)
+        val topicCol = quoteSqlServerIdentifier(columnMapping.topic)
+        val idCol = quoteSqlServerIdentifier(columnMapping.id)
+
+        val conditions = mutableListOf("$stateCol IN ('sent', 'dead')")
+        val params = mutableListOf<Any>()
+
+        filter.createdAfter?.let {
+            conditions += "$createdAtCol > ?"
+            params += it.toSqlServerTimestamp()
+        }
+        filter.createdBefore?.let {
+            conditions += "$createdAtCol < ?"
+            params += it.toSqlServerTimestamp()
+        }
+        filter.topic?.let {
+            conditions += "$topicCol = ?"
+            params += it
+        }
+        filter.topics?.takeIf { it.isNotEmpty() }?.let { topics ->
+            conditions += "$topicCol IN (${topics.joinToString(",") { "?" }})"
+            topics.forEach { params += it }
+        }
+        filter.ids?.takeIf { it.isNotEmpty() }?.let { ids ->
+            conditions += "$idCol IN (${ids.joinToString(",") { "?" }})"
+            ids.forEach { params += it.toString() }
+        }
+
+        return conditions to params
+    }
+
+    // F-096. Reads the distinct topics out of the table for the route's destination resolution.
+    override suspend fun distinctTopics(): List<String> = joinOrNewTransaction {
+        val sql = "SELECT DISTINCT ${quoteSqlServerIdentifier(columnMapping.topic)} " +
+            "FROM ${quoteSqlServerIdentifier(tableName)}"
+        val conn = TransactionManager.current().connection.connection as java.sql.Connection
+        conn.createStatement().use { stmt ->
+            stmt.executeQuery(sql).use { rows ->
+                val topics = mutableListOf<String>()
+                while (rows.next()) {
+                    topics.add(rows.getString(1))
+                }
+                topics
+            }
         }
     }
 
@@ -441,4 +467,9 @@ class SqlServerOutboxRepository(
         "dead" -> MessageState.Dead
         else -> MessageState.Failed(error = "Unknown state: $state", attempt = 0)
     }
+
+    // F-096. Converts a Kotlin Instant to the JDBC Timestamp form that `replay` binds as a
+    // parameter, matching `claimBatch` and `oldestPendingAgeSeconds`.
+    private fun Instant.toSqlServerTimestamp(): Timestamp =
+        Timestamp.from(java.time.Instant.ofEpochSecond(epochSeconds, nanosecondsOfSecond.toLong()))
 }

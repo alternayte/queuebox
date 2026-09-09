@@ -392,4 +392,43 @@ class OutboxRepositoryTest : PostgresTestBase() {
         assertEquals(0L, moved)
         assertEquals("pending", getOutboxMessageState(pendingId))
     }
+
+    @Test
+    fun `replay moves a dead row back to pending and resets the attempt`() = runBlocking {
+        // A dead row sits at its attempt ceiling, so narrowing the clause to state = 'sent'
+        // would leave this row dead and this test would still pass with the wrong SQL.
+        val id = insertOutboxMessage(state = "dead", attempt = 5)
+
+        val moved = repository.replay(ReplayFilter(ids = listOf(id)))
+
+        assertEquals(1L, moved)
+        val (state, attempt) = getOutboxMessageStateAndAttempt(id)
+        assertEquals("pending", state)
+        assertEquals(0, attempt)
+        assertNull(getOutboxLastError(id))
+    }
+
+    @Test
+    fun `replay selects a topic set resolved from a destination`() = runBlocking {
+        val matching = insertOutboxMessage(state = "sent", topic = "orders.created")
+        val other = insertOutboxMessage(state = "sent", topic = "billing.created")
+
+        val moved = repository.replay(ReplayFilter(topics = listOf("orders.created")))
+
+        assertEquals(1L, moved)
+        assertEquals("pending", getOutboxMessageState(matching))
+        assertEquals("sent", getOutboxMessageState(other))
+    }
+
+    @Test
+    fun `distinctTopics returns every topic present exactly once`() = runBlocking {
+        insertOutboxMessage(state = "sent", topic = "orders.created")
+        insertOutboxMessage(state = "dead", topic = "orders.created")
+        insertOutboxMessage(state = "pending", topic = "billing.created")
+
+        val topics = repository.distinctTopics()
+
+        assertEquals(setOf("orders.created", "billing.created"), topics.toSet())
+        assertEquals(2, topics.size)
+    }
 }

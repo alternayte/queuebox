@@ -54,4 +54,11 @@ interface OutboxRepositoryInterface {
      * @return the count of rows moved.
      */
     suspend fun replay(filter: ReplayFilter): Long
+
+    /**
+     * Every distinct topic currently present in the outbox table. F-096. A replay by destination
+     * resolves this set through the real router before it queries, because only the router knows
+     * the first-match precedence between overlapping route patterns.
+     */
+    suspend fun distinctTopics(): List<String>
 }

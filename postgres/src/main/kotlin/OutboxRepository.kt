@@ -287,7 +287,14 @@ class OutboxRepository(
             it[table.scheduledAt] = now
             it[table.updatedAt] = now
             it[table.claimedAt] = null
+            it[table.claimToken] = null
+            it[table.leaseExpiresAt] = null
         }.toLong()
+    }
+
+    // F-096. Reads the distinct topics out of the table for the route's destination resolution.
+    override suspend fun distinctTopics(): List<String> = joinOrNewTransaction {
+        table.select(table.topic).withDistinct().map { it[table.topic] }
     }
 
     // The state filter is unconditional. No combination of the caller's filter fields can widen
@@ -297,6 +304,7 @@ class OutboxRepository(
         filter.createdAfter?.let { condition = condition and (table.createdAt greater it) }
         filter.createdBefore?.let { condition = condition and (table.createdAt less it) }
         filter.topic?.let { condition = condition and (table.topic eq it) }
+        filter.topics?.takeIf { it.isNotEmpty() }?.let { condition = condition and (table.topic inList it) }
         filter.ids?.let { condition = condition and (table.id inList it) }
         return condition
     }

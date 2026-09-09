@@ -53,6 +53,7 @@ class RetentionBatchingTest {
         }
 
         override suspend fun replay(filter: org.nxtspec.repository.ReplayFilter): Long = 0L
+        override suspend fun distinctTopics(): List<String> = emptyList()
     }
 
     private class FakeInboxRepository(rows: List<Row>) : InboxRepositoryInterface {

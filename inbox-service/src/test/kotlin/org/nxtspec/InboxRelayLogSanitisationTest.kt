@@ -77,6 +77,7 @@ class InboxRelayLogSanitisationTest {
         override suspend fun deleteOlderThan(state: String, cutoff: Instant, limit: Int): Int = 0
         override suspend fun deleteExceptMostRecent(state: String, keepCount: Int, limit: Int): Int = 0
         override suspend fun replay(filter: org.nxtspec.repository.ReplayFilter): Long = 0L
+        override suspend fun distinctTopics(): List<String> = emptyList()
     }
 
     private class DirectTransactionRunner : TransactionRunner {
