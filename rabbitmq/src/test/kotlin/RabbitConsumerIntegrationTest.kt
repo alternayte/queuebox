@@ -27,6 +27,7 @@ import java.util.UUID
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
@@ -101,6 +102,32 @@ class RabbitConsumerIntegrationTest {
                 channel.queueDeclare(TEST_QUEUE, false, false, false, null)
                 // Purge any existing messages
                 channel.queuePurge(TEST_QUEUE)
+            }
+        }
+    }
+
+    /** F-097: builds a consumer for a queue the test does not pre-declare. */
+    private fun consumerFor(queue: String, declareQueue: Boolean = false): RabbitConsumer {
+        val config = RabbitConsumerConfig(
+            queueName = queue,
+            sourceName = "test-source",
+            idempotencyKeyPath = "$.id",
+            declareQueue = declareQueue
+        )
+        return RabbitConsumer(connection, mockStore, extractor, config)
+    }
+
+    /** F-097: true when the named queue exists on the broker. */
+    private fun queueExists(queue: String): Boolean {
+        val factory = ConnectionFactory().apply { setUri(amqpUrl) }
+        return factory.newConnection().use { conn ->
+            conn.createChannel().use { channel ->
+                try {
+                    channel.queueDeclarePassive(queue)
+                    true
+                } catch (e: java.io.IOException) {
+                    false
+                }
             }
         }
     }
@@ -321,6 +348,30 @@ class RabbitConsumerIntegrationTest {
         val key = storedMessages[0].idempotencyKey
         assertTrue(key.startsWith("sha256:"), "The fallback key must be a body digest, was '$key'.")
         assertEquals(71, key.length, "The digest key must carry 64 hexadecimal characters.")
+    }
+
+    // F-097: a missing source queue must name the cause, the asymmetry with the destination
+    // exchange, and the setting that fixes it, rather than the raw broker text alone.
+    @Test
+    fun `a missing queue names the cause, the asymmetry and the setting`() = runBlocking {
+        consumer = consumerFor(queue = "no-such-queue-${UUID.randomUUID()}")
+
+        val error = assertFailsWith<Exception> { consumer.start() }
+
+        val message = error.message!!
+        assertTrue(message.contains("does not exist"), message)
+        assertTrue(message.contains("does not declare"), message)
+        assertTrue(message.contains("declareQueue"), message)
+    }
+
+    @Test
+    fun `declareQueue true creates the queue before the consumer starts`() = runBlocking {
+        val queue = "declared-${UUID.randomUUID()}"
+        consumer = consumerFor(queue = queue, declareQueue = true)
+
+        consumer.start()
+
+        assertTrue(queueExists(queue))
     }
 
     /** A pipeline that rejects every message. */

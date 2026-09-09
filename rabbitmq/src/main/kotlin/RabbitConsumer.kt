@@ -42,7 +42,16 @@ data class RabbitConsumerConfig(
      * Optional JSONPath to the event type in the message body. The consumer reads this path
      * first, and it falls back to the `x-event-type` AMQP header.
      */
-    val eventTypePath: String? = null
+    val eventTypePath: String? = null,
+    /**
+     * Declares the source queue as durable before the consumer starts. F-097.
+     *
+     * The default is false. The publisher declares its destination exchange, but a consumer
+     * that declares its source queue by default can mask a typo: a mistyped name creates a new,
+     * empty queue that never receives a message, and that failure is silent. A missing queue
+     * must fail loudly instead, so an operator sets this field on purpose.
+     */
+    val declareQueue: Boolean = false
 )
 
 private sealed interface AckCommand {
@@ -99,6 +108,10 @@ class RabbitConsumer(
         }
         channel = openChannel
 
+        if (config.declareQueue) {
+            openChannel.queueDeclare(config.queueName, true, false, false, null)
+        }
+
         val commands = kotlinx.coroutines.channels.Channel<AckCommand>(
             kotlinx.coroutines.channels.Channel.UNLIMITED
         )
@@ -127,7 +140,17 @@ class RabbitConsumer(
             }
         }
 
-        consumerTag = openChannel.basicConsume(config.queueName, false, consumer)
+        consumerTag = try {
+            openChannel.basicConsume(config.queueName, false, consumer)
+        } catch (e: Exception) {
+            throw RabbitConsumeException(
+                "The queue '${config.queueName}' of source '${config.sourceName}' does not " +
+                    "exist. QueueBox does not declare a source queue by default, unlike the " +
+                    "destination exchange, which it always declares. Set 'declareQueue: true' " +
+                    "on the source to make QueueBox declare the queue before it consumes.",
+                e
+            )
+        }
     }
 
     private fun applyAck(openChannel: Channel, command: AckCommand) {
