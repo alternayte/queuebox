@@ -23,6 +23,7 @@ import org.jetbrains.exposed.sql.insert
 import org.jetbrains.exposed.sql.selectAll
 import org.jetbrains.exposed.sql.transactions.TransactionManager
 import org.jetbrains.exposed.sql.transactions.transaction
+import org.jetbrains.exposed.sql.update
 import org.junit.jupiter.api.AfterAll
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeAll
@@ -138,6 +139,17 @@ abstract class E2ETestBase {
     protected lateinit var dataSource: HikariDataSource
     protected var mockHttpServer: MockHttpServer? = null
 
+    /**
+     * The database's own idea of "now", the same expression `InboxRepository.insert` binds to
+     * `scheduledAt` in production. Evaluating "now" on the database, rather than in the JVM,
+     * removes the clock the two could otherwise disagree on.
+     */
+    private val databaseNow = object : org.jetbrains.exposed.sql.Expression<Instant>() {
+        override fun toQueryBuilder(queryBuilder: org.jetbrains.exposed.sql.QueryBuilder) {
+            queryBuilder.append("clock_timestamp()")
+        }
+    }
+
     // Every relay and poller that a helper method starts, so cleanupData can shut each one down.
     // A test that starts its own relay or poller directly, outside these helpers, still owns its
     // own shutdown.
@@ -193,17 +205,6 @@ abstract class E2ETestBase {
     private fun createTables() {
         transaction {
             SchemaUtils.create(OutboxTable, InboxTable)
-            // Turns "at most one push message of an aggregate is 'processing', across every
-            // source" from a fact a test must sample for, and can miss, into a fact the
-            // database enforces on every write. A test that violates it fails with a constraint
-            // violation rather than a value a sampler happened not to observe. Scoped to
-            // `consumption = 'push'`, because the pull rule is source-scoped instead: two pull
-            // rows of one aggregate on two different sources are allowed to run together, by
-            // design. See OrderingGuaranteeTest.
-            exec(
-                "CREATE UNIQUE INDEX IF NOT EXISTS idx_inbox_one_processing_per_aggregate " +
-                    "ON inbox (aggregate_id) WHERE state = 'processing' AND consumption = 'push'"
-            )
         }
     }
 
@@ -288,12 +289,7 @@ abstract class E2ETestBase {
         eventType: String? = null
     ): UUID {
         val id = UUID.randomUUID()
-        // A pull claim requires `scheduled_at <= clock_timestamp()`, evaluated by the database.
-        // `now` here is the application clock, and the container clock can run a few
-        // milliseconds behind it, which made a fresh row transiently ineligible for a claim
-        // called immediately after insert. The margin absorbs that drift.
         val now = Clock.System.now()
-        val scheduledAt = now.minus(kotlin.time.Duration.parse("2s"))
         transaction {
             InboxTable.insert {
                 it[InboxTable.id] = id
@@ -304,7 +300,13 @@ abstract class E2ETestBase {
                 it[InboxTable.payload] = payload
                 it[InboxTable.state] = state
                 it[InboxTable.consumption] = consumption
-                it[InboxTable.scheduledAt] = scheduledAt
+                // A pull claim requires `scheduled_at <= clock_timestamp()`, evaluated by the
+                // database. The application clock and the container clock can differ by a few
+                // milliseconds, which made a fresh row transiently ineligible for a claim called
+                // immediately after insert. `databaseNow` asks the database for its own idea of
+                // "now" at insert time, the same fix `InboxRepository.insert` already uses in
+                // production, so there is no second clock to disagree with.
+                it[InboxTable.scheduledAt] = databaseNow
                 it[createdAt] = now
             }
         }
@@ -328,6 +330,22 @@ abstract class E2ETestBase {
                     createdAt = row[InboxTable.createdAt]
                 )
             }
+    }
+
+    /**
+     * Gives an inbox row a live lease, so `reclaimStale` leaves it alone.
+     *
+     * `reclaimStale` matches `state = 'processing' AND (lease_expires_at <= now OR
+     * lease_expires_at IS NULL)`, and the relay runs it on its first cycle. A row planted
+     * directly in `state = 'processing'` with no lease therefore reverts to `pending` almost at
+     * once, which defeats a fixture that means to hold an aggregate busy for the life of a test.
+     */
+    protected fun renewInboxLease(source: String, idempotencyKey: String, leaseMs: Long = 30_000) {
+        transaction {
+            InboxTable.update({ (InboxTable.messageSrc eq source) and (InboxTable.idempotencyKey eq idempotencyKey) }) {
+                it[leaseExpiresAt] = Clock.System.now().plus(kotlin.time.Duration.parse("${leaseMs}ms"))
+            }
+        }
     }
 
     /**
@@ -429,13 +447,13 @@ abstract class E2ETestBase {
     /**
      * Waits until `state = 'processed'` rows of one aggregate reach `count`.
      *
-     * A test must not use a sampled peak to prove "at most one in flight": a sampler that
-     * misses every processing window returns a peak that looks like the invariant held, when it
-     * proves nothing either way. `idx_inbox_one_processing_per_aggregate`, created in
-     * `createTables`, makes the invariant continuous instead of sampled: the database itself
-     * rejects a second concurrent 'processing' row of one aggregate. This helper only waits for
-     * every row to finish; if the invariant did not hold, the write that broke it would fail
-     * with a constraint violation and the count here would never reach `count`.
+     * Waiting for every row to finish is not itself proof of an exclusivity rule: a test that
+     * needs to prove "at most one in flight" must not rely on a sampled peak, since a sampler
+     * that misses the (often sub-millisecond) 'processing' window returns a value
+     * indistinguishable from a genuine pass. Prove that kind of claim by calling the claim
+     * directly, twice, with no mark-processed step between the two calls, and asserting on what
+     * the second call returns (see `OrderingGuaranteeTest`). This helper is for waiting on the
+     * end state of a batch that is expected to complete, not for proving exclusivity.
      */
     protected suspend fun awaitProcessedCount(aggregateId: String, count: Int, timeoutMs: Long = 15000): Boolean =
         awaitUntil(timeoutMs = timeoutMs) {

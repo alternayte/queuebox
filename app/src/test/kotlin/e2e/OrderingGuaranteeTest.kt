@@ -3,6 +3,7 @@ package org.nxtspec.e2e
 import io.ktor.http.HttpStatusCode
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Test
+import org.nxtspec.InboxRepository
 import java.nio.file.Files
 import java.nio.file.Path
 import java.sql.Connection
@@ -43,13 +44,12 @@ class OrderingGuaranteeTest : E2ETestBase() {
 
     @Test
     fun `the relay reserves one in-flight message per aggregate_id across every source together`() = runBlocking {
-        // Two sources, one aggregate. Push claims no source term, so a bug that scoped the
-        // reservation by source would let both sources hold a 'processing' row at once.
-        // idx_inbox_one_processing_per_aggregate (E2ETestBase.createTables) makes that outcome
-        // a constraint violation rather than a value a sampler could miss: if the reservation
-        // ever let two rows of "agg-1" run together, the second UPDATE fails, the relay's
-        // transaction rolls back, and this row never reaches 'processed'. Waiting for all four
-        // to reach 'processed' is therefore proof, not a sample.
+        // Two sources, one aggregate. Push claims no source term, so a claim call must not
+        // return a second row of "agg-1" while the first is still 'processing', whatever source
+        // either row carries. Claiming directly, twice, with no mark-processed between the two
+        // calls leaves the first row 'processing' and un-advanced, which is exactly the state a
+        // second, concurrent claimer would see; it needs no timing luck, unlike racing two
+        // relays against the short gap between one relay's claim and its later mark.
         listOf("s1", "s2", "s1", "s2").forEachIndexed { n, source ->
             insertInboxMessage(
                 source = source,
@@ -59,9 +59,12 @@ class OrderingGuaranteeTest : E2ETestBase() {
                 eventType = "evt"
             )
         }
-        startRelay()
+        val repository = InboxRepository()
+        val first = repository.claimPending(1, 30_000)
+        val second = repository.claimPending(3, 30_000)
 
-        assertTrue(awaitProcessedCount(aggregateId = "agg-1", count = 4))
+        assertEquals(1, first.size)
+        assertEquals(0, second.count { it.aggregateId == "agg-1" })
     }
 
     @Test
@@ -77,7 +80,7 @@ class OrderingGuaranteeTest : E2ETestBase() {
         }
         startRelay()
 
-        assertTrue(awaitProcessedCount(aggregateId = "agg-1", count = 4))
+        assertTrue(awaitUntil { forwardedIdempotencyKeysInOrder().size >= 4 })
         assertEquals(listOf("k0", "k1", "k2", "k3"), forwardedIdempotencyKeysInOrder())
     }
 
@@ -129,7 +132,10 @@ class OrderingGuaranteeTest : E2ETestBase() {
     fun `a row with no aggregate_id takes part in no ordering`() = runBlocking {
         // A row of a busy aggregate sits in 'processing' throughout the test. A free row, with
         // no aggregate_id, must still reach 'processed' promptly: nothing about the busy
-        // aggregate can hold it back, because it takes part in no aggregate's ordering.
+        // aggregate can hold it back, because it takes part in no aggregate's ordering. The busy
+        // row needs a live lease: the relay reclaims stale claims on its first cycle, and a
+        // 'processing' row with no lease_expires_at counts as stale, so an un-leased fixture
+        // would revert to 'pending' almost immediately and never constrain anything.
         insertInboxMessage(
             source = "s",
             idempotencyKey = "busy",
@@ -138,6 +144,7 @@ class OrderingGuaranteeTest : E2ETestBase() {
             consumption = "push",
             eventType = "evt"
         )
+        renewInboxLease(source = "s", idempotencyKey = "busy")
         insertInboxMessage(
             source = "s",
             idempotencyKey = "free",
