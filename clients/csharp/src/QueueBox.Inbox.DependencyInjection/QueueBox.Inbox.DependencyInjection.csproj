@@ -32,6 +32,19 @@
     <ProjectReference Include="../QueueBox.Inbox/QueueBox.Inbox.csproj" />
   </ItemGroup>
 
+  <!-- The pack process turns a ProjectReference into a package dependency with a minimum-version
+       range by default. That range lets a consumer resolve a later QueueBox.Inbox than the one
+       this package was built against, which is exactly the drift the lockstep release forbids.
+       This target rewrites that range to an exact match on the version the tag names, right
+       before the nuspec file is written. -->
+  <Target Name="PinCoreDependencyToExactVersion" AfterTargets="_GetProjectReferenceVersions" BeforeTargets="GenerateNuspec">
+    <ItemGroup>
+      <_ProjectReferencesWithVersions Condition="'%(Filename)' == 'QueueBox.Inbox'">
+        <ProjectVersion>[%(_ProjectReferencesWithVersions.ProjectVersion)]</ProjectVersion>
+      </_ProjectReferencesWithVersions>
+    </ItemGroup>
+  </Target>
+
   <ItemGroup>
     <!-- The core package stays free of a container and a host. A consumer with no container pays
          nothing, because only this package carries these two references. -->
