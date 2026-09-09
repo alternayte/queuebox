@@ -20,7 +20,12 @@ class SqlServerPullLeaseTest : SqlServerTestBase() {
     private fun statement(connection: Connection, action: String, values: Map<String, Any?>): PreparedStatement {
         val path = Path.of("../examples/pull/sql/sqlserver/$action.sql")
         val names = mutableListOf<String>()
-        val sql = Regex(":([a-z_]+)").replace(Files.readString(path)) {
+        // Strip the leading `--` comment lines first. The comment prose names the same
+        // parameters that the statement binds, and the JDBC driver ignores a placeholder written
+        // inside a comment, so counting it here would misalign every bind index after it.
+        val text = Files.readString(path).lineSequence().filterNot { it.trim().startsWith("--") }
+            .joinToString("\n")
+        val sql = Regex("(?<!:):([a-z_]+)").replace(text) {
             names.add(it.groupValues[1])
             "?"
         }
@@ -44,10 +49,18 @@ class SqlServerPullLeaseTest : SqlServerTestBase() {
         return message.id
     }
 
+    // The claim statement candidate limit, per the documented rule: LEAST(GREATEST(3 * batch,
+    // 50), 500). F-087 added this fourth bind parameter to the canonical claim statement.
+    private fun candLimit(batch: Int): Int = (3 * batch).coerceAtLeast(50).coerceAtMost(500)
+
     private fun claim(batch: Int = 1, lease: Int = 5000): List<Pair<UUID, UUID>> =
         dataSource.connection.use { connection ->
             connection.autoCommit = true
-            statement(connection, "claim", mapOf("source" to "orders", "batch" to batch, "lease_ms" to lease)).use {
+            statement(
+                connection,
+                "claim",
+                mapOf("source" to "orders", "batch" to batch, "lease_ms" to lease, "cand_limit" to candLimit(batch))
+            ).use {
                 it.executeQuery().use { rows ->
                     buildList {
                         while (rows.next()) {
