@@ -8,10 +8,12 @@ import io.ktor.server.netty.*
 import io.ktor.server.request.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
+import kotlinx.coroutines.runBlocking
 import kotlinx.datetime.Clock
 import kotlinx.datetime.Instant
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.jsonObject
 import org.jetbrains.exposed.sql.Database
 import org.jetbrains.exposed.sql.SchemaUtils
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
@@ -29,9 +31,21 @@ import org.junit.jupiter.api.Tag
 import org.junit.jupiter.api.TestInstance
 import org.nxtspec.DatabaseConfig
 import org.nxtspec.DatabaseFactory
+import org.nxtspec.Destination
+import org.nxtspec.ExposedTransactionRunner
+import org.nxtspec.InboxRelay
+import org.nxtspec.InboxRelayConfig
+import org.nxtspec.InboxRepository
 import org.nxtspec.InboxTable
+import org.nxtspec.MessageRouter
+import org.nxtspec.OutboxConfig
+import org.nxtspec.OutboxPoller
+import org.nxtspec.OutboxRepository
 import org.nxtspec.OutboxTable
+import org.nxtspec.RetryStrategy
+import org.nxtspec.RouteConfig
 import org.nxtspec.Secret
+import org.nxtspec.http.HttpPublisher
 import org.testcontainers.containers.GenericContainer
 import org.testcontainers.containers.PostgreSQLContainer
 import org.testcontainers.containers.wait.strategy.Wait
@@ -124,6 +138,12 @@ abstract class E2ETestBase {
     protected lateinit var dataSource: HikariDataSource
     protected var mockHttpServer: MockHttpServer? = null
 
+    // Every relay and poller that a helper method starts, so cleanupData can shut each one down.
+    // A test that starts its own relay or poller directly, outside these helpers, still owns its
+    // own shutdown.
+    private val startedRelays = CopyOnWriteArrayList<InboxRelay>()
+    private val startedPollers = CopyOnWriteArrayList<OutboxPoller>()
+
     /**
      * Get the AMQP URL for connecting to the RabbitMQ container.
      */
@@ -158,7 +178,11 @@ abstract class E2ETestBase {
     }
 
     @AfterEach
-    fun cleanupData() {
+    fun cleanupData() = runBlocking {
+        startedRelays.forEach { it.shutdown() }
+        startedRelays.clear()
+        startedPollers.forEach { it.shutdown() }
+        startedPollers.clear()
         // The test itself may have replaced the default, so bind again before the truncate.
         TransactionManager.defaultDatabase = sharedDatabase
         truncateTables()
@@ -190,9 +214,9 @@ abstract class E2ETestBase {
         state: String = "pending",
         attempt: Int = 0,
         maxAttempts: Int = 3,
-        scheduledAt: Instant = Clock.System.now()
+        scheduledAt: Instant = Clock.System.now(),
+        id: UUID = UUID.randomUUID()
     ): UUID {
-        val id = UUID.randomUUID()
         val now = Clock.System.now()
         transaction {
             OutboxTable.insert {
@@ -247,7 +271,10 @@ abstract class E2ETestBase {
         source: String = "test-source",
         idempotencyKey: String = UUID.randomUUID().toString(),
         payload: JsonElement = JsonObject(emptyMap()),
-        state: String = "pending"
+        state: String = "pending",
+        aggregateId: String? = null,
+        consumption: String = "push",
+        eventType: String? = null
     ): UUID {
         val id = UUID.randomUUID()
         val now = Clock.System.now()
@@ -256,8 +283,11 @@ abstract class E2ETestBase {
                 it[InboxTable.id] = id
                 it[messageSrc] = source
                 it[InboxTable.idempotencyKey] = idempotencyKey
+                it[InboxTable.aggregateId] = aggregateId
+                it[InboxTable.eventType] = eventType
                 it[InboxTable.payload] = payload
                 it[InboxTable.state] = state
+                it[InboxTable.consumption] = consumption
                 it[createdAt] = now
             }
         }
@@ -292,6 +322,149 @@ abstract class E2ETestBase {
             .count()
             .toInt()
     }
+
+    /**
+     * Opens a transaction, inserts one outbox row inside it, and returns the row before the
+     * transaction commits.
+     *
+     * The caller holds the transaction open across a suspension point, then calls
+     * [OpenOutboxTransaction.commit]. `transaction { }` commits as soon as its block returns, so
+     * this helper drives a raw JDBC connection instead, with `autoCommit` off.
+     */
+    protected fun openTransactionAndInsertOutbox(
+        topic: String = "test-topic",
+        payload: JsonElement = JsonObject(emptyMap()),
+        id: UUID = UUID.randomUUID()
+    ): OpenOutboxTransaction {
+        val connection = dataSource.connection
+        connection.autoCommit = false
+        val now = java.sql.Timestamp.from(java.time.Instant.now())
+        connection.prepareStatement(
+            "INSERT INTO outbox " +
+                "(id, topic, payload, headers, state, attempt, max_attempts, scheduled_at, created_at, updated_at) " +
+                "VALUES (?, ?, ?::jsonb, '{}'::jsonb, 'pending', 0, 3, ?, ?, ?)"
+        ).use { stmt ->
+            stmt.setObject(1, id)
+            stmt.setString(2, topic)
+            stmt.setString(3, payload.toString())
+            stmt.setTimestamp(4, now)
+            stmt.setTimestamp(5, now)
+            stmt.setTimestamp(6, now)
+            stmt.executeUpdate()
+        }
+        return OpenOutboxTransaction(id, connection)
+    }
+
+    /**
+     * An outbox row inserted by an open, uncommitted transaction.
+     */
+    protected class OpenOutboxTransaction(val id: UUID, private val connection: java.sql.Connection) {
+        fun commit() {
+            connection.commit()
+            connection.close()
+        }
+    }
+
+    /**
+     * Starts an [InboxRelay] against the shared repositories, and registers it for shutdown in
+     * `cleanupData`.
+     */
+    protected fun startRelay(pollIntervalMs: Long = 20, batchSize: Int = 10): InboxRelay {
+        val relay = InboxRelay(
+            config = InboxRelayConfig(pollIntervalMs = pollIntervalMs, batchSize = batchSize),
+            inboxRepository = InboxRepository(),
+            outboxRepository = OutboxRepository(),
+            transactionRunner = ExposedTransactionRunner()
+        )
+        relay.start()
+        startedRelays.add(relay)
+        return relay
+    }
+
+    /**
+     * Starts an [OutboxPoller] that routes every topic to the running [mockHttpServer], and
+     * registers it for shutdown in `cleanupData`.
+     */
+    protected fun startPoller(pollIntervalMs: Long = 20, batchSize: Int = 10): OutboxPoller {
+        val server = checkNotNull(mockHttpServer) { "call startMockHttpServer before startPoller" }
+        val destination = Destination.Http(
+            name = "test-http",
+            baseUrl = server.baseUrl,
+            path = "/webhook",
+            timeoutMs = 5000
+        )
+        val config = OutboxConfig(pollIntervalMs = pollIntervalMs, batchSize = batchSize, maxAttempts = 3)
+        val poller = OutboxPoller(
+            config = config,
+            repository = OutboxRepository(),
+            router = MessageRouter(
+                routes = listOf(RouteConfig(topicPattern = "**", destination = "test-http")),
+                destinations = mapOf("test-http" to destination)
+            ),
+            publishers = listOf(HttpPublisher()),
+            retryStrategy = RetryStrategy(config)
+        )
+        poller.start()
+        startedPollers.add(poller)
+        return poller
+    }
+
+    /**
+     * Samples the count of `inbox` rows of one aggregate in state `processing`, until
+     * `state = 'processed'` rows of that aggregate reach `untilForwarded`, and returns the
+     * highest count seen.
+     */
+    protected suspend fun observePeakInFlight(
+        aggregateId: String,
+        untilForwarded: Int,
+        timeoutMs: Long = 15000,
+        pollMs: Long = 5
+    ): Int {
+        var peak = 0
+        val deadline = System.currentTimeMillis() + timeoutMs
+        while (System.currentTimeMillis() < deadline) {
+            val processing = transaction {
+                InboxTable.selectAll()
+                    .where { (InboxTable.aggregateId eq aggregateId) and (InboxTable.state eq "processing") }
+                    .count()
+                    .toInt()
+            }
+            if (processing > peak) peak = processing
+            val processed = transaction {
+                InboxTable.selectAll()
+                    .where { (InboxTable.aggregateId eq aggregateId) and (InboxTable.state eq "processed") }
+                    .count()
+                    .toInt()
+            }
+            if (processed >= untilForwarded) break
+            kotlinx.coroutines.delay(pollMs)
+        }
+        return peak
+    }
+
+    /**
+     * Reads the `x-idempotency-key` header of every outbox row, in the order that
+     * `created_at` gives, which is the order the relay forwarded the messages.
+     */
+    protected fun forwardedIdempotencyKeysInOrder(): List<String> = transaction {
+        OutboxTable.selectAll()
+            .orderBy(OutboxTable.createdAt to org.jetbrains.exposed.sql.SortOrder.ASC)
+            .mapNotNull { row ->
+                (row[OutboxTable.headers] as? JsonObject)
+                    ?.get("x-idempotency-key")
+                    ?.toString()
+                    ?.trim('"')
+            }
+    }
+
+    /**
+     * Reads the `n` field of a JSON body received by the mock HTTP server, so a test can name
+     * which outbox row a request delivered.
+     */
+    protected fun bodyName(body: String): String = kotlinx.serialization.json.Json.parseToJsonElement(body)
+        .jsonObject["n"]
+        .toString()
+        .trim('"')
 
     // ==================== Mock HTTP Server ====================
 
@@ -353,6 +526,14 @@ class MockHttpServer(
 
     val receivedRequests: List<ReceivedRequest>
         get() = _receivedRequests.toList()
+
+    /** The number of requests received so far. */
+    val requestCount: Int
+        get() = _receivedRequests.size
+
+    /** The body of every request received so far, in the order received. */
+    val receivedBodies: List<String>
+        get() = _receivedRequests.map { it.body }
 
     var port: Int = 0
         private set

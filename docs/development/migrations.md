@@ -19,6 +19,9 @@ Each version number describes the same logical change on both databases.
 | `V3__add_claimed_at.sql` | Add `claimed_at` to both tables, so a crashed claim can be recovered. |
 | `V4__add_last_error.sql` | Add `last_error` to the outbox, so an operator can see why a delivery failed. |
 | `V5__add_correlation_id.sql` | Add `correlation_id` to the inbox, so one identifier follows a message through every log line. |
+| `V6__add_consumption_and_leases.sql` | Add `consumption`, `claim_token`, `lease_expires_at`, and the inbox schedule, attempt and error columns. See [Upgrading to the claim contract of V6](#upgrading-to-the-claim-contract-of-v6). |
+| `V7__capture_state.sql` | Create `queuebox_capture_state`, so QueueBox can detect a lost durable volume and a changed capture configuration. |
+| `V8__add_pull_claim_indexes.sql` | Add the two indexes that the pull claim statement needs, one for a pending row of a source and one for a busy aggregate of a source. |
 
 ## Policy
 
