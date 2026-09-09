@@ -70,13 +70,16 @@ class RabbitPublisher(
                     // template is the fallback for a route that sets no routing key. F-091: the
                     // router renders that fallback against the row before it reaches this
                     // publisher, so `context.resolvedDestinationRoutingKey` is the value to use.
-                    // The literal `{{ topic }}` replace below is a last-resort fallback only for
-                    // a caller that bypasses MessageRouter and supplies no resolved value.
+                    // The rabbitmq module has no dependency on the router and must not render a
+                    // template itself, so a caller that supplies neither value fails the row
+                    // instead of guessing a routing key.
                     val routingKey = context.routingKey
                         ?: context.resolvedDestinationRoutingKey
-                        ?: dest.routingKeyTemplate
-                            .replace("{{ topic }}", message.topic)
-                            .replace("{{topic}}", message.topic)
+                        ?: throw RabbitPublishException(
+                            "Destination '${dest.name}' resolved no routing key. A caller must " +
+                                "supply either PublishContext.routingKey or " +
+                                "PublishContext.resolvedDestinationRoutingKey."
+                        )
 
                     // Build merged headers: standard headers, then destination headers, then per-message headers
                     // Per-message headers take highest precedence and can override all others

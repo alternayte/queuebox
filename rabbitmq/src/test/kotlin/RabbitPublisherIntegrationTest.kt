@@ -113,7 +113,11 @@ class RabbitPublisherIntegrationTest {
             payload = JsonObject(mapOf("orderId" to JsonPrimitive("12345")))
         )
 
-        val result = publisher.publish(message, destination, PublishContext(resolvedAddress = destination.exchange))
+        val result = publisher.publish(
+            message,
+            destination,
+            PublishContext(resolvedAddress = destination.exchange, resolvedDestinationRoutingKey = "orders.created")
+        )
 
         assertTrue(result.isSuccess, "Publish should succeed: ${result.exceptionOrNull()?.message}")
     }
@@ -136,7 +140,14 @@ class RabbitPublisherIntegrationTest {
             payload = JsonObject(mapOf("userId" to JsonPrimitive("user-123")))
         )
 
-        val result = publisher.publish(message, destination, PublishContext(resolvedAddress = destination.exchange))
+        val result = publisher.publish(
+            message,
+            destination,
+            PublishContext(
+                resolvedAddress = destination.exchange,
+                resolvedDestinationRoutingKey = "events.user.signup.v1"
+            )
+        )
 
         assertTrue(result.isSuccess, "Publish should succeed: ${result.exceptionOrNull()?.message}")
     }
@@ -164,8 +175,16 @@ class RabbitPublisherIntegrationTest {
             payload = JsonObject(mapOf("msg" to JsonPrimitive("second")))
         )
 
-        val first = publisher.publish(message1, destination, PublishContext(resolvedAddress = destination.exchange))
-        val second = publisher.publish(message2, destination, PublishContext(resolvedAddress = destination.exchange))
+        val first = publisher.publish(
+            message1,
+            destination,
+            PublishContext(resolvedAddress = destination.exchange, resolvedDestinationRoutingKey = "test1")
+        )
+        val second = publisher.publish(
+            message2,
+            destination,
+            PublishContext(resolvedAddress = destination.exchange, resolvedDestinationRoutingKey = "test2")
+        )
 
         assertTrue(first.isSuccess, "The first publish must succeed")
         assertTrue(second.isSuccess, "The second publish must reuse the cached channel")
@@ -189,7 +208,11 @@ class RabbitPublisherIntegrationTest {
             payload = JsonObject(mapOf("data" to JsonPrimitive("test")))
         )
 
-        val result = publisher.publish(message, destination, PublishContext(resolvedAddress = destination.exchange))
+        val result = publisher.publish(
+            message,
+            destination,
+            PublishContext(resolvedAddress = destination.exchange, resolvedDestinationRoutingKey = "direct-key")
+        )
 
         assertTrue(result.isSuccess, "Direct exchange publish should succeed")
     }
@@ -225,7 +248,11 @@ class RabbitPublisherIntegrationTest {
             payload = JsonObject(mapOf("data" to JsonPrimitive("test")))
         )
 
-        val result = publisher.publish(message, destination, PublishContext(resolvedAddress = destination.exchange))
+        val result = publisher.publish(
+            message,
+            destination,
+            PublishContext(resolvedAddress = destination.exchange, resolvedDestinationRoutingKey = routingKey)
+        )
         assertTrue(result.isSuccess, "Publish should succeed")
 
         // Consume and verify headers
@@ -270,7 +297,7 @@ class RabbitPublisherIntegrationTest {
         val firstResult = publisher.publish(
             message,
             destination,
-            PublishContext(resolvedAddress = destination.exchange)
+            PublishContext(resolvedAddress = destination.exchange, resolvedDestinationRoutingKey = "test.topic")
         )
         assertTrue(firstResult.isFailure, "An unroutable publish must fail")
 
@@ -289,7 +316,7 @@ class RabbitPublisherIntegrationTest {
         val secondResult = publisher.publish(
             message.copy(id = UUID.randomUUID()),
             destination,
-            PublishContext(resolvedAddress = destination.exchange)
+            PublishContext(resolvedAddress = destination.exchange, resolvedDestinationRoutingKey = "test.topic")
         )
         assertTrue(
             secondResult.isSuccess,

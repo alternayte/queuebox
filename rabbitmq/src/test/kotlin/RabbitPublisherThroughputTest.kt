@@ -76,7 +76,11 @@ class RabbitPublisherThroughputTest {
                 topic = "orders.created",
                 payload = JsonObject(mapOf("index" to JsonPrimitive(index)))
             )
-            val result = target.publish(message, destination, PublishContext(resolvedAddress = destination.exchange))
+            val result = target.publish(
+                message,
+                destination,
+                PublishContext(resolvedAddress = destination.exchange, resolvedDestinationRoutingKey = "orders.created")
+            )
             assertTrue(result.isSuccess, "Publish $index failed: ${result.exceptionOrNull()?.message}")
         }
         val elapsedMillis = (System.nanoTime() - start) / 1_000_000
@@ -110,7 +114,14 @@ class RabbitPublisherThroughputTest {
             payload = JsonObject(mapOf("orderId" to JsonPrimitive("12345")))
         )
 
-        val result = target.publish(message, destination, PublishContext(resolvedAddress = destination.exchange))
+        val result = target.publish(
+            message,
+            destination,
+            PublishContext(
+                resolvedAddress = destination.exchange,
+                resolvedDestinationRoutingKey = "no.binding.matches.this"
+            )
+        )
 
         assertTrue(
             result.isFailure,
