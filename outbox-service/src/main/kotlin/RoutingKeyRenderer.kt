@@ -61,25 +61,35 @@ class RoutingKeyRenderer(private val defaultValue: String = "") {
     fun render(template: String, topic: String, payload: JsonElement): String =
         render(template, RowContext(topic = topic, key = null, aggregateType = null, payload = payload))
 
-    private fun resolveField(field: String, row: RowContext): String = when {
-        field == "topic" -> row.topic
-        field == "key" -> row.key ?: defaultValue
-        field == "aggregateType" -> row.aggregateType ?: defaultValue
-        field.startsWith("payload.") -> {
-            extractPayloadField(row.payload, field.removePrefix("payload.")) ?: defaultValue
+    private fun resolveField(field: String, row: RowContext): String {
+        val accessor = FIELD_ACCESSORS[field]
+        if (accessor != null) {
+            return accessor(row) ?: defaultValue
         }
-        field.startsWith("data.") -> {
-            extractPayloadField(row.payload, field.removePrefix("data.")) ?: defaultValue
+        val matchingPrefix = PERMITTED_TEMPLATE_FIELD_PREFIXES.firstOrNull { field.startsWith(it) }
+        if (matchingPrefix != null) {
+            return extractPayloadField(row.payload, field.removePrefix(matchingPrefix)) ?: defaultValue
         }
-        else -> defaultValue
+        return defaultValue
     }
 
     companion object {
         /**
+         * How a routing key template reads each permitted field out of a row. This map is the
+         * single source of both the resolution behaviour and the permitted field names below,
+         * so a name can never appear in one without appearing in the other.
+         */
+        private val FIELD_ACCESSORS: Map<String, (RowContext) -> String?> = mapOf(
+            "topic" to { row -> row.topic },
+            "key" to { row -> row.key },
+            "aggregateType" to { row -> row.aggregateType }
+        )
+
+        /**
          * The template fields a routing key template can read. F-091. A later task uses this
          * set to validate a template at startup, so this set must stay the single source.
          */
-        val PERMITTED_TEMPLATE_FIELDS: Set<String> = setOf("topic", "key", "aggregateType")
+        val PERMITTED_TEMPLATE_FIELDS: Set<String> = FIELD_ACCESSORS.keys
 
         /**
          * The prefixes a routing key template can read a nested field from. F-091. A field

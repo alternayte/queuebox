@@ -6,6 +6,7 @@ import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNotEquals
 
 class RoutingKeyRendererTest {
 
@@ -352,5 +353,31 @@ class RoutingKeyRendererTest {
         val row = RoutingKeyRenderer.RowContext("orders.created", null, null, JsonObject(emptyMap()))
 
         assertEquals("no-aggregate", customRenderer.render("{{ aggregateType }}", row))
+    }
+
+    @Test
+    fun `every permitted template field resolves to a row value, and no other name does`() {
+        val customRenderer = RoutingKeyRenderer(defaultValue = "the-default")
+        val row = RoutingKeyRenderer.RowContext(
+            topic = "row-topic",
+            key = "row-key",
+            aggregateType = "row-aggregate-type",
+            payload = buildJsonObject { put("field", JsonPrimitive("row-payload-field")) }
+        )
+
+        for (field in RoutingKeyRenderer.PERMITTED_TEMPLATE_FIELDS) {
+            val rendered = customRenderer.render("{{ $field }}", row)
+            assertNotEquals("the-default", rendered, "field '$field' must resolve to a row value, not the default")
+        }
+
+        for (prefix in RoutingKeyRenderer.PERMITTED_TEMPLATE_FIELD_PREFIXES) {
+            val rendered = customRenderer.render("{{ ${prefix}field }}", row)
+            assertEquals("row-payload-field", rendered)
+        }
+
+        val unpermittedField = "nosuchfield"
+        check(unpermittedField !in RoutingKeyRenderer.PERMITTED_TEMPLATE_FIELDS)
+        check(RoutingKeyRenderer.PERMITTED_TEMPLATE_FIELD_PREFIXES.none { unpermittedField.startsWith(it) })
+        assertEquals("the-default", customRenderer.render("{{ $unpermittedField }}", row))
     }
 }
