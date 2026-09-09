@@ -238,13 +238,19 @@ sealed class DestinationConfig {
         val saslUsername: String? = null,
         val saslPassword: Secret? = null,
         val timeoutMs: Long = 30000,
+        /**
+         * The name of a row column to read the topic name from, verbatim. F-091. A value here
+         * wins over [topic]. The permitted names are exactly the set in
+         * [org.nxtspec.Destination.Companion.PERMITTED_ADDRESS_FROM_COLUMNS].
+         */
+        val topicFrom: String? = null,
         override val transform: TransformConfig? = null
     ) : DestinationConfig() {
         /** F-038: a static header can carry a credential, so the printed form masks it. */
         override fun toString(): String = "Kafka(bootstrapServers=$bootstrapServers, topic=$topic, " +
             "keyTemplate=$keyTemplate, headers=${CredentialMasking.maskHeaders(headers)}, " +
             "securityProtocol=$securityProtocol, saslMechanism=$saslMechanism, " +
-            "saslUsername=$saslUsername, timeoutMs=$timeoutMs, transform=$transform)"
+            "saslUsername=$saslUsername, timeoutMs=$timeoutMs, topicFrom=$topicFrom, transform=$transform)"
     }
 
     @Serializable
@@ -259,11 +265,17 @@ sealed class DestinationConfig {
         val password: Secret? = null,
         val token: Secret? = null,
         val timeoutMs: Long = 30000,
+        /**
+         * The name of a row column to read the subject name from, verbatim. F-091. A value here
+         * wins over [subject]. The permitted names are exactly the set in
+         * [org.nxtspec.Destination.Companion.PERMITTED_ADDRESS_FROM_COLUMNS].
+         */
+        val subjectFrom: String? = null,
         override val transform: TransformConfig? = null
     ) : DestinationConfig() {
         override fun toString(): String = "Nats(servers=${CredentialMasking.maskUrl(servers)}, " +
             "subject=$subject, jetStream=$jetStream, headers=${CredentialMasking.maskHeaders(headers)}, " +
-            "username=$username, timeoutMs=$timeoutMs, transform=$transform)"
+            "username=$username, timeoutMs=$timeoutMs, subjectFrom=$subjectFrom, transform=$transform)"
     }
 
     @Serializable
@@ -273,6 +285,12 @@ sealed class DestinationConfig {
         val exchange: String,
         val exchangeType: String = "topic",
         val headers: Map<String, String> = emptyMap(),
+        /**
+         * The name of a row column to read the exchange name from, verbatim. F-091. A value here
+         * wins over [exchange]. The permitted names are exactly the set in
+         * [org.nxtspec.Destination.Companion.PERMITTED_ADDRESS_FROM_COLUMNS].
+         */
+        val exchangeFrom: String? = null,
         override val transform: TransformConfig? = null
     ) : DestinationConfig() {
         /**
@@ -280,7 +298,7 @@ sealed class DestinationConfig {
          */
         override fun toString(): String = "RabbitMQ(url=${CredentialMasking.maskUrl(url)}, exchange=$exchange, " +
             "exchangeType=$exchangeType, headers=${CredentialMasking.maskHeaders(headers)}, " +
-            "transform=$transform)"
+            "exchangeFrom=$exchangeFrom, transform=$transform)"
     }
 }
 

@@ -136,6 +136,17 @@ destinations:
                                           # a hostile or a runaway expression.
       onError: Fail                       # 'Fail', 'Skip' or 'Dead'. Write the exact case.
 
+  # `exchange`, `topic`, and `subject` below can each be a literal name, or a template with
+  # `{{ ... }}` placeholders. A template can read `{{ topic }}`, `{{ key }}`, and
+  # `{{ aggregateType }}`, or a payload field through `{{ payload.fieldName }}` or
+  # `{{ data.fieldName }}`. A placeholder that names any other field fails the start, and the
+  # failure names both the field and the destination.
+  #
+  # `exchangeFrom`, `topicFrom`, and `subjectFrom` each name a row column instead, and each wins
+  # over its template. The permitted column names are exactly `aggregate_type`, `topic`, and
+  # `key`, spelled with the underscore. A column name outside this set also fails the start, and
+  # the failure names both the column and the destination. This set is not the template set: a
+  # column name follows this database spelling, never the template's camel case.
   events-exchange:
     type: rabbitmq
     url: amqp://localhost:5672
@@ -452,6 +463,11 @@ These fields are required only when configuring specific features:
 | `exchange` | Yes | — |
 | `exchangeFrom` | No | — (a row column, wins over `exchange`) |
 | `exchangeType` | No | `topic` |
+
+`exchange` can be a template. It can read `{{ topic }}`, `{{ key }}`, `{{ aggregateType }}`, or a
+payload field through `{{ payload.fieldName }}` or `{{ data.fieldName }}`. A different field name
+fails the start. `exchangeFrom`, when set, must be `aggregate_type`, `topic`, or `key`. A different
+column name also fails the start. Each failure names the offending value and the destination.
 
 **Routes** (each entry in `routes`):
 
