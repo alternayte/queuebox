@@ -44,7 +44,9 @@ data class NatsConsumerConfig(
     val batchSize: Int = 100,
     val username: String? = null,
     val password: Secret? = null,
-    val token: Secret? = null
+    val token: Secret? = null,
+    /** The header names that carry the three inbox attributes. See F-100. */
+    val attributeHeaders: AttributeHeaders = AttributeHeaders()
 )
 
 /**
@@ -293,7 +295,7 @@ class NatsInboxConsumer(
         ?: UUID.randomUUID().toString()
 
     private fun extractIdempotencyKey(natsMessage: Message, payload: JsonElement, body: ByteArray): String {
-        header(natsMessage, "x-idempotency-key")?.let { return it }
+        header(natsMessage, config.attributeHeaders.idempotencyKey)?.let { return it }
         val extracted = extractor.extract(payload, config.idempotencyKeyPath)
         if (extracted.isSuccess) return extracted.getOrThrow()
         // `Nats-Msg-Id` is the identifier that JetStream itself deduplicates on, so it is the
@@ -307,7 +309,7 @@ class NatsInboxConsumer(
             val extracted = extractor.extract(payload, path)
             if (extracted.isSuccess) return extracted.getOrThrow()
         }
-        return header(natsMessage, "x-event-type")
+        return header(natsMessage, config.attributeHeaders.eventType)
     }
 
     private fun extractAggregateId(natsMessage: Message, payload: JsonElement): String? {
@@ -315,7 +317,7 @@ class NatsInboxConsumer(
             val extracted = extractor.extract(payload, path)
             if (extracted.isSuccess) return extracted.getOrThrow()
         }
-        return header(natsMessage, "x-aggregate-id")
+        return header(natsMessage, config.attributeHeaders.aggregateId)
     }
 
     private fun bodyDigest(body: ByteArray): String {

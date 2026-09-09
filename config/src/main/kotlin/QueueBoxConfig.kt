@@ -315,6 +315,20 @@ data class RouteConfig(
     val transform: TransformConfig? = null
 )
 
+/**
+ * The header names that carry the three inbox attributes. F-100.
+ *
+ * The defaults are the names QueueBox has always read. A Debezium producer sends `id`,
+ * `eventType` and `aggregateId` instead, and before this setting a flat payload with those
+ * headers needed a code change.
+ */
+@Serializable
+data class AttributeHeaders(
+    val idempotencyKey: String = "x-idempotency-key",
+    val aggregateId: String = "x-aggregate-id",
+    val eventType: String = "x-event-type"
+)
+
 @Serializable
 sealed class SourceConfig {
     abstract val transform: TransformConfig?
@@ -380,6 +394,8 @@ sealed class SourceConfig {
         val saslMechanism: String? = null,
         val saslUsername: String? = null,
         val saslPassword: Secret? = null,
+        /** The header names that carry the three inbox attributes. See F-100. */
+        val attributeHeaders: AttributeHeaders = AttributeHeaders(),
         override val transform: TransformConfig? = null,
         /** The default renders the source name, which every message carries. */
         override val topic: String = "{{ source }}",
@@ -391,8 +407,8 @@ sealed class SourceConfig {
             "eventTypePath=$eventTypePath, eventTypeFromHeader=$eventTypeFromHeader, " +
             "autoOffsetReset=$autoOffsetReset, maxPollRecords=$maxPollRecords, " +
             "securityProtocol=$securityProtocol, saslMechanism=$saslMechanism, " +
-            "saslUsername=$saslUsername, transform=$transform, topic=$topic, " +
-            "consumption=$consumption, rateLimit=$rateLimit)"
+            "saslUsername=$saslUsername, attributeHeaders=$attributeHeaders, transform=$transform, " +
+            "topic=$topic, consumption=$consumption, rateLimit=$rateLimit)"
     }
 
     /**
@@ -425,6 +441,8 @@ sealed class SourceConfig {
         val username: String? = null,
         val password: Secret? = null,
         val token: Secret? = null,
+        /** The header names that carry the three inbox attributes. See F-100. */
+        val attributeHeaders: AttributeHeaders = AttributeHeaders(),
         override val transform: TransformConfig? = null,
         override val topic: String = "{{ source }}",
         override val consumption: String = "push",
@@ -435,7 +453,8 @@ sealed class SourceConfig {
             "idempotencyKeyPath=$idempotencyKeyPath, aggregateIdPath=$aggregateIdPath, " +
             "eventTypePath=$eventTypePath, eventTypeFromHeader=$eventTypeFromHeader, " +
             "ackWaitMs=$ackWaitMs, batchSize=$batchSize, username=$username, " +
-            "transform=$transform, topic=$topic, consumption=$consumption, rateLimit=$rateLimit)"
+            "attributeHeaders=$attributeHeaders, transform=$transform, topic=$topic, " +
+            "consumption=$consumption, rateLimit=$rateLimit)"
     }
 
     @Serializable
@@ -469,6 +488,8 @@ sealed class SourceConfig {
          * already exist and QueueBox must create it.
          */
         val declareQueue: Boolean = false,
+        /** The header names that carry the three inbox attributes. See F-100. */
+        val attributeHeaders: AttributeHeaders = AttributeHeaders(),
         override val transform: TransformConfig? = null,
         /**
          * The default renders the source name, which every message carries. A template that
@@ -485,7 +506,8 @@ sealed class SourceConfig {
             "connectionUrl=${CredentialMasking.maskUrl(connectionUrl)}, " +
             "idempotencyKeyPath=$idempotencyKeyPath, aggregateIdPath=$aggregateIdPath, " +
             "eventTypePath=$eventTypePath, eventTypeFromHeader=$eventTypeFromHeader, " +
-            "prefetchCount=$prefetchCount, declareQueue=$declareQueue, transform=$transform, " +
+            "prefetchCount=$prefetchCount, declareQueue=$declareQueue, " +
+            "attributeHeaders=$attributeHeaders, transform=$transform, " +
             "topic=$topic, rateLimit=$rateLimit)"
     }
 }

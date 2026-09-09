@@ -56,4 +56,40 @@ class SourceFromYamlTest {
         val consumerConfig = rabbitConsumerConfig("orders-queue", source)
         assertEquals(true, consumerConfig.declareQueue)
     }
+
+    /**
+     * F-100: a RabbitMQ source names the header that carries the idempotency key. Deleting the
+     * line `attributeHeaders = source.attributeHeaders` in `rabbitConsumerConfig` breaks no other
+     * test in the suite. It must break this one.
+     */
+    @Test
+    fun `a RabbitMQ attributeHeaders block arrives on the consumer configuration`() {
+        val source = loadRabbitMqSource(
+            """
+            database:
+              url: jdbc:postgresql://localhost:5432/queuebox
+              username: postgres
+              password: secret
+
+            sources:
+              orders-queue:
+                type: rabbitmq
+                queueName: incoming-orders
+                connectionUrl: amqp://guest:guest@localhost:5672
+                attributeHeaders:
+                  idempotencyKey: id
+                  aggregateId: aggregateId
+                  eventType: eventType
+            """.trimIndent()
+        )
+
+        // The default is "x-idempotency-key", so a value of "id" here can arrive only through
+        // the real Hoplite parse, not through a config object built by hand.
+        assertEquals("id", source.attributeHeaders.idempotencyKey)
+
+        val consumerConfig = rabbitConsumerConfig("orders-queue", source)
+        assertEquals("id", consumerConfig.attributeHeaders.idempotencyKey)
+        assertEquals("aggregateId", consumerConfig.attributeHeaders.aggregateId)
+        assertEquals("eventType", consumerConfig.attributeHeaders.eventType)
+    }
 }

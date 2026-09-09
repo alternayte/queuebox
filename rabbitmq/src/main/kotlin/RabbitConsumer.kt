@@ -13,7 +13,6 @@ import kotlinx.coroutines.job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.datetime.Clock
-import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
@@ -31,7 +30,6 @@ import org.nxtspec.transform.InboxTransformPipeline
 import org.nxtspec.transform.InboxTransformResult
 import java.util.UUID
 
-@Serializable
 data class RabbitConsumerConfig(
     val consumption: String = "push",
     val queueName: String,
@@ -52,7 +50,9 @@ data class RabbitConsumerConfig(
      * empty queue that never receives a message, and that failure is silent. A missing queue
      * must fail loudly instead, so an operator sets this field on purpose.
      */
-    val declareQueue: Boolean = false
+    val declareQueue: Boolean = false,
+    /** The header names that carry the three inbox attributes. See F-100. */
+    val attributeHeaders: AttributeHeaders = AttributeHeaders()
 )
 
 private sealed interface AckCommand {
@@ -428,8 +428,8 @@ class RabbitConsumer(
     }
 
     private fun extractIdempotencyKey(properties: AMQP.BasicProperties, payload: JsonElement, body: ByteArray): String {
-        // Priority 1: x-idempotency-key header
-        val headerKey = properties.headers?.get("x-idempotency-key")
+        // Priority 1: the configured idempotency-key header
+        val headerKey = properties.headers?.get(config.attributeHeaders.idempotencyKey)
         if (headerKey != null) {
             return headerKey.toString()
         }
@@ -510,7 +510,7 @@ class RabbitConsumer(
             }
         }
 
-        return properties.headers?.get("x-event-type")?.toString()
+        return properties.headers?.get(config.attributeHeaders.eventType)?.toString()
     }
 
     private fun extractAggregateId(properties: AMQP.BasicProperties, payload: JsonElement): String? {
@@ -522,8 +522,8 @@ class RabbitConsumer(
             }
         }
 
-        // Priority 2: x-aggregate-id header fallback
-        return properties.headers?.get("x-aggregate-id")?.toString()
+        // Priority 2: the configured aggregate-id header fallback
+        return properties.headers?.get(config.attributeHeaders.aggregateId)?.toString()
     }
 
     /**

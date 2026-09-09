@@ -515,7 +515,8 @@ internal fun rabbitConsumerConfig(sourceName: String, source: SourceConfig.Rabbi
         idempotencyKeyPath = source.idempotencyKeyPath,
         aggregateIdPath = source.aggregateIdPath,
         eventTypePath = source.eventTypePath,
-        declareQueue = source.declareQueue
+        declareQueue = source.declareQueue,
+        attributeHeaders = source.attributeHeaders
     )
 
 /**
@@ -632,7 +633,8 @@ private fun kafkaInboxConsumers(
                 securityProtocol = kafkaConfig.securityProtocol,
                 saslMechanism = kafkaConfig.saslMechanism,
                 saslUsername = kafkaConfig.saslUsername,
-                saslPassword = kafkaConfig.saslPassword
+                saslPassword = kafkaConfig.saslPassword,
+                attributeHeaders = kafkaConfig.attributeHeaders
             ),
             metricsCollector = metricsCollector,
             transformPipeline = inboxTransformPipeline,
@@ -717,7 +719,8 @@ private fun natsInboxConsumers(
                 batchSize = natsConfig.batchSize,
                 username = natsConfig.username,
                 password = natsConfig.password,
-                token = natsConfig.token
+                token = natsConfig.token,
+                attributeHeaders = natsConfig.attributeHeaders
             ),
             metricsCollector = metricsCollector,
             transformPipeline = inboxTransformPipeline,
