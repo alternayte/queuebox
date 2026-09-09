@@ -206,7 +206,7 @@ class OutboxRepository(
     // distort it.
     override suspend fun oldestPendingAgeSeconds(): Double = joinOrNewTransaction {
         val sql = """
-            SELECT COALESCE(EXTRACT(EPOCH FROM (clock_timestamp() - MIN(${q(columnMapping.createdAt)}))), 0)
+            SELECT EXTRACT(EPOCH FROM (clock_timestamp() - MIN(${q(columnMapping.createdAt)})))
             FROM ${q(tableName)}
             WHERE ${q(columnMapping.state)} = 'pending'
         """.trimIndent()
@@ -214,7 +214,8 @@ class OutboxRepository(
         conn.createStatement().use { stmt ->
             stmt.executeQuery(sql).use { rows ->
                 rows.next()
-                rows.getDouble(1)
+                val age = rows.getDouble(1)
+                if (rows.wasNull()) 0.0 else age
             }
         }
     }

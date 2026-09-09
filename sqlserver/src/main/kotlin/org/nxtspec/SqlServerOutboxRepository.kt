@@ -249,7 +249,7 @@ class SqlServerOutboxRepository(
         )
         val createdAtCol = quoteSqlServerIdentifier(columnMapping.createdAt)
         val sql = """
-            SELECT COALESCE(DATEDIFF_BIG(second, MIN($createdAtCol), ?), 0)
+            SELECT DATEDIFF_BIG(second, MIN($createdAtCol), ?)
             FROM ${quoteSqlServerIdentifier(tableName)}
             WHERE ${quoteSqlServerIdentifier(columnMapping.state)} = 'pending'
         """.trimIndent()
@@ -259,7 +259,8 @@ class SqlServerOutboxRepository(
             stmt.setTimestamp(1, nowTimestamp)
             stmt.executeQuery().use { rows ->
                 rows.next()
-                rows.getLong(1).toDouble()
+                val age = rows.getLong(1)
+                if (rows.wasNull()) 0.0 else age.toDouble()
             }
         }
     }
