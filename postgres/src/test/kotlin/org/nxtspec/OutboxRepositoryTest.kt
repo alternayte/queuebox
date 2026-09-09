@@ -6,6 +6,7 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.runBlocking
 import kotlinx.datetime.Clock
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import org.junit.jupiter.api.BeforeEach
@@ -13,6 +14,7 @@ import org.junit.jupiter.api.RepeatedTest
 import org.junit.jupiter.api.Tag
 import org.junit.jupiter.api.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.seconds
 
@@ -277,5 +279,33 @@ class OutboxRepositoryTest : PostgresTestBase() {
         assertEquals(1, result.size)
         assertEquals("héllo wörld 你好", result[0].headers["X-Unicode"])
         assertEquals("value/with=special&chars", result[0].headers["X-Special"])
+    }
+
+    // --- Aggregate type tests (F-090) ---
+
+    @Test
+    fun `an aggregate type round trips through the outbox row`() = runBlocking {
+        val message = OutboxMessage(
+            topic = "orders.created",
+            payload = JsonObject(emptyMap()),
+            aggregateType = "Task"
+        )
+        repository.insert(message)
+
+        val claimed = repository.claimBatch(10)
+
+        assertEquals("Task", claimed.single { it.id == message.id }.aggregateType)
+    }
+
+    @Test
+    fun `a row with no aggregate type still publishes`() = runBlocking {
+        // The column is nullable, so an existing writer that never sets it must not break.
+        val message = OutboxMessage(topic = "orders.created", payload = JsonObject(emptyMap()))
+        repository.insert(message)
+
+        val claimed = repository.claimBatch(10)
+
+        assertTrue(claimed.any { it.id == message.id })
+        assertNull(claimed.first { it.id == message.id }.aggregateType)
     }
 }

@@ -11,6 +11,7 @@ import org.jetbrains.exposed.sql.kotlin.datetime.timestamp
 object OutboxTable : UUIDTable("outbox") {
     val topic: Column<String> = varchar("topic", 255)
     val key: Column<String?> = varchar("key", 255).nullable()
+    val aggregateType: Column<String?> = varchar("aggregate_type", 255).nullable()
     val payload: Column<JsonElement> = jsonb("payload", Json.Default)
     val headers: Column<JsonElement> = jsonb<JsonElement>("headers", Json.Default).default(JsonObject(emptyMap()))
     val state: Column<String> = varchar("state", 50).default("pending")

@@ -108,6 +108,7 @@ data class OutboxColumnMapping(
     val id: String = "id",
     val topic: String = "topic",
     val key: String = "key",
+    val aggregateType: String = "aggregate_type",
     val payload: String = "payload",
     val headers: String = "headers",
     val state: String = "state",

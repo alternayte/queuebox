@@ -18,6 +18,7 @@ class SqlServerDynamicOutboxTable(val mapping: OutboxColumnMapping, tableName: S
     UUIDTable(tableName, mapping.id) {
     val topic: Column<String> = varchar(mapping.topic, 255)
     val key: Column<String?> = varchar(mapping.key, 255).nullable()
+    val aggregateType: Column<String?> = varchar(mapping.aggregateType, 255).nullable()
     val payload: Column<String> = text(mapping.payload) // JSON stored as NVARCHAR(MAX)
     val headers: Column<String> = text(mapping.headers).default("{}") // JSON headers as NVARCHAR(MAX)
     val state: Column<String> = varchar(mapping.state, 50).default("pending")

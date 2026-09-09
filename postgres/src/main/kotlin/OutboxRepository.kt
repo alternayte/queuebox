@@ -61,7 +61,8 @@ class OutboxRepository(
             ) AS candidates
             WHERE target.${q(columnMapping.id)} = candidates.claim_id
             RETURNING target.${q(columnMapping.id)}, target.${q(columnMapping.topic)},
-                      target.${q(columnMapping.key)}, target.${q(columnMapping.payload)},
+                      target.${q(columnMapping.key)}, target.${q(columnMapping.aggregateType)},
+                      target.${q(columnMapping.payload)},
                       target.${q(columnMapping.headers)}, target.${q(columnMapping.state)},
                       target.${q(columnMapping.attempt)}, target.${q(columnMapping.maxAttempts)},
                       target.${q(columnMapping.scheduledAt)}, target.${q(columnMapping.createdAt)},
@@ -100,6 +101,7 @@ class OutboxRepository(
             it[table.id] = message.id
             it[table.topic] = message.topic
             it[table.key] = message.key
+            it[table.aggregateType] = message.aggregateType
             it[table.payload] = message.payload
             it[table.headers] = JsonObject(message.headers.mapValues { (_, v) -> JsonPrimitive(v) })
             it[table.state] = "pending"
@@ -263,6 +265,7 @@ class OutboxRepository(
             id = UUID.fromString(getString(columnMapping.id)),
             topic = getString(columnMapping.topic),
             key = getString(columnMapping.key),
+            aggregateType = getString(columnMapping.aggregateType),
             payload = kotlinx.serialization.json.Json.parseToJsonElement(getString(columnMapping.payload)),
             headers = headers,
             state = stringToMessageState(getString(columnMapping.state)),
@@ -294,6 +297,7 @@ class OutboxRepository(
             id = this[table.id].value,
             topic = this[table.topic],
             key = this[table.key],
+            aggregateType = this[table.aggregateType],
             payload = this[table.payload],
             headers = headers,
             state = stringToMessageState(this[table.state]),

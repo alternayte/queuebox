@@ -3,6 +3,7 @@ package org.nxtspec
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import org.flywaydb.core.Flyway
 import org.junit.jupiter.api.Tag
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.TestInstance
@@ -91,6 +92,71 @@ class SqlServerMigratorTest {
 
         val applied = SqlServerMigrator().migrate(dataSource)
         assertTrue(applied >= 4, "Flyway records every file. Applied $applied")
+
+        SqlServerDatabaseFactory.close(dataSource)
+    }
+
+    /**
+     * Covers F-090's DoD requirement: the migration must apply to a database that already holds
+     * rows, not only to an empty one.
+     */
+    @Test
+    fun `V9 applies to a populated outbox table`() = runBlocking {
+        val databaseName = "queuebox_v9_populated"
+        createEmptyDatabase(databaseName)
+
+        val url = SqlServerTestBase.sqlserver.jdbcUrl + ";databaseName=$databaseName"
+        val config = DatabaseConfig(
+            type = "sqlserver",
+            url = url,
+            username = SqlServerTestBase.sqlserver.username,
+            password = Secret(SqlServerTestBase.sqlserver.password),
+            poolSize = 5
+        )
+        val dataSource = SqlServerDatabaseFactory.create(config)
+
+        // Migrate only up to V8, so the row insert below happens against the schema that
+        // predates this feature.
+        Flyway.configure()
+            .dataSource(dataSource)
+            .locations(SqlServerMigrator.LOCATION)
+            .baselineOnMigrate(true)
+            .baselineVersion("0")
+            .target("8")
+            .load()
+            .migrate()
+
+        val rowCount = 5
+        dataSource.connection.use { connection ->
+            connection.prepareStatement(
+                "INSERT INTO outbox (id, topic, payload, state, attempt, max_attempts, " +
+                    "scheduled_at, created_at, updated_at) " +
+                    "VALUES (NEWID(), ?, '{}', 'pending', 0, 5, SYSUTCDATETIME(), SYSUTCDATETIME(), SYSUTCDATETIME())"
+            ).use { stmt ->
+                repeat(rowCount) {
+                    stmt.setString(1, "order.created")
+                    stmt.addBatch()
+                }
+                stmt.executeBatch()
+            }
+            connection.commit()
+        }
+
+        val applied = SqlServerMigrator().migrate(dataSource)
+        assertTrue(applied >= 1, "V9 must run against the already-populated database")
+
+        dataSource.connection.use { connection ->
+            connection.createStatement().use { stmt ->
+                stmt.executeQuery("SELECT COUNT(*) FROM outbox").use { rs ->
+                    rs.next()
+                    assertEquals(rowCount, rs.getInt(1), "Every pre-existing row must survive the migration")
+                }
+                stmt.executeQuery("SELECT COUNT(*) FROM outbox WHERE aggregate_type IS NOT NULL").use { rs ->
+                    rs.next()
+                    assertEquals(0, rs.getInt(1), "Every pre-existing row must have a null aggregate_type")
+                }
+            }
+        }
 
         SqlServerDatabaseFactory.close(dataSource)
     }

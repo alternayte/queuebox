@@ -5,10 +5,12 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.runTest
 import kotlinx.datetime.Clock
+import kotlinx.serialization.json.JsonObject
 import org.junit.jupiter.api.RepeatedTest
 import org.junit.jupiter.api.Test
 import java.util.Collections
 import kotlin.test.assertEquals
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.hours
 import kotlin.time.Duration.Companion.minutes
@@ -227,5 +229,33 @@ class SqlServerOutboxRepositoryTest : SqlServerTestBase() {
         assertEquals(1, claimed.size)
         assertEquals("héllo wörld", claimed[0].headers["X-Unicode"])
         assertEquals("value/with=chars", claimed[0].headers["X-Special"])
+    }
+
+    // --- Aggregate type tests (F-090) ---
+
+    @Test
+    fun `an aggregate type round trips through the outbox row`() = runTest {
+        val message = OutboxMessage(
+            topic = "orders.created",
+            payload = JsonObject(emptyMap()),
+            aggregateType = "Task"
+        )
+        repository.insert(message)
+
+        val claimed = repository.claimBatch(10)
+
+        assertEquals("Task", claimed.single { it.id == message.id }.aggregateType)
+    }
+
+    @Test
+    fun `a row with no aggregate type still publishes`() = runTest {
+        // The column is nullable, so an existing writer that never sets it must not break.
+        val message = OutboxMessage(topic = "orders.created", payload = JsonObject(emptyMap()))
+        repository.insert(message)
+
+        val claimed = repository.claimBatch(10)
+
+        assertTrue(claimed.any { it.id == message.id })
+        assertNull(claimed.first { it.id == message.id }.aggregateType)
     }
 }
