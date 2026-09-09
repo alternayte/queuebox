@@ -325,6 +325,38 @@ class SqlServerInboxRepository(
             .count()
     }
 
+    // SQL Server stores `created_at` as a local wall clock rather than a UTC instant, so
+    // `SYSUTCDATETIME()` would give a wrong answer by a fixed offset. "Now" is bound instead as a
+    // JDBC parameter from the application clock, exactly as `claimBatch` already does for
+    // `scheduledAt`.
+    override suspend fun oldestPendingAgeSeconds(): Double = joinOrNewTransaction {
+        val now = Clock.System.now()
+        val nowTimestamp = Timestamp.from(
+            java.time.Instant.ofEpochSecond(now.epochSeconds, now.nanosecondsOfSecond.toLong())
+        )
+        val createdAtCol = quoteSqlServerIdentifier(columnMapping.createdAt)
+        // DATEDIFF_BIG(second, ...) counts boundary crossings, not elapsed time: a row 0.9
+        // seconds old reports 1, and a row 0.1 seconds old reports 0, indistinguishable from the
+        // empty-table sentinel. Using millisecond resolution and dividing down to seconds in SQL
+        // gives fractional seconds, matching the PostgreSQL path's precision. See I3.
+        val sql = """
+            SELECT DATEDIFF_BIG(millisecond, MIN($createdAtCol), ?) / 1000.0
+            FROM ${quoteSqlServerIdentifier(tableName)}
+            WHERE ${quoteSqlServerIdentifier(columnMapping.state)} = 'pending'
+        """.trimIndent()
+        val conn = TransactionManager.current().connection.connection as java.sql.Connection
+        conn.prepareStatement(sql).use { stmt ->
+            stmt.setTimestamp(1, nowTimestamp)
+            stmt.executeQuery().use { rows ->
+                rows.next()
+                // MIN over no pending rows is SQL NULL. The JDBC driver maps a NULL result to
+                // 0.0 on getDouble, and 0.0 is exactly the contract this method promises for
+                // that case, so no defensive wasNull() branch is needed.
+                rows.getDouble(1)
+            }
+        }
+    }
+
     override suspend fun deleteOlderThan(state: String, cutoff: Instant, limit: Int): Int {
         require(state in setOf("sent", "processed", "dead")) { "Cannot delete active work" }
         return joinOrNewTransaction {

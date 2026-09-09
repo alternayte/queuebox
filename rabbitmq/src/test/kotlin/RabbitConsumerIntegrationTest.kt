@@ -27,6 +27,7 @@ import java.util.UUID
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
@@ -101,6 +102,32 @@ class RabbitConsumerIntegrationTest {
                 channel.queueDeclare(TEST_QUEUE, false, false, false, null)
                 // Purge any existing messages
                 channel.queuePurge(TEST_QUEUE)
+            }
+        }
+    }
+
+    /** F-097: builds a consumer for a queue the test does not pre-declare. */
+    private fun consumerFor(queue: String, declareQueue: Boolean = false): RabbitConsumer {
+        val config = RabbitConsumerConfig(
+            queueName = queue,
+            sourceName = "test-source",
+            idempotencyKeyPath = "$.id",
+            declareQueue = declareQueue
+        )
+        return RabbitConsumer(connection, mockStore, extractor, config)
+    }
+
+    /** F-097: true when the named queue exists on the broker. */
+    private fun queueExists(queue: String): Boolean {
+        val factory = ConnectionFactory().apply { setUri(amqpUrl) }
+        return factory.newConnection().use { conn ->
+            conn.createChannel().use { channel ->
+                try {
+                    channel.queueDeclarePassive(queue)
+                    true
+                } catch (e: java.io.IOException) {
+                    false
+                }
             }
         }
     }
@@ -321,6 +348,67 @@ class RabbitConsumerIntegrationTest {
         val key = storedMessages[0].idempotencyKey
         assertTrue(key.startsWith("sha256:"), "The fallback key must be a body digest, was '$key'.")
         assertEquals(71, key.length, "The digest key must carry 64 hexadecimal characters.")
+    }
+
+    // F-097: a missing source queue must name the cause, the asymmetry with the destination
+    // exchange, and the setting that fixes it, rather than the raw broker text alone.
+    @Test
+    fun `a missing queue names the cause, the asymmetry and the setting`() = runBlocking {
+        consumer = consumerFor(queue = "no-such-queue-${UUID.randomUUID()}")
+
+        val error = assertFailsWith<Exception> { consumer.start() }
+
+        val message = error.message!!
+        assertTrue(message.contains("does not exist"), message)
+        assertTrue(message.contains("does not declare"), message)
+        assertTrue(message.contains("declareQueue"), message)
+    }
+
+    // F-097 narrowing: a channel failure that is NOT a missing queue must propagate with its own
+    // message, unchanged. A confidently wrong "set declareQueue" remedy for the wrong failure is
+    // worse than the broker's own text, because it sends an operator to a fix that will not help.
+    @Test
+    fun `a non-missing-queue failure keeps its own message`() = runBlocking {
+        val exclusiveQueue = "exclusive-${UUID.randomUUID()}"
+        val holderFactory = ConnectionFactory().apply { setUri(amqpUrl) }
+        val holderConnection = holderFactory.newConnection()
+        val holderChannel = holderConnection.createChannel()
+        try {
+            // An exclusive queue is usable only on the connection that declared it. A second
+            // connection that tries to consume it gets ACCESS_REFUSED (403), not NOT_FOUND (404).
+            holderChannel.queueDeclare(exclusiveQueue, false, true, false, null)
+
+            consumer = consumerFor(queue = exclusiveQueue)
+
+            val error = assertFailsWith<Exception> { consumer.start() }
+
+            val fullMessage = generateSequence<Throwable>(error) { it.cause }
+                .joinToString(" | ") { it.message ?: it.toString() }
+            assertTrue(
+                !fullMessage.contains("declareQueue"),
+                "A non-missing-queue failure must not carry the declareQueue remedy: $fullMessage"
+            )
+            // The broker actually answers this exclusive-queue clash with RESOURCE_LOCKED
+            // (405), not ACCESS_REFUSED (403), but the point is the same: the original reply
+            // text must survive unchanged, not be replaced or dropped.
+            assertTrue(
+                fullMessage.contains("RESOURCE_LOCKED") || fullMessage.contains("405"),
+                "The original RESOURCE_LOCKED (405) failure must survive unchanged: $fullMessage"
+            )
+        } finally {
+            holderChannel.close()
+            holderConnection.close()
+        }
+    }
+
+    @Test
+    fun `declareQueue true creates the queue before the consumer starts`() = runBlocking {
+        val queue = "declared-${UUID.randomUUID()}"
+        consumer = consumerFor(queue = queue, declareQueue = true)
+
+        consumer.start()
+
+        assertTrue(queueExists(queue))
     }
 
     /** A pipeline that rejects every message. */

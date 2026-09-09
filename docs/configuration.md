@@ -256,6 +256,7 @@ sources:
     aggregateIdPath: $.orderId            # Optional: for ordered processing
     eventTypePath: $.type                 # Optional: extract the event type from the body
     prefetchCount: 10
+    declareQueue: false                   # Default. See the note below.
     topic: "{{ source }}"                 # Outbox topic template. The default needs no event type.
 
 # Automatic cleanup of old messages
@@ -272,6 +273,14 @@ retention:
     cleanupInterval: 6h
     batchSize: 1000
 ```
+
+**QueueBox does not declare a source queue by default.** The RabbitMQ publisher always declares
+its destination exchange, but the RabbitMQ consumer does not declare its source queue, because
+that asymmetry protects against a typo. A declared queue that does not match the real queue name
+creates a new, empty queue that never receives a message, and that failure looks like it works. A
+missing queue must instead fail loudly, with a message that names the queue, states the
+asymmetry, and names the fix. Set `declareQueue: true` only when the queue does not already exist
+and QueueBox must create it. The default is `false`.
 
 **Always give an AMQP source a key.** QueueBox reads the idempotency key from the
 `x-idempotency-key` header, then from `idempotencyKeyPath`, then from the AMQP `messageId`
@@ -497,6 +506,7 @@ column name also fails the start. Each failure names the offending value and the
 | `eventTypePath` | No | — |
 | `eventTypeFromHeader` | No | `false` |
 | `prefetchCount` | No | `10` |
+| `declareQueue` | No | `false` |
 | `topic` | No | `{{ source }}` |
 
 #### Authentication Requirements

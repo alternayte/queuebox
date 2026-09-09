@@ -55,6 +55,7 @@ class InboxRelayLogSanitisationTest {
         override suspend fun markDead(id: UUID, claimToken: UUID?): Boolean = true
         override suspend fun renewClaim(id: UUID, claimToken: UUID?, leaseMs: Long): Boolean = true
         override suspend fun countByState(state: String): Long = 0
+        override suspend fun oldestPendingAgeSeconds(): Double = 0.0
         override suspend fun reclaimStale(olderThan: Duration): Int = 0
         override suspend fun deleteOlderThan(state: String, cutoff: Instant, limit: Int): Int = 0
     }
@@ -71,9 +72,12 @@ class InboxRelayLogSanitisationTest {
         override suspend fun markDead(id: UUID, claimToken: UUID?, error: String?): Boolean = true
         override suspend fun renewClaim(id: UUID, claimToken: UUID?, leaseMs: Long): Boolean = true
         override suspend fun countByState(state: String): Long = 0
+        override suspend fun oldestPendingAgeSeconds(): Double = 0.0
         override suspend fun reclaimStale(olderThan: Duration): Int = 0
         override suspend fun deleteOlderThan(state: String, cutoff: Instant, limit: Int): Int = 0
         override suspend fun deleteExceptMostRecent(state: String, keepCount: Int, limit: Int): Int = 0
+        override suspend fun replay(filter: org.nxtspec.repository.ReplayFilter): Long = 0L
+        override suspend fun distinctTopics(): List<String> = emptyList()
     }
 
     private class DirectTransactionRunner : TransactionRunner {

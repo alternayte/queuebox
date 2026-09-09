@@ -56,6 +56,9 @@ class InboxRelay(
     private val reclaimIntervalMs = (config.claimTimeoutMs / 5).coerceAtLeast(1)
     private var lastReclaimAtMs = 0L
 
+    // F-015: the moment of the last oldest-pending-age query.
+    private var lastPendingGaugeAtMs = 0L
+
     fun start() {
         if (!config.enabled) return
         running.set(true)
@@ -73,9 +76,22 @@ class InboxRelay(
                         ErrorSanitizer.sanitize(e)
                     )
                 }
+                updatePendingGauge()
                 delay(config.pollIntervalMs)
             }
         }
+    }
+
+    /**
+     * F-015: the oldest-pending-age query feeds a gauge only, so it runs at most once per
+     * `inbox.relay.pendingGaugeIntervalMs`. See F-095.
+     */
+    private suspend fun updatePendingGauge() {
+        val collector = metricsCollector ?: return
+        val now = System.currentTimeMillis()
+        if (now - lastPendingGaugeAtMs < config.pendingGaugeIntervalMs) return
+        lastPendingGaugeAtMs = now
+        collector.updateInboxOldestPendingAge(inboxRepository.oldestPendingAgeSeconds())
     }
 
     fun isRunning(): Boolean = running.get()

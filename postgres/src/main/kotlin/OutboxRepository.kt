@@ -22,6 +22,7 @@ import org.jetbrains.exposed.sql.selectAll
 import org.jetbrains.exposed.sql.transactions.TransactionManager
 import org.jetbrains.exposed.sql.update
 import org.nxtspec.repository.OutboxRepositoryInterface
+import org.nxtspec.repository.ReplayFilter
 import java.util.UUID
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
@@ -201,6 +202,27 @@ class OutboxRepository(
             .count()
     }
 
+    // F-094. The age comes from clock_timestamp() on the database, never from the application
+    // clock, so a clock difference between the application host and the database host cannot
+    // distort it.
+    override suspend fun oldestPendingAgeSeconds(): Double = joinOrNewTransaction {
+        val sql = """
+            SELECT EXTRACT(EPOCH FROM (clock_timestamp() - MIN(${q(columnMapping.createdAt)})))
+            FROM ${q(tableName)}
+            WHERE ${q(columnMapping.state)} = 'pending'
+        """.trimIndent()
+        val conn = TransactionManager.current().connection.connection as java.sql.Connection
+        conn.createStatement().use { stmt ->
+            stmt.executeQuery(sql).use { rows ->
+                rows.next()
+                // MIN over no pending rows is SQL NULL. The JDBC driver maps a NULL EXTRACT
+                // result to 0.0 on getDouble, and 0.0 is exactly the contract this method
+                // promises for that case, so no defensive wasNull() branch is needed here.
+                rows.getDouble(1)
+            }
+        }
+    }
+
     override suspend fun reclaimStale(olderThan: Duration): Int = joinOrNewTransaction {
         val now = Clock.System.now()
         table.update({
@@ -252,6 +274,39 @@ class OutboxRepository(
                 table.deleteWhere { (table.id inList ids) and (table.state eq state) }
             }
         }
+    }
+
+    // F-096. The column is TIMESTAMP WITH TIME ZONE, so an Instant binds through Exposed with
+    // no special care, unlike the SQL Server path.
+    override suspend fun replay(filter: ReplayFilter): Long = joinOrNewTransaction {
+        val now = Clock.System.now()
+        table.update({ replayCondition(filter) }) {
+            it[table.state] = "pending"
+            it[table.attempt] = 0
+            it[table.lastError] = null
+            it[table.scheduledAt] = now
+            it[table.updatedAt] = now
+            it[table.claimedAt] = null
+            it[table.claimToken] = null
+            it[table.leaseExpiresAt] = null
+        }.toLong()
+    }
+
+    // F-096. Reads the distinct topics out of the table for the route's destination resolution.
+    override suspend fun distinctTopics(): List<String> = joinOrNewTransaction {
+        table.select(table.topic).withDistinct().map { it[table.topic] }
+    }
+
+    // The state filter is unconditional. No combination of the caller's filter fields can widen
+    // it, so a row the relay owns in state 'pending' or 'processing' can never move. See F-096.
+    private fun replayCondition(filter: ReplayFilter): org.jetbrains.exposed.sql.Op<Boolean> {
+        var condition: org.jetbrains.exposed.sql.Op<Boolean> = (table.state eq "sent") or (table.state eq "dead")
+        filter.createdAfter?.let { condition = condition and (table.createdAt greater it) }
+        filter.createdBefore?.let { condition = condition and (table.createdAt less it) }
+        filter.topic?.let { condition = condition and (table.topic eq it) }
+        filter.topics?.takeIf { it.isNotEmpty() }?.let { condition = condition and (table.topic inList it) }
+        filter.ids?.let { condition = condition and (table.id inList it) }
+        return condition
     }
 
     private fun java.sql.ResultSet.toOutboxMessage(): OutboxMessage {

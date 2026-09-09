@@ -10,6 +10,7 @@ import io.ktor.server.request.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
 import io.ktor.server.testing.*
+import io.mockk.mockk
 import io.mockk.slot
 import io.mockk.spyk
 import io.mockk.verify
@@ -51,7 +52,7 @@ class AdminRoutesTest {
     private fun Application.configureAdminApplication(admin: AdminConfig, engine: TransformEngine) {
         install(ContentNegotiation) { json() }
         // Call the production wiring, so the test covers the shipped route.
-        configureAdminRoutes(admin, InboxAuthValidator(), engine)
+        configureAdminRoutes(admin, InboxAuthValidator(), engine, mockk(relaxed = true), mockk(relaxed = true))
     }
 
     @Test

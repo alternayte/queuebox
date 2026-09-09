@@ -192,6 +192,8 @@ data class InboxRelayConfig(
     val batchSize: Int = 100,
     /** Visibility timeout. A claim older than this returns to state 'pending'. See F-006. */
     val claimTimeoutMs: Long = 300000,
+    /** Minimum interval between two oldest-pending-age queries. See F-015 and F-095. */
+    val pendingGaugeIntervalMs: Long = 5000,
     /**
      * The dead-letter ceiling that the relay writes into the `max_attempts` column of every
      * row it creates.
@@ -457,6 +459,16 @@ sealed class SourceConfig {
          */
         val eventTypeFromHeader: Boolean = false,
         val prefetchCount: Int = 10,
+        /**
+         * Declares the source queue as durable before the consumer starts. See F-097.
+         *
+         * The default is false, because QueueBox does not declare a source queue by default,
+         * unlike the destination exchange, which it always declares. A declaration here can
+         * mask a typo: a mistyped queue name creates a new, empty queue that never receives a
+         * message, and that failure is silent. Set it to true only when this queue does not
+         * already exist and QueueBox must create it.
+         */
+        val declareQueue: Boolean = false,
         override val transform: TransformConfig? = null,
         /**
          * The default renders the source name, which every message carries. A template that
@@ -473,8 +485,8 @@ sealed class SourceConfig {
             "connectionUrl=${CredentialMasking.maskUrl(connectionUrl)}, " +
             "idempotencyKeyPath=$idempotencyKeyPath, aggregateIdPath=$aggregateIdPath, " +
             "eventTypePath=$eventTypePath, eventTypeFromHeader=$eventTypeFromHeader, " +
-            "prefetchCount=$prefetchCount, transform=$transform, topic=$topic, " +
-            "rateLimit=$rateLimit)"
+            "prefetchCount=$prefetchCount, declareQueue=$declareQueue, transform=$transform, " +
+            "topic=$topic, rateLimit=$rateLimit)"
     }
 }
 

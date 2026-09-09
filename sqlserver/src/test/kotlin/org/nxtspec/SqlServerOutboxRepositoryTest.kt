@@ -8,7 +8,9 @@ import kotlinx.datetime.Clock
 import kotlinx.serialization.json.JsonObject
 import org.junit.jupiter.api.RepeatedTest
 import org.junit.jupiter.api.Test
+import org.nxtspec.repository.ReplayFilter
 import java.util.Collections
+import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -152,6 +154,41 @@ class SqlServerOutboxRepositoryTest : SqlServerTestBase() {
         assertEquals(0, repository.countByState("processing"))
     }
 
+    // --- Oldest pending age (F-094) ---
+
+    private fun insertOutboxRowCreatedSecondsAgo(seconds: Long, state: String = "pending"): UUID {
+        val id = insertOutboxMessage(state = state)
+        setOutboxCreatedAt(id, Clock.System.now() - seconds.seconds)
+        return id
+    }
+
+    @Test
+    fun `the oldest pending age is zero on an empty table`() = runTest {
+        assertEquals(0.0, repository.oldestPendingAgeSeconds())
+    }
+
+    @Test
+    fun `the oldest pending age measures the oldest pending row`() = runTest {
+        insertOutboxRowCreatedSecondsAgo(seconds = 60)
+        insertOutboxRowCreatedSecondsAgo(seconds = 10)
+
+        val age = repository.oldestPendingAgeSeconds()
+
+        // The oldest row is 60 seconds old. The tolerance absorbs the round trip, and it must
+        // stay wide enough that a loaded machine does not fail the test. The previous phase
+        // fixed several tests that asserted a wall clock too tightly.
+        assertTrue(age in 55.0..75.0, "the age was $age")
+    }
+
+    @Test
+    fun `a row that is not pending does not count`() = runTest {
+        val id = insertOutboxRowCreatedSecondsAgo(seconds = 300, state = "processing")
+
+        repository.markSent(id, getOutboxClaimToken(id))
+
+        assertEquals(0.0, repository.oldestPendingAgeSeconds())
+    }
+
     @Test
     fun `deleteOlderThan removes old messages by state`() = runTest {
         // Given: messages with different updatedAt times
@@ -257,5 +294,113 @@ class SqlServerOutboxRepositoryTest : SqlServerTestBase() {
 
         assertTrue(claimed.any { it.id == message.id })
         assertNull(claimed.first { it.id == message.id }.aggregateType)
+    }
+
+    // --- Replay (F-096) ---
+
+    @Test
+    fun `replay moves a sent row back to pending and resets the attempt`() = runTest {
+        val id = insertOutboxMessage(state = "sent", attempt = 3)
+
+        val moved = repository.replay(ReplayFilter(ids = listOf(id)))
+
+        assertEquals(1L, moved)
+        val (state, attempt) = getOutboxMessageStateAndAttempt(id)
+        assertEquals("pending", state)
+        assertEquals(0, attempt)
+        assertNull(getOutboxLastError(id))
+    }
+
+    @Test
+    fun `replay leaves a processing row alone`() = runTest {
+        val id = insertOutboxMessage(state = "processing")
+
+        val moved = repository.replay(ReplayFilter(ids = listOf(id)))
+
+        // The relay owns a row in state 'processing'. Replay must never take it.
+        assertEquals(0L, moved)
+        assertEquals("processing", getOutboxMessageState(id))
+    }
+
+    @Test
+    fun `replay selects a time range`() = runTest {
+        val old = insertOutboxMessage(state = "sent")
+        setOutboxCreatedAt(old, Clock.System.now() - 1.hours)
+        val recent = insertOutboxMessage(state = "sent")
+        setOutboxCreatedAt(recent, Clock.System.now() - 10.seconds)
+
+        // SQL Server stores `created_at` as a local wall clock through the JDBC driver, exactly
+        // as `claimBatch` and `oldestPendingAgeSeconds` bind their time operands. The filter
+        // instant must bind the same way, or the comparison is wrong by the host's UTC offset.
+        val moved = repository.replay(ReplayFilter(createdAfter = Clock.System.now() - 60.seconds))
+
+        assertEquals(1L, moved)
+        assertEquals("sent", getOutboxMessageState(old))
+        assertEquals("pending", getOutboxMessageState(recent))
+    }
+
+    @Test
+    fun `replay never moves a row that fails the state filter even with a matching id`() = runTest {
+        val pendingId = insertOutboxMessage(state = "pending")
+
+        // state IN ('sent', 'dead') must gate every replay, so an id filter alone cannot move
+        // a pending row that the relay still owns.
+        val moved = repository.replay(ReplayFilter(ids = listOf(pendingId)))
+
+        assertEquals(0L, moved)
+        assertEquals("pending", getOutboxMessageState(pendingId))
+    }
+
+    @Test
+    fun `replay moves a dead row back to pending and resets the attempt`() = runTest {
+        // A dead row sits at its attempt ceiling, so narrowing the clause to state = 'sent'
+        // would leave this row dead and this test would still pass with the wrong SQL.
+        val id = insertOutboxMessage(state = "dead", attempt = 5)
+
+        val moved = repository.replay(ReplayFilter(ids = listOf(id)))
+
+        assertEquals(1L, moved)
+        val (state, attempt) = getOutboxMessageStateAndAttempt(id)
+        assertEquals("pending", state)
+        assertEquals(0, attempt)
+        assertNull(getOutboxLastError(id))
+    }
+
+    @Test
+    fun `replay with an empty ids list moves nothing, even a matching sent row`() = runTest {
+        // An empty `ids` list narrows the replay to zero rows on both dialects. See F-096.
+        // An edit that restores `filter.ids?.takeIf { it.isNotEmpty() }?.let` breaks this test,
+        // because it would drop the id clause entirely and move every sent or dead row of the
+        // topic instead of none.
+        val id = insertOutboxMessage(state = "sent")
+
+        val moved = repository.replay(ReplayFilter(ids = emptyList()))
+
+        assertEquals(0L, moved)
+        assertEquals("sent", getOutboxMessageState(id))
+    }
+
+    @Test
+    fun `replay selects a topic set resolved from a destination`() = runTest {
+        val matching = insertOutboxMessage(state = "sent", topic = "orders.created")
+        val other = insertOutboxMessage(state = "sent", topic = "billing.created")
+
+        val moved = repository.replay(ReplayFilter(topics = listOf("orders.created")))
+
+        assertEquals(1L, moved)
+        assertEquals("pending", getOutboxMessageState(matching))
+        assertEquals("sent", getOutboxMessageState(other))
+    }
+
+    @Test
+    fun `distinctTopics returns every topic present exactly once`() = runTest {
+        insertOutboxMessage(state = "sent", topic = "orders.created")
+        insertOutboxMessage(state = "dead", topic = "orders.created")
+        insertOutboxMessage(state = "pending", topic = "billing.created")
+
+        val topics = repository.distinctTopics()
+
+        assertEquals(setOf("orders.created", "billing.created"), topics.toSet())
+        assertEquals(2, topics.size)
     }
 }

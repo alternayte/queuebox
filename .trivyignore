@@ -13,3 +13,15 @@
 # the dependency scan of the bill of materials reports nothing for it. Rule 4 does not apply:
 # there is no upgrade to make. Remove this line when the scanner compares the qualifier.
 CVE-2025-59250  # mssql-jdbc 12.8.2.jre11 is the fixed release. Reviewed 2026-09-06. Recheck 2026-12-06.
+
+# F-043 addendum: libexpat inside eclipse-temurin:21-jre-alpine.
+#
+# The Alpine package `libexpat` inside the pinned base image carries two real HIGH
+# advisories. This is not a false positive. The fixed release `2.8.4-r0` exists in
+# the Alpine package repository, but `eclipse-temurin:21-jre-alpine` has not been
+# rebuilt to include it: pulling the tag today still resolves to the digest already
+# pinned at Dockerfile:12, and `libexpat` inside it is still `2.8.3-r0`. Rule 4 does
+# not apply: there is no upgrade to take today, because upstream has published none.
+# Remove this entry as soon as upstream publishes a rebuilt image.
+CVE-2026-76956  # libexpat 2.8.3-r0 in eclipse-temurin:21-jre-alpine; fix 2.8.4-r0 not yet published upstream. Reviewed 2026-09-09. Recheck 2026-10-09.
+CVE-2026-76957  # libexpat 2.8.3-r0 in eclipse-temurin:21-jre-alpine; fix 2.8.4-r0 not yet published upstream. Reviewed 2026-09-09. Recheck 2026-10-09.

@@ -289,7 +289,9 @@ internal fun runApp(env: () -> Map<String, String> = { System.getenv() }) {
             prometheusRegistry = prometheusRegistry,
             healthManager = healthManager,
             adminConfig = config.admin,
-            transformEngine = transformEngine
+            transformEngine = transformEngine,
+            outboxRepository = outboxRepository,
+            messageRouter = router
         )
     }
 
@@ -308,7 +310,9 @@ internal fun runApp(env: () -> Map<String, String> = { System.getenv() }) {
                 prometheusRegistry = prometheusRegistry,
                 healthManager = healthManager,
                 adminConfig = config.admin,
-                transformEngine = transformEngine
+                transformEngine = transformEngine,
+                outboxRepository = outboxRepository,
+                messageRouter = router
             )
         }
     }
@@ -510,7 +514,8 @@ internal fun rabbitConsumerConfig(sourceName: String, source: SourceConfig.Rabbi
         prefetchCount = source.prefetchCount,
         idempotencyKeyPath = source.idempotencyKeyPath,
         aggregateIdPath = source.aggregateIdPath,
-        eventTypePath = source.eventTypePath
+        eventTypePath = source.eventTypePath,
+        declareQueue = source.declareQueue
     )
 
 /**
@@ -521,11 +526,13 @@ fun Application.configureOperationalRoutes(
     prometheusRegistry: PrometheusMeterRegistry,
     healthManager: HealthManager,
     adminConfig: AdminConfig,
-    transformEngine: TransformEngine
+    transformEngine: TransformEngine,
+    outboxRepository: org.nxtspec.repository.OutboxRepositoryInterface,
+    messageRouter: MessageRouter
 ) {
     configureHealthRoutes(healthManager)
     configureMetricsRoutes(prometheusRegistry)
-    configureAdminRoutes(adminConfig, InboxAuthValidator(), transformEngine)
+    configureAdminRoutes(adminConfig, InboxAuthValidator(), transformEngine, outboxRepository, messageRouter)
 }
 
 /**
@@ -539,10 +546,19 @@ fun Application.configureDataPortOperationalRoutes(
     prometheusRegistry: PrometheusMeterRegistry,
     healthManager: HealthManager,
     adminConfig: AdminConfig,
-    transformEngine: TransformEngine
+    transformEngine: TransformEngine,
+    outboxRepository: org.nxtspec.repository.OutboxRepositoryInterface,
+    messageRouter: MessageRouter
 ) {
     if (managementPort != null) return
-    configureOperationalRoutes(prometheusRegistry, healthManager, adminConfig, transformEngine)
+    configureOperationalRoutes(
+        prometheusRegistry,
+        healthManager,
+        adminConfig,
+        transformEngine,
+        outboxRepository,
+        messageRouter
+    )
 }
 
 /** Time that an in-flight request has to finish before the server stops. See F-029. */

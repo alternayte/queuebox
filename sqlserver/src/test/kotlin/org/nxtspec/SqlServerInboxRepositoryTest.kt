@@ -16,6 +16,7 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.hours
+import kotlin.time.Duration.Companion.seconds
 
 class SqlServerInboxRepositoryTest : SqlServerTestBase() {
 
@@ -341,5 +342,39 @@ class SqlServerInboxRepositoryTest : SqlServerTestBase() {
 
         assertEquals(1, claimed.size)
         assertEquals(null, claimed[0].aggregateId)
+    }
+
+    // --- Oldest pending age (F-095) ---
+
+    private fun insertInboxRowCreatedSecondsAgo(seconds: Long, state: String = "pending"): UUID {
+        val id = insertInboxMessage(source = "stripe", idempotencyKey = UUID.randomUUID().toString(), state = state)
+        setInboxCreatedAt(id, Clock.System.now() - seconds.seconds)
+        return id
+    }
+
+    @Test
+    fun `the oldest pending inbox age is zero on an empty table`() = runTest {
+        assertEquals(0.0, repository.oldestPendingAgeSeconds())
+    }
+
+    @Test
+    fun `the oldest pending inbox age measures the oldest pending row`() = runTest {
+        insertInboxRowCreatedSecondsAgo(seconds = 60)
+        insertInboxRowCreatedSecondsAgo(seconds = 10)
+
+        val age = repository.oldestPendingAgeSeconds()
+
+        // The tolerance stays wide on purpose. A loaded machine must not fail this test, the
+        // previous phase repaired several tests that asserted a wall clock too tightly.
+        assertTrue(age in 55.0..75.0, "the age was $age")
+    }
+
+    @Test
+    fun `an inbox row that is not pending does not count`() = runTest {
+        val id = insertInboxRowCreatedSecondsAgo(seconds = 300, state = "processing")
+
+        repository.markProcessed(id, getInboxClaimToken(id))
+
+        assertEquals(0.0, repository.oldestPendingAgeSeconds())
     }
 }

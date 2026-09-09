@@ -6,6 +6,7 @@ import kotlinx.datetime.Instant
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import org.jetbrains.exposed.sql.SchemaUtils
+import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
 import org.jetbrains.exposed.sql.deleteAll
 import org.jetbrains.exposed.sql.insert
 import org.jetbrains.exposed.sql.selectAll
@@ -131,6 +132,18 @@ abstract class SqlServerTestBase {
         return id
     }
 
+    /**
+     * Sets the `created_at` column of one outbox row to an explicit instant, for a test that
+     * must control the row's age directly rather than let the insert stamp the current time.
+     */
+    protected fun setOutboxCreatedAt(id: UUID, createdAt: Instant) {
+        transaction {
+            SqlServerOutboxTable.update({ SqlServerOutboxTable.id eq id }) {
+                it[SqlServerOutboxTable.createdAt] = createdAt
+            }
+        }
+    }
+
     protected fun insertInboxMessage(
         source: String,
         idempotencyKey: String,
@@ -156,6 +169,14 @@ abstract class SqlServerTestBase {
             }
         }
         return id
+    }
+
+    protected fun setInboxCreatedAt(id: UUID, createdAt: Instant) {
+        transaction {
+            SqlServerInboxTable.update({ SqlServerInboxTable.id eq id }) {
+                it[SqlServerInboxTable.createdAt] = createdAt
+            }
+        }
     }
 
     protected fun getOutboxMessageState(id: UUID): String = transaction {
