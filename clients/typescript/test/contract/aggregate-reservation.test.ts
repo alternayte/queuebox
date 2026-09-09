@@ -90,9 +90,13 @@ function aggregateReservation(harness: DatabaseHarness): void {
       windows.sort((a, b) => a[0] - b[0]);
 
       for (let i = 1; i < windows.length; i += 1) {
+        const current = windows[i];
+        const previous = windows[i - 1];
+        assert.ok(current, `window ${i} must exist`);
+        assert.ok(previous, `window ${i - 1} must exist`);
         assert.ok(
-          windows[i][0] >= windows[i - 1][1],
-          `handler ${i} started at ${windows[i][0]}, before handler ${i - 1} ended at ${windows[i - 1][1]}`,
+          current[0] >= previous[1],
+          `handler ${i} started at ${current[0]}, before handler ${i - 1} ended at ${previous[1]}`,
         );
       }
     });
