@@ -103,6 +103,13 @@ class MetricsCollector(registry: MeterRegistry) : MetricsCollectorInterface {
     }
 
     /**
+     * Update the age in seconds of the oldest pending inbox row. F-095.
+     */
+    override fun updateInboxOldestPendingAge(seconds: Double) {
+        metrics.updateInboxOldestPendingAge(seconds)
+    }
+
+    /**
      * Record a retention cleanup run.
      */
     override fun recordCleanupRun(table: String, deleted: Int, durationNanos: Long) {

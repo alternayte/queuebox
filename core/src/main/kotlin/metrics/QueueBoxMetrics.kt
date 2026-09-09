@@ -53,6 +53,14 @@ class QueueBoxMetrics(private val registry: MeterRegistry) {
         .description("Age in seconds of the oldest pending outbox message")
         .register(registry)
 
+    private val inboxOldestPendingAgeSeconds = AtomicReference(0.0)
+
+    // F-095: the age of the oldest pending inbox row, the inbox twin of F-094.
+    val inboxOldestPendingAge: Gauge = Gauge
+        .builder("queuebox_inbox_oldest_pending_age_seconds", inboxOldestPendingAgeSeconds) { it.get() }
+        .description("Age in seconds of the oldest pending inbox message")
+        .register(registry)
+
     // Outbox timers
     val outboxProcessingDuration: Timer = Timer.builder("queuebox_outbox_processing_duration_seconds")
         .description("Time taken to process outbox messages")
@@ -150,6 +158,11 @@ class QueueBoxMetrics(private val registry: MeterRegistry) {
      * Update the age in seconds of the oldest pending outbox row. F-094.
      */
     fun updateOutboxOldestPendingAge(seconds: Double) = oldestPendingAgeSeconds.set(seconds)
+
+    /**
+     * Update the age in seconds of the oldest pending inbox row. F-095.
+     */
+    fun updateInboxOldestPendingAge(seconds: Double) = inboxOldestPendingAgeSeconds.set(seconds)
 
     /**
      * Record processing duration in milliseconds.

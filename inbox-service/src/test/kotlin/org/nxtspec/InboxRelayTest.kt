@@ -48,6 +48,7 @@ class InboxRelayTest {
 
         override suspend fun renewClaim(id: UUID, claimToken: UUID?, leaseMs: Long): Boolean = true
         override suspend fun countByState(state: String): Long = 0
+        override suspend fun oldestPendingAgeSeconds(): Double = 0.0
         override suspend fun reclaimStale(olderThan: Duration): Int {
             reclaimCalls++
             return 0
@@ -93,6 +94,7 @@ class InboxRelayTest {
         override fun recordPublishDuration(durationMs: Long, destinationType: String) = Unit
         override fun updatePendingCount(count: Long) = Unit
         override fun updateOutboxOldestPendingAge(seconds: Double) = Unit
+        override fun updateInboxOldestPendingAge(seconds: Double) = Unit
         override fun recordInboxReceived() = Unit
         override fun recordInboxDuplicate() = Unit
         override fun recordInboxForwarded() {

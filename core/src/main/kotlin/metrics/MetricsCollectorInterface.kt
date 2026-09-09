@@ -70,6 +70,11 @@ interface MetricsCollectorInterface {
      */
     fun updateOutboxOldestPendingAge(seconds: Double)
 
+    /**
+     * Update the age in seconds of the oldest pending inbox row. F-095.
+     */
+    fun updateInboxOldestPendingAge(seconds: Double)
+
     // Inbox metrics
 
     /**

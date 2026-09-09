@@ -171,6 +171,14 @@ abstract class SqlServerTestBase {
         return id
     }
 
+    protected fun setInboxCreatedAt(id: UUID, createdAt: Instant) {
+        transaction {
+            SqlServerInboxTable.update({ SqlServerInboxTable.id eq id }) {
+                it[SqlServerInboxTable.createdAt] = createdAt
+            }
+        }
+    }
+
     protected fun getOutboxMessageState(id: UUID): String = transaction {
         SqlServerOutboxTable.selectAll()
             .where { SqlServerOutboxTable.id eq id }

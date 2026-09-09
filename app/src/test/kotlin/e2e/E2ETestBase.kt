@@ -420,7 +420,8 @@ abstract class E2ETestBase {
             config = InboxRelayConfig(pollIntervalMs = pollIntervalMs, batchSize = batchSize),
             inboxRepository = InboxRepository(),
             outboxRepository = OutboxRepository(),
-            transactionRunner = ExposedTransactionRunner()
+            transactionRunner = ExposedTransactionRunner(),
+            metricsCollector = metricsCollector
         )
         relay.start()
         startedRelays.add(relay)

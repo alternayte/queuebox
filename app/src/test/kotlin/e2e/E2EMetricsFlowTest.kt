@@ -452,4 +452,14 @@ class E2EMetricsFlowTest : E2ETestBase() {
         // The poller refreshes the gauge on its tick, so wait for the value rather than assume it.
         assertTrue(awaitUntil { scrapeMetric("queuebox_outbox_oldest_pending_age_seconds") > 0.0 })
     }
+
+    @Test
+    fun `the metrics endpoint reports the age of the oldest pending inbox row`() = runBlocking {
+        insertInboxMessage(source = "orders", idempotencyKey = "k1")
+        // A batch size of zero claims nothing, so the row stays 'pending' for the whole test,
+        // the same state the gauge measures. The poller still refreshes the gauge on its tick.
+        startRelay(batchSize = 0)
+
+        assertTrue(awaitUntil { scrapeMetric("queuebox_inbox_oldest_pending_age_seconds") > 0.0 })
+    }
 }

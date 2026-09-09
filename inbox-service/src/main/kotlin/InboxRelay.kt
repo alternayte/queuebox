@@ -73,6 +73,7 @@ class InboxRelay(
                         ErrorSanitizer.sanitize(e)
                     )
                 }
+                metricsCollector?.updateInboxOldestPendingAge(inboxRepository.oldestPendingAgeSeconds())
                 delay(config.pollIntervalMs)
             }
         }

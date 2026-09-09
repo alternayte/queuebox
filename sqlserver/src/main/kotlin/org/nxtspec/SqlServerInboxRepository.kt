@@ -325,6 +325,34 @@ class SqlServerInboxRepository(
             .count()
     }
 
+    // SQL Server stores `created_at` as a local wall clock rather than a UTC instant, so
+    // `SYSUTCDATETIME()` would give a wrong answer by a fixed offset. "Now" is bound instead as a
+    // JDBC parameter from the application clock, exactly as `claimBatch` already does for
+    // `scheduledAt`.
+    override suspend fun oldestPendingAgeSeconds(): Double = joinOrNewTransaction {
+        val now = Clock.System.now()
+        val nowTimestamp = Timestamp.from(
+            java.time.Instant.ofEpochSecond(now.epochSeconds, now.nanosecondsOfSecond.toLong())
+        )
+        val createdAtCol = quoteSqlServerIdentifier(columnMapping.createdAt)
+        val sql = """
+            SELECT DATEDIFF_BIG(second, MIN($createdAtCol), ?)
+            FROM ${quoteSqlServerIdentifier(tableName)}
+            WHERE ${quoteSqlServerIdentifier(columnMapping.state)} = 'pending'
+        """.trimIndent()
+        val conn = TransactionManager.current().connection.connection as java.sql.Connection
+        conn.prepareStatement(sql).use { stmt ->
+            stmt.setTimestamp(1, nowTimestamp)
+            stmt.executeQuery().use { rows ->
+                rows.next()
+                // MIN over no pending rows is SQL NULL. The JDBC driver maps a NULL
+                // DATEDIFF_BIG result to 0 on getLong, and 0.0 is exactly the contract this
+                // method promises for that case, so no defensive wasNull() branch is needed.
+                rows.getLong(1).toDouble()
+            }
+        }
+    }
+
     override suspend fun deleteOlderThan(state: String, cutoff: Instant, limit: Int): Int {
         require(state in setOf("sent", "processed", "dead")) { "Cannot delete active work" }
         return joinOrNewTransaction {

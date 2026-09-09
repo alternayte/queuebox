@@ -222,6 +222,25 @@ class InboxRepository(
             .count()
     }
 
+    override suspend fun oldestPendingAgeSeconds(): Double = joinOrNewTransaction {
+        val sql = """
+            SELECT EXTRACT(EPOCH FROM (clock_timestamp() - MIN(${q(columnMapping.createdAt)})))
+            FROM ${q(tableName)}
+            WHERE ${q(columnMapping.state)} = 'pending'
+        """.trimIndent()
+        val conn = org.jetbrains.exposed.sql.transactions.TransactionManager.current()
+            .connection.connection as java.sql.Connection
+        conn.createStatement().use { stmt ->
+            stmt.executeQuery(sql).use { rows ->
+                rows.next()
+                // MIN over no pending rows is SQL NULL. The JDBC driver maps a NULL EXTRACT
+                // result to 0.0 on getDouble, and 0.0 is exactly the contract this method
+                // promises for that case, so no defensive wasNull() branch is needed here.
+                rows.getDouble(1)
+            }
+        }
+    }
+
     override suspend fun deleteOlderThan(state: String, cutoff: Instant, limit: Int): Int {
         require(state in setOf("sent", "processed", "dead")) { "Cannot delete active work" }
         return joinOrNewTransaction {
