@@ -253,6 +253,7 @@ public sealed class InboxWorker
         command
             .WithParameter("@source", _options.Source)
             .WithParameter("@batch", _options.BatchSize)
+            .WithParameter("@cand_limit", CandidateLimit(_options.BatchSize))
             .WithParameter("@lease_ms", _options.LeaseMs);
 
         var claimed = new List<ClaimedMessage>(_options.BatchSize);
@@ -268,6 +269,14 @@ public sealed class InboxWorker
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
         return claimed;
     }
+
+    // The candidate scan in the claim needs a bound per branch, so one aggregate with a long
+    // backlog cannot force the claim to scan the whole table. This value is not a public setting
+    // on InboxOptions on purpose: it is a lock-footprint tuning value derived from the batch size
+    // the caller already sets, and a public knob would give an operator a way to tune away the
+    // aggregate reservation the claim depends on (finding F-087). Every claim call computes and
+    // binds it fresh, so it always tracks the current batch size.
+    private static int CandidateLimit(int batchSize) => Math.Clamp(batchSize * 3, 50, 500);
 
     private static ClaimedMessage Read(DbDataReader reader, InboxSchema schema)
     {

@@ -29,7 +29,7 @@ func TestTheConcurrencyNeverPassesTheBatch(t *testing.T) {
 		batch, concurrency, want int
 	}{
 		{batch: 4, concurrency: 16, want: 4},
-		{batch: 4, concurrency: 0, want: 4},
+		{batch: 4, concurrency: 0, want: 1},
 		{batch: 4, concurrency: 2, want: 2},
 	} {
 		resolved, _, _, _, err := Options{Source: "orders", BatchSize: testCase.batch, MaxConcurrency: testCase.concurrency}.resolve()
@@ -40,6 +40,26 @@ func TestTheConcurrencyNeverPassesTheBatch(t *testing.T) {
 		if resolved.concurrency != testCase.want {
 			t.Errorf("the concurrency is %d and it must be %d", resolved.concurrency, testCase.want)
 		}
+	}
+}
+
+func TestConcurrencyDefaultsToOne(t *testing.T) {
+	resolved, _, _, _, err := Options{Source: "s"}.resolve()
+	if err != nil {
+		t.Fatalf("resolve failed: %v", err)
+	}
+	if resolved.concurrency != 1 {
+		t.Fatalf("concurrency was %d, want 1", resolved.concurrency)
+	}
+}
+
+func TestExplicitConcurrencySurvives(t *testing.T) {
+	resolved, _, _, _, err := Options{Source: "s", MaxConcurrency: 5}.resolve()
+	if err != nil {
+		t.Fatalf("resolve failed: %v", err)
+	}
+	if resolved.concurrency != 5 {
+		t.Fatalf("concurrency was %d, want 5", resolved.concurrency)
 	}
 }
 

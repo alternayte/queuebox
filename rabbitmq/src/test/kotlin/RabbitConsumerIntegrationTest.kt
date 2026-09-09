@@ -4,12 +4,17 @@ import com.rabbitmq.client.AMQP
 import com.rabbitmq.client.ConnectionFactory
 import io.mockk.coEvery
 import io.mockk.mockk
+import io.mockk.verify
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Tag
 import org.junit.jupiter.api.Test
+import org.nxtspec.metrics.InboxRejectionReason
+import org.nxtspec.metrics.MetricsCollectorInterface
 import org.nxtspec.transform.InboxTransformPipeline
 import org.nxtspec.transform.InboxTransformResult
 import org.testcontainers.containers.GenericContainer
@@ -377,6 +382,70 @@ class RabbitConsumerIntegrationTest {
         )
         assertTrue(deadKeys.contains(stored.idempotencyKey), "The stored row must be marked dead.")
         assertEquals(0L, queueDepth(), "The queue must be empty after the acknowledgement.")
+    }
+
+    @Test
+    fun `a body that is not JSON becomes one dead row and one acknowledgement`() = runBlocking {
+        val config = RabbitConsumerConfig(
+            queueName = TEST_QUEUE,
+            sourceName = "test-source",
+            idempotencyKeyPath = "$.id"
+        )
+        val metricsCollector = mockk<MetricsCollectorInterface>(relaxed = true)
+        consumer = RabbitConsumer(
+            connection = connection,
+            storeMessage = mockStore,
+            extractor = extractor,
+            config = config,
+            metricsCollector = metricsCollector,
+            storeDeadMessage = { m ->
+                deadKeys.add(m.idempotencyKey)
+                mockStore(m)
+            }
+        )
+        consumer.start()
+
+        publishMessage("not json")
+
+        delay(1000)
+        consumer.stop()
+
+        assertEquals(1, storedMessages.size, "The unparsable body must reach the inbox as one row.")
+        val stored = storedMessages[0]
+        assertEquals("not json", stored.payload.jsonObject["raw"]!!.jsonPrimitive.content)
+        assertTrue(deadKeys.contains(stored.idempotencyKey), "The stored row must be marked dead.")
+        assertEquals(0L, queueDepth(), "The queue must be empty after the acknowledgement.")
+        verify { metricsCollector.recordInboxRejection(InboxRejectionReason.EXTRACTION_FAILED) }
+    }
+
+    @Test
+    fun `a body that is not JSON is delivered exactly once`() = runBlocking {
+        val config = RabbitConsumerConfig(
+            queueName = TEST_QUEUE,
+            sourceName = "test-source",
+            idempotencyKeyPath = "$.id"
+        )
+        val deliveries = AtomicInteger(0)
+        consumer = RabbitConsumer(
+            connection = connection,
+            storeMessage = mockStore,
+            extractor = extractor,
+            config = config,
+            storeDeadMessage = { m ->
+                deliveries.incrementAndGet()
+                deadKeys.add(m.idempotencyKey)
+                mockStore(m)
+            }
+        )
+        consumer.start()
+
+        publishMessage("not json")
+
+        // A hot loop shows here. Before the fix this number grows without bound.
+        delay(2000)
+        consumer.stop()
+
+        assertEquals(1, deliveries.get(), "The unparsable body must reach the dead-letter store exactly once.")
     }
 
     @Test

@@ -24,11 +24,24 @@ public sealed class InboxOptionsTest
     }
 
     [Fact]
-    public void TheConcurrencyDefaultsToTheBatch()
+    public void TheConcurrencyDefaultIsOne()
     {
-        var options = new InboxOptions { Source = "orders", BatchSize = 4 };
+        var options = new InboxOptions { Source = "s" };
+        Assert.Equal(1, options.EffectiveConcurrency);
+    }
 
-        Assert.Equal(4, options.EffectiveConcurrency);
+    [Fact]
+    public void AnExplicitConcurrencySurvives()
+    {
+        var options = new InboxOptions { Source = "s", MaxConcurrency = 5 };
+        Assert.Equal(5, options.EffectiveConcurrency);
+    }
+
+    [Fact]
+    public void TheConcurrencyNeverPassesTheBatchExplicit()
+    {
+        var options = new InboxOptions { Source = "s", BatchSize = 3, MaxConcurrency = 10 };
+        Assert.Equal(3, options.EffectiveConcurrency);
     }
 
     [Theory]

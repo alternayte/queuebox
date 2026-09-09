@@ -19,9 +19,24 @@ export class SqlServerHarness implements DatabaseHarness {
     return fromMssql(mssql as never, this.#requirePool());
   }
 
+  /** The raw pool, for a test that must hold a lock the worker itself does not take. */
+  get rawPool(): mssql.ConnectionPool {
+    return this.#requirePool();
+  }
+
+  /** The container's own connection string, for a test that must open a pool of its own. */
+  get connectionUri(): string {
+    return this.#requireContainer().getConnectionUri();
+  }
+
   async start(): Promise<void> {
     this.#container = await new MSSQLServerContainer("mcr.microsoft.com/mssql/server:2022-latest").acceptLicense().start();
-    this.#pool = await new mssql.ConnectionPool(this.#container.getConnectionUri()).connect();
+    // The SQL Server claim carries its own 10 second sp_getapplock lock timeout (see
+    // examples/pull/sql/sqlserver/claim.sql). The driver's own default request timeout is 15
+    // seconds, above that, but a caller must still raise it to at least 30 seconds, or a
+    // transient lock contention that outlasts the request timeout aborts the call on the driver
+    // side before it ever gets to see Msg 51000.
+    this.#pool = await new mssql.ConnectionPool(`${this.#container.getConnectionUri()};Request Timeout=45000`).connect();
 
     for (const script of migrations("sqlserver")) {
       await this.#run(script);
@@ -139,6 +154,14 @@ export class SqlServerHarness implements DatabaseHarness {
     }
 
     return this.#pool;
+  }
+
+  #requireContainer(): StartedMSSQLServerContainer {
+    if (this.#container === undefined) {
+      throw new Error("The harness did not start.");
+    }
+
+    return this.#container;
   }
 
   async #run(sql: string): Promise<void> {

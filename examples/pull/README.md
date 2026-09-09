@@ -16,9 +16,37 @@ The SQL files under `sql/postgresql` and `sql/sqlserver` are prepared statement
 contracts. Bind named parameters through your database library; do not interpolate
 values. `source` is the configured source name, `batch` is available worker capacity,
 `lease_ms` is a positive duration, `id` and `token` come from the claim result.
-Run claim in a short transaction and commit before starting work. SQL Server examples
-use READ COMMITTED with READ_COMMITTED_SNAPSHOT disabled. Use the corresponding
-READCOMMITTEDLOCK hint if your database enables read-committed snapshot isolation.
+The claim must be alone in its own transaction, with no other application work in it, and that
+transaction must commit before any handler runs. A caller that adds other work to the claim
+transaction, or that starts a handler before the commit, leaves the claimed rows uncommitted
+until the wider transaction commits, loses the whole wider transaction on a lock failure, and
+holds the per-source lock for the remaining life of that wider transaction. SQL Server examples
+require READ COMMITTED, and they also work correctly with READ_COMMITTED_SNAPSHOT ON.
+`claim.sql` also binds `cand_limit`, a caller-computed bound on the candidate scan.
+Compute it as `LEAST(GREATEST(3 * batch, 50), 500)` and bind it on every call; it is
+not an operator-tunable setting.
+
+A SQL Server claim can raise Msg 51000. This signals that `sp_getapplock` did not get
+the per-source claim lock, not a data error. A client must treat Msg 51000 as
+transient: it must back off before the retry, and it must never retry the call
+immediately.
+
+Set the driver request or command timeout to at least 30 seconds. The claim sets
+`sp_getapplock`'s own lock timeout to 10 seconds, so the server always raises Msg
+51000 before a shorter driver timeout can abort the call. A client-side abort does
+not roll back the claim's transaction, because the lock is held under `@LockOwner =
+'Transaction'`. The symptom of a driver timeout below 30 seconds is an abandoned
+application lock: the per-source claim lock stays held until the connection resets,
+and every claim on that source stalls behind it.
+
+The SQL Server claim declares local variables (`@qbBatch`, `@qbLeaseMs`, `@qbCandLimit`)
+under names distinct from the bound parameters (`:batch`, `:lease_ms`, `:cand_limit`).
+A local T-SQL variable must never share a name with a bound parameter of the same
+call: a driver sends a bound parameter to `sp_executesql` as an argument of that
+name, and a `DECLARE` cannot reuse an argument name in the same batch. It fails with
+Msg 134, "The variable name ... has already been declared." Bind `:batch`,
+`:lease_ms` and `:cand_limit` under a parameter name distinct from `@qbBatch`,
+`@qbLeaseMs` and `@qbCandLimit`, never under those same names.
 
 Renew every third of the lease duration. A renewal, completion, retry or dead-letter
 update must affect exactly one row. Zero means ownership was lost: stop work and

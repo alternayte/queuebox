@@ -24,6 +24,17 @@ import kotlin.test.assertTrue
  */
 class TransformEngineCacheTest {
 
+    /**
+     * Timeout for each evaluation in this test.
+     *
+     * The production default in TransformEngine.evaluate is 100 milliseconds.
+     * Eight threads compete for the CPU here, so a loaded build machine can
+     * exceed that default even for a trivial expression. This test checks the
+     * cache bound and thread safety, not the timeout, so it must use a larger
+     * value. The production default itself must not change.
+     */
+    private val safeTimeoutMs = 5_000L
+
     @Test
     fun `cache stays within bound under sustained concurrent load`() {
         val maxCacheSize = 10
@@ -54,7 +65,7 @@ class TransformEngineCacheTest {
                             val expressionIndex = expressionCounter.getAndIncrement()
                             val expression = "\$number($threadIndex) + $expressionIndex"
                             val payload = kotlinx.serialization.json.JsonObject(emptyMap())
-                            val result = engine.evaluate(expression, payload, context)
+                            val result = engine.evaluate(expression, payload, context, timeoutMs = safeTimeoutMs)
                             // evaluate wraps its body in runCatching, so a failure arrives as a
                             // failed Result rather than as a thrown exception.
                             if (result.isFailure) failureSeen.set(true)

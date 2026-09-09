@@ -16,7 +16,11 @@ export interface InboxOptions {
   readonly batchSize?: number;
   /** The lease duration in milliseconds. The renewal runs every third of it. */
   readonly leaseMs?: number;
-  /** The largest number of handlers that run at one time. It never passes the batch size. */
+  /**
+   * The largest number of handlers that run at one time. It never passes the batch size.
+   * The default is one. A handler meets no sibling message unless the caller asks for
+   * parallelism.
+   */
   readonly maxConcurrency?: number;
   /** How long the worker waits after a claim that returned nothing. */
   readonly pollIntervalMs?: number;
@@ -86,7 +90,7 @@ export function resolveOptions(options: InboxOptions): ResolvedOptions {
     batchSize,
     leaseMs,
     // Bounded memory: never hold more than the configured batch.
-    concurrency: Math.min(options.maxConcurrency ?? batchSize, batchSize),
+    concurrency: Math.min(options.maxConcurrency ?? 1, batchSize),
     pollIntervalMs,
     shutdownGraceMs,
     dialect: options.dialect ?? "postgresql",

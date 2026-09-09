@@ -277,7 +277,8 @@ func (w *InboxWorker) claim(ctx context.Context) ([]claimedMessage, error) {
 
 	defer func() { _ = tx.Rollback() }()
 
-	rows, err := tx.QueryContext(ctx, w.statements.Claim, w.options.source, w.options.batchSize, w.options.leaseMS)
+	rows, err := tx.QueryContext(ctx, w.statements.Claim,
+		w.options.source, w.options.batchSize, w.options.leaseMS, candidateLimit(w.options.batchSize))
 	if err != nil {
 		return nil, err
 	}
@@ -296,6 +297,15 @@ func (w *InboxWorker) claim(ctx context.Context) ([]claimedMessage, error) {
 	}
 
 	return claimed, nil
+}
+
+// candidateLimit bounds the candidate scan of one claim branch, so one aggregate with a long
+// backlog cannot force the claim to scan the whole table. The value is not a field of Options on
+// purpose: it is a lock-footprint value derived from the batch size, and a public setting would
+// give an operator a way to tune away the aggregate reservation the claim depends on, finding
+// F-087. Every claim computes and binds it fresh, so it always tracks the current batch size.
+func candidateLimit(batchSize int) int {
+	return min(max(batchSize*3, 50), 500)
 }
 
 func (w *InboxWorker) read(rows *sql.Rows) ([]claimedMessage, error) {

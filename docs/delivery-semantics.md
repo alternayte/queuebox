@@ -107,6 +107,77 @@ JOIN inbox i ON i.id = CAST(JSON_VALUE(o.headers, '$."x-inbox-id"') AS UNIQUEIDE
 WHERE i.source = N'stripe' AND i.idempotency_key = N'evt_123';
 ```
 
+## Order and the aggregate
+
+QueueBox delivers at least once. A crash between the publish and the mark sent delivers the
+message a second time. Your consumer must tolerate a repeat, and the inbox pattern is how it
+does that.
+
+The `aggregate_id` column is the unit of order. Both consumption modes hold one message of an
+aggregate in flight at a time, but the two modes scope that reservation differently, and an
+adopter must not treat them as the same rule.
+
+- In push mode, the relay reserves one in-flight message per aggregate_id across every source
+  together. The relay is one process that reads every push row, so it needs no source term in
+  its claim.
+- The relay forwards the messages of one aggregate in the order of created_at.
+- In pull mode, the claim reserves one in-flight message per (source, aggregate_id), because a
+  pull worker binds to one source. The claim never returns a message whose aggregate already
+  holds a message in state `processing` on that same source, and the rule holds across every
+  worker instance of that source, because it lives in the claim statement.
+- A pull claim on one source never blocks a pull claim of the same aggregate on a different
+  source. A message of `aggregate_id` `A` on source `orders` and a message of the same
+  `aggregate_id` `A` on source `payments` can run at the same time; the two sources do not see
+  each other.
+- QueueBox does not serialize the claim of two different aggregates.
+- A row with no aggregate_id takes part in no ordering.
+
+One difference from a log-based capture tool deserves a plain statement. A poller delivers in
+claim order, not in commit order. A row can take its identifier before another row and still
+commit after it, so a reader that needs commit order must not derive it from the identifier.
+Order inside one aggregate is the guarantee that QueueBox gives, and it is enough for the outbox
+pattern, because one aggregate is one writer.
+
+Each sentence above has a test. See `app/src/test/kotlin/e2e/OrderingGuaranteeTest.kt`.
+
+### The SQL Server pull claim serializes per source
+
+On SQL Server, the pull claim takes an exclusive application lock scoped to the source name, so
+every claim on one source runs one at a time. Two calling handlers overlap only when a handler
+takes longer than the claim round trip, so a short handler can look fully serialized even
+though the per-aggregate reservation still works. Measurement gives a per-source ceiling near
+110 to 140 claims per second, and adding workers to one source does not raise that ceiling. An
+operator must scale a busy source by giving it more source names, not by adding workers to the
+one source it already has. This measurement is stated but not proven by a test in this
+repository; it is recorded as a comment in `examples/pull/sql/sqlserver/claim.sql`.
+
+PostgreSQL does not carry this limit. Its claim uses `SKIP LOCKED`, which never blocks a
+concurrent claim, so workers on one source genuinely divide the work between them. An operator
+must size worker counts per dialect and must not assume a PostgreSQL sizing plan carries over to
+SQL Server, or the reverse.
+
+The SQL Server claim statement opens its own `BEGIN TRANSACTION`, issues its own `COMMIT`, and
+issues a `ROLLBACK` on the lock-failure path. The claim must be alone in that transaction: a
+caller must put no other application work in it, and the transaction must commit before any
+handler runs. This is exactly what the C#, Go and TypeScript client libraries do: each opens a
+transaction that contains only the claim and commits it before starting a handler. A caller that
+adds other work to the claim transaction, or that starts a handler before the commit, leaves the
+claim uncommitted until that wider transaction commits, loses the whole wider transaction on a
+lock failure, and holds the per-source lock for the remaining life of that wider transaction.
+`examples/pull/sql/sqlserver/claim.sql` and each of the three client libraries already carry this
+rule; see [`examples/pull/README.md`](../examples/pull/README.md) for the full statement.
+
+A driver whose request or command timeout is below thirty seconds breaks the SQL Server claim's
+error contract. The claim's application lock times out at ten seconds and raises Msg 51000. A
+shorter driver timeout aborts the call before the server can raise Msg 51000, the caller never
+sees that error, and the abandoned transaction holds the per-source lock until the connection
+resets. The documented minimum driver timeout is thirty seconds; see
+[`examples/pull/README.md`](../examples/pull/README.md) for the reasoning. This paragraph adds
+no test of its own; the ten-second lock timeout and the Msg 51000 contract are proven once per
+client library, for example `SqlServerLockTimeoutTest` in `clients/csharp`,
+`sqlserver_lock_timeout_test.go` in `clients/go`, and `sqlserver-lock-timeout.test.ts` in
+`clients/typescript`.
+
 ## HTTP delivery
 
 QueueBox sends the payload as the body of a POST, with the headers listed in

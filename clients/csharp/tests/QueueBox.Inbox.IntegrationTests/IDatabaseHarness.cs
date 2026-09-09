@@ -2,6 +2,9 @@ using System.Data.Common;
 
 namespace QueueBox.Inbox.IntegrationTests;
 
+/// <summary>Handles one message inside a test.</summary>
+public delegate Task TestHandler(InboxMessage message, DbTransaction transaction, CancellationToken cancellationToken);
+
 /// <summary>
 /// One database under test. The contract tests are written once and run against every harness,
 /// because a difference between two dialects must never be a difference of guarantee.
@@ -53,4 +56,80 @@ public interface IDatabaseHarness
 
     /// <summary>Store one pending pull row in the mapped table.</summary>
     Task<Guid> InsertMappedPendingAsync(InboxSchema schema, string source, string idempotencyKey, string payloadJson);
+
+    /// <summary>Store several pending pull rows that share one aggregate.</summary>
+    /// <param name="source">The source of every row.</param>
+    /// <param name="aggregateId">The aggregate every row shares.</param>
+    /// <param name="count">How many rows to store.</param>
+    async Task SeedPendingAsync(string source, string aggregateId, int count)
+    {
+        for (var i = 0; i < count; i++)
+        {
+            await InsertPendingAsync(source, $"{aggregateId}-{i}-{Guid.NewGuid():N}", "{}", aggregateId: aggregateId);
+        }
+    }
+
+    /// <summary>
+    /// Run several workers against this database until they handled the expected number of
+    /// messages between them, then stop every worker.
+    /// </summary>
+    /// <param name="count">How many workers to run at one time.</param>
+    /// <param name="handler">The handler every worker calls.</param>
+    /// <param name="untilProcessed">How many handler calls to wait for before the stop.</param>
+    /// <param name="source">The source every worker takes from.</param>
+    /// <param name="batchSize">The batch size of every worker.</param>
+    /// <param name="leaseMs">The lease of every worker, in milliseconds.</param>
+    async Task RunWorkersAsync(
+        int count,
+        TestHandler handler,
+        int untilProcessed,
+        string source = "s",
+        int batchSize = 10,
+        int leaseMs = 30_000)
+    {
+        using var done = new CountdownEvent(untilProcessed);
+
+        async Task WrappedAsync(InboxMessage message, DbTransaction transaction, CancellationToken token)
+        {
+            try
+            {
+                await handler(message, transaction, token).ConfigureAwait(false);
+            }
+            finally
+            {
+                // CountdownEvent.Signal() throws once the count already reached zero. Two
+                // handlers can finish at once when the count is one, so the check above it would
+                // race; the count itself, not a separate flag, is what must gate the signal.
+                try
+                {
+                    done.Signal();
+                }
+                catch (InvalidOperationException)
+                {
+                    // Already at zero. Every message beyond untilProcessed needs no signal.
+                }
+            }
+        }
+
+        using var stop = new CancellationTokenSource(TimeSpan.FromMinutes(2));
+
+        var workers = Enumerable.Range(0, count)
+            .Select(_ => new InboxWorker(Connections, new InboxOptions
+            {
+                Source = source,
+                Dialect = Dialect,
+                BatchSize = batchSize,
+                LeaseMs = leaseMs,
+                PollInterval = TimeSpan.FromMilliseconds(50),
+                ShutdownGrace = TimeSpan.FromSeconds(10),
+            }).RunAsync(new InboxHandler(WrappedAsync), stop.Token))
+            .ToArray();
+
+        done.Wait(stop.Token);
+
+        // The failure or completion path runs after the handler returns, so give it room to finish.
+        await Task.Delay(TimeSpan.FromMilliseconds(300), CancellationToken.None).ConfigureAwait(false);
+        await stop.CancelAsync().ConfigureAwait(false);
+        await Task.WhenAll(workers).ConfigureAwait(false);
+    }
 }

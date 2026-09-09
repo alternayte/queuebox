@@ -11,7 +11,7 @@ func TestPostgreSQLClaimMatchesTheContract(t *testing.T) {
 		t.Fatalf("the statements did not render: %v", err)
 	}
 
-	for _, want := range []string{"FOR UPDATE SKIP LOCKED", `FROM "inbox"`, "$1"} {
+	for _, want := range []string{"FOR UPDATE SKIP LOCKED", `FROM "inbox"`, "$1", "$4"} {
 		if !strings.Contains(statements.Claim, want) {
 			t.Errorf("the claim does not contain %q", want)
 		}
@@ -19,6 +19,35 @@ func TestPostgreSQLClaimMatchesTheContract(t *testing.T) {
 
 	if strings.Contains(statements.Claim, ":source") {
 		t.Error("the claim still carries a named parameter")
+	}
+
+	// The readiness check ('pending' and due, or 'processing' and lease expired) must repeat in
+	// the locking read and again in the final UPDATE: that repetition restores the EvalPlanQual
+	// re-check. Fewer occurrences than the candidate-branch check plus the locking read plus the
+	// final UPDATE means one of the two later checks is missing, and two workers can then claim
+	// the same row.
+	if got := strings.Count(statements.Claim, "= 'pending'"); got != 3 {
+		t.Errorf("the 'pending' readiness check appears %d times and it must appear 3 times", got)
+	}
+
+	// The busy check is scoped to (source, aggregate_id) at every occurrence: the eligible
+	// filter, the locking read and the final UPDATE.
+	if got := strings.Count(statements.Claim, `busy."source" = $1`); got != 3 {
+		t.Errorf("the source-scoped busy check appears %d times and it must appear 3 times", got)
+	}
+
+	// The candidate selection is a UNION ALL of two bounded branches, ahead of the window
+	// function that reserves one row per aggregate.
+	if got := strings.Count(statements.Claim, "UNION ALL"); got != 1 {
+		t.Errorf("the candidate selection has %d UNION ALL and it must have exactly 1", got)
+	}
+
+	// Every ORDER BY ends in the id column, so the order is total.
+	for _, line := range strings.Split(statements.Claim, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "ORDER BY") && !strings.HasSuffix(trimmed, `"id"`) && !strings.HasSuffix(trimmed, `r."id"`) {
+			t.Errorf("an ORDER BY does not end in the id column: %q", trimmed)
+		}
 	}
 }
 
@@ -28,9 +57,55 @@ func TestSQLServerClaimMatchesTheContract(t *testing.T) {
 		t.Fatalf("the statements did not render: %v", err)
 	}
 
-	for _, want := range []string{"UPDLOCK, READPAST, ROWLOCK", "TOP (@p2)", "OUTPUT INSERTED.*"} {
+	for _, want := range []string{"UPDLOCK, READPAST, ROWLOCK", "TOP (@qbCandLimit)", "TOP (@qbBatch)", "OUTPUT inserted.*"} {
 		if !strings.Contains(statements.Claim, want) {
 			t.Errorf("the claim does not contain %q", want)
+		}
+	}
+
+	// The local T-SQL variables must never share a name with a bound parameter: the driver
+	// declares the parameter for the caller, and a matching DECLARE raises Msg 134.
+	for _, local := range []string{"@qbBatch", "@qbLeaseMs", "@qbCandLimit", "@src"} {
+		if !strings.Contains(statements.Claim, "DECLARE "+local) {
+			t.Errorf("the claim does not declare the local variable %s", local)
+		}
+	}
+
+	for _, bound := range []string{"@p1", "@p2", "@p3", "@p4"} {
+		if !strings.Contains(statements.Claim, bound) {
+			t.Errorf("the claim does not bind the parameter %s", bound)
+		}
+	}
+
+	// sp_getapplock is taken once per source. The EXEC line names it, and the THROW message
+	// names it again in the failure text, so it appears exactly twice.
+	if got := strings.Count(statements.Claim, "sp_getapplock"); got != 2 {
+		t.Errorf("sp_getapplock appears %d times and it must appear exactly twice", got)
+	}
+
+	if !strings.Contains(statements.Claim, "IF @lockresult < 0") || !strings.Contains(statements.Claim, "THROW 51000") {
+		t.Error("the claim does not check the applock result and THROW Msg 51000 on a negative return")
+	}
+
+	// The readiness check repeats in the candidate branch and again in the final UPDATE.
+	if got := strings.Count(statements.Claim, "= 'pending'"); got != 2 {
+		t.Errorf("the 'pending' readiness check appears %d times and it must appear twice", got)
+	}
+
+	// The busy check is scoped to (source, aggregate_id) at every occurrence: the eligible
+	// filter and the final UPDATE.
+	if got := strings.Count(statements.Claim, "busy.[source] = @src"); got != 2 {
+		t.Errorf("the source-scoped busy check appears %d times and it must appear 2 times", got)
+	}
+
+	if got := strings.Count(statements.Claim, "UNION ALL"); got != 1 {
+		t.Errorf("the candidate selection has %d UNION ALL and it must have exactly 1", got)
+	}
+
+	for _, line := range strings.Split(statements.Claim, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "ORDER BY") && !strings.HasSuffix(trimmed, "[id]") && !strings.HasSuffix(trimmed, "r.[id]") {
+			t.Errorf("an ORDER BY does not end in the id column: %q", trimmed)
 		}
 	}
 }

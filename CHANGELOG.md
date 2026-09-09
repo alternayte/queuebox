@@ -9,6 +9,14 @@ the configuration schema and for the database schema.
 
 ## [Unreleased]
 
+### Breaking changes
+
+- The pull client concurrency default is now one, in all three client libraries. It was the batch
+  size, which is ten, so ten handlers ran at one time and nothing in the API said so. A handler
+  that reads a row and then writes it failed with a duplicate key error when it met a sibling
+  message. To restore the old behaviour, set `MaxConcurrency` (C# and Go) or `maxConcurrency`
+  (TypeScript) to the batch size. (F-088)
+
 ## [0.1.0] — 2026-09-06
 
 The first release. QueueBox is a transactional outbox and inbox relay between HTTP endpoints,

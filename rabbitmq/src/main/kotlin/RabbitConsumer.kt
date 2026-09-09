@@ -13,7 +13,11 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.datetime.Clock
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import org.nxtspec.logging.CORRELATION_ID_HEADER
 import org.nxtspec.logging.LogKeys
 import org.nxtspec.logging.MAX_CORRELATION_ID_LENGTH
@@ -176,7 +180,7 @@ class RabbitConsumer(
 
     private suspend fun processMessage(envelope: Envelope, properties: AMQP.BasicProperties, body: ByteArray) {
         try {
-            val payload = json.parseToJsonElement(body.toString(Charsets.UTF_8))
+            val payload = parsePayload(body) ?: return storeUnparsable(envelope, properties, body)
             val messageId = UUID.randomUUID()
 
             // Extract idempotency key with fallback chain (from ORIGINAL payload):
@@ -269,16 +273,22 @@ class RabbitConsumer(
     }
 
     /**
-     * Preserves a message that the transform rejected.
+     * Preserves a message that a transform rejected, or one that extraction rejected before any
+     * transform ran.
      *
      * The row is stored in state 'dead' in one transaction, so it is never claimable. The order
      * is mandatory. The row must be durable before the acknowledgement. A failed store therefore
      * ends in a nack with requeue, and the broker keeps the message.
      */
-    private suspend fun storeRejected(envelope: Envelope, message: InboxMessage, reason: String) {
+    private suspend fun storeRejected(
+        envelope: Envelope,
+        message: InboxMessage,
+        reason: String,
+        rejectionReason: InboxRejectionReason = InboxRejectionReason.TRANSFORM_FAILED
+    ) {
         log.warn(
-            "The transform rejected delivery {}. QueueBox stores the original payload and marks " +
-                "the row dead. Reason: {}",
+            "Delivery {} was rejected. QueueBox stores the original payload and marks the row " +
+                "dead. Reason: {}",
             envelope.deliveryTag,
             reason
         )
@@ -305,7 +315,7 @@ class RabbitConsumer(
             is InboxResult.Stored -> {
                 // The row is already dead. No second statement is needed, and no window exists
                 // in which the relay can claim the row.
-                metricsCollector?.recordInboxRejection(InboxRejectionReason.TRANSFORM_FAILED)
+                metricsCollector?.recordInboxRejection(rejectionReason)
                 sendAck(envelope.deliveryTag)
             }
             is InboxResult.Duplicate -> {
@@ -350,11 +360,7 @@ class RabbitConsumer(
             ?: UUID.randomUUID().toString()
     }
 
-    private fun extractIdempotencyKey(
-        properties: AMQP.BasicProperties,
-        payload: kotlinx.serialization.json.JsonElement,
-        body: ByteArray
-    ): String {
+    private fun extractIdempotencyKey(properties: AMQP.BasicProperties, payload: JsonElement, body: ByteArray): String {
         // Priority 1: x-idempotency-key header
         val headerKey = properties.headers?.get("x-idempotency-key")
         if (headerKey != null) {
@@ -382,6 +388,41 @@ class RabbitConsumer(
         return bodyDigest(body)
     }
 
+    /**
+     * Parses the body, and returns null when the body is not JSON.
+     *
+     * The Kafka consumer carries the same function. A throw from the parse used to reach the
+     * catch-all of `processMessage`, which requeued the delivery, so a body that never parses
+     * looped at broker speed.
+     */
+    private fun parsePayload(body: ByteArray): JsonElement? = try {
+        json.parseToJsonElement(body.toString(Charsets.UTF_8))
+    } catch (e: SerializationException) {
+        log.debug("The body is not JSON. Reason: {}", ErrorSanitizer.sanitize(e))
+        null
+    }
+
+    /**
+     * A body that is not JSON cannot become an inbox payload.
+     *
+     * Nothing downstream can read it, and a requeue returns it at once, so the consumer spins at
+     * broker speed. The body is preserved as a string inside a JSON object, the row is stored
+     * dead, and the delivery is acknowledged. An operator still sees what arrived.
+     */
+    private suspend fun storeUnparsable(envelope: Envelope, properties: AMQP.BasicProperties, body: ByteArray) {
+        val message = InboxMessage(
+            consumption = config.consumption,
+            id = UUID.randomUUID(),
+            source = config.sourceName,
+            idempotencyKey = bodyDigest(body),
+            payload = JsonObject(
+                mapOf("raw" to JsonPrimitive(body.decodeToString()))
+            ),
+            correlationId = extractCorrelationId(properties)
+        )
+        storeRejected(envelope, message, "the body is not JSON", InboxRejectionReason.EXTRACTION_FAILED)
+    }
+
     /** Returns the hexadecimal SHA-256 digest of the raw message body. */
     private fun bodyDigest(body: ByteArray): String {
         val digest = java.security.MessageDigest.getInstance("SHA-256").digest(body)
@@ -394,10 +435,7 @@ class RabbitConsumer(
      * Priority 1 is the `eventTypePath` in the body, which gives an AMQP source the same
      * capability as an HTTP source. Priority 2 is the `x-event-type` AMQP header.
      */
-    private fun extractEventType(
-        properties: AMQP.BasicProperties,
-        payload: kotlinx.serialization.json.JsonElement
-    ): String? {
+    private fun extractEventType(properties: AMQP.BasicProperties, payload: JsonElement): String? {
         config.eventTypePath?.let { path ->
             val extracted = extractor.extract(payload, path)
             if (extracted.isSuccess) {
@@ -408,10 +446,7 @@ class RabbitConsumer(
         return properties.headers?.get("x-event-type")?.toString()
     }
 
-    private fun extractAggregateId(
-        properties: AMQP.BasicProperties,
-        payload: kotlinx.serialization.json.JsonElement
-    ): String? {
+    private fun extractAggregateId(properties: AMQP.BasicProperties, payload: JsonElement): String? {
         // Priority 1: JSONPath extraction from payload
         config.aggregateIdPath?.let { path ->
             val extracted = extractor.extract(payload, path)

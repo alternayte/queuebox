@@ -27,10 +27,12 @@ source of truth for the SQL is `examples/pull/sql`. Neither is restated here.
 | 15 | Mask a secret in every log line and every error | Give a connection string that carries a password. Assert the password appears in no message. |
 | 16 | Not poll in a storm when the claim is empty | Count the claims over a fixed window with an empty table. Assert the count matches the configured interval. |
 | 17 | Never hold more than the batch in memory | Fill the table past the batch. Assert the in-flight count never passes the batch. |
+| 18 | Hold at most one message per aggregate in flight | Fill the table with four messages of one aggregate and four of another. Run two workers. Assert that no two handler windows of one aggregate overlap, and that the two aggregates DO overlap. |
+| 19 | Treat a claim lock failure as transient | Force sp_getapplock to return negative, for example by holding the lock past the timeout. Assert the library backs off and retries the whole call, and that it never marks the message failed or dead. |
 
 Items 1 to 14 come from section 7 of the work order. Items 15 to 17 make the
 cross-cutting requirements of section 8 testable, because a requirement without a test
-is a wish.
+is a wish. Items 18 and 19 come from finding F-087.
 
 ## Both dialects, and a real database
 

@@ -14,7 +14,8 @@ public sealed class InboxOptions
 
     /// <summary>
     /// The largest number of handlers that run at one time. It never passes the batch size.
-    /// A null value means the batch size.
+    /// A null value means one, so a handler meets no sibling message unless the caller asks for
+    /// parallelism. Set it above one only when the handler is safe against a concurrent sibling.
     /// </summary>
     public int? MaxConcurrency { get; init; }
 
@@ -36,8 +37,8 @@ public sealed class InboxOptions
     /// <summary>The failure policy. A null value means <see cref="DefaultRetryPolicy"/>.</summary>
     public IInboxRetryPolicy? RetryPolicy { get; init; }
 
-    /// <summary>The concurrency the worker actually applies.</summary>
-    public int EffectiveConcurrency => Math.Min(MaxConcurrency ?? BatchSize, BatchSize);
+    /// <summary>The concurrency the worker actually applies. The default is one.</summary>
+    public int EffectiveConcurrency => Math.Min(MaxConcurrency ?? 1, BatchSize);
 
     /// <summary>The renewal interval, which is a third of the lease.</summary>
     public TimeSpan RenewalInterval => TimeSpan.FromMilliseconds(LeaseMs / 3.0);
