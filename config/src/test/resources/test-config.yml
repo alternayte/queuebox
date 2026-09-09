@@ -16,6 +16,8 @@ outbox:
 
 inbox:
   basePath: /inbox
+  relay:
+    pendingGaugeIntervalMs: 7000
 
 destinations:
   webhook-api:

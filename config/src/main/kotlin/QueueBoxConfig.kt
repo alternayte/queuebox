@@ -192,6 +192,8 @@ data class InboxRelayConfig(
     val batchSize: Int = 100,
     /** Visibility timeout. A claim older than this returns to state 'pending'. See F-006. */
     val claimTimeoutMs: Long = 300000,
+    /** Minimum interval between two oldest-pending-age queries. See F-015 and F-095. */
+    val pendingGaugeIntervalMs: Long = 5000,
     /**
      * The dead-letter ceiling that the relay writes into the `max_attempts` column of every
      * row it creates.

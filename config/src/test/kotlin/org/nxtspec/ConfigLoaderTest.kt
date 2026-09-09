@@ -25,6 +25,7 @@ class ConfigLoaderTest {
         assertEquals(100, config.outbox.batchSize)
         assertEquals(5, config.outbox.maxAttempts)
         assertEquals("/inbox", config.inbox.basePath)
+        assertEquals(7000, config.inbox.relay.pendingGaugeIntervalMs)
         assertEquals(2, config.destinations.size)
         assertEquals(2, config.routes.size)
         assertEquals(2, config.sources.size)

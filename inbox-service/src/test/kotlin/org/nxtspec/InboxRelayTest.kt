@@ -25,6 +25,7 @@ class InboxRelayTest {
         val processed = mutableListOf<UUID>()
         val dead = mutableListOf<UUID>()
         var reclaimCalls = 0
+        var oldestPendingAgeCalls = 0
 
         override suspend fun store(message: InboxMessage): InboxResult = InboxResult.Stored
 
@@ -48,7 +49,10 @@ class InboxRelayTest {
 
         override suspend fun renewClaim(id: UUID, claimToken: UUID?, leaseMs: Long): Boolean = true
         override suspend fun countByState(state: String): Long = 0
-        override suspend fun oldestPendingAgeSeconds(): Double = 0.0
+        override suspend fun oldestPendingAgeSeconds(): Double {
+            oldestPendingAgeCalls++
+            return 0.0
+        }
         override suspend fun reclaimStale(olderThan: Duration): Int {
             reclaimCalls++
             return 0
@@ -242,5 +246,28 @@ class InboxRelayTest {
         relay(inbox, outbox).relayBatch()
 
         assertEquals(1, inbox.reclaimCalls)
+    }
+
+    // --- F-015: the oldest-pending-age query is rate limited ---
+
+    @Test
+    fun `queries the oldest pending age at most once per gauge interval`() = runBlocking {
+        val inbox = FakeInboxRepository(mutableListOf())
+        val outbox = FakeOutboxRepository()
+        val metrics = RecordingMetrics()
+
+        val instance = relay(
+            inbox,
+            outbox,
+            metrics,
+            config = InboxRelayConfig(pollIntervalMs = 20, pendingGaugeIntervalMs = 5000)
+        )
+
+        instance.start()
+        kotlinx.coroutines.delay(500)
+        instance.shutdown()
+
+        // The poll interval is 20 ms, so about 25 cycles ran inside one gauge interval.
+        assertEquals(1, inbox.oldestPendingAgeCalls)
     }
 }
