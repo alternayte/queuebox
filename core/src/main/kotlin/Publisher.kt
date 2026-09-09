@@ -7,9 +7,8 @@ package org.nxtspec
  *   means the route sets no routing key, and the destination applies its own fallback. See F-004.
  * @property resolvedAddress The exchange, topic, or subject that the route resolved for this
  *   message from the destination's address template. F-091. The router is the single place that
- *   renders an address. The empty default is dead for Kafka and NATS, which ignore this field
- *   until their own task wires it in. The RabbitMQ publisher treats an empty value as a resolution
- *   failure and never falls back to it.
+ *   renders an address. Every publisher treats an empty value as a resolution failure: it fails
+ *   the row and never falls back to the destination's own configured exchange, topic, or subject.
  */
 data class PublishContext(val routingKey: String? = null, val resolvedAddress: String = "")
 
