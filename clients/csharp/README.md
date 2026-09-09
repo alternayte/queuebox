@@ -109,13 +109,65 @@ reach it could complete a message out of band.
 5. Do external work, such as an HTTP call, only where a repeat is safe. A transaction cannot
    roll back a call to another system. Deduplicate on the source and the idempotency key.
 
+## Dependency injection
+
+A second package, `QueueBox.Inbox.DependencyInjection`, registers a worker as an
+`IHostedService` and runs it for the life of the host.
+
+```
+dotnet add package QueueBox.Inbox.DependencyInjection
+```
+
+Register an `IInboxConnectionSource`, then call `AddQueueBoxInbox`:
+
+```csharp
+using Npgsql;
+using QueueBox.Inbox;
+using QueueBox.Inbox.DependencyInjection;
+
+var builder = Host.CreateApplicationBuilder(args);
+
+builder.Services.AddSingleton<IInboxConnectionSource>(
+    InboxConnections.From(NpgsqlDataSource.Create(builder.Configuration.GetConnectionString("Queuebox"))));
+
+builder.Services.AddQueueBoxInbox(
+    "orders",
+    new InboxOptions { Source = "orders" },
+    async (message, transaction, token) =>
+    {
+        await using var command = transaction.CreateCommand();
+
+        command.CommandText = "INSERT INTO orders (id, total) VALUES (@id, @total)";
+        command
+            .WithParameter("@id", message.Payload.GetProperty("id").GetString())
+            .WithParameter("@total", message.Payload.GetProperty("total").GetInt32());
+
+        await command.ExecuteNonQueryAsync(token);
+    });
+
+await builder.Build().RunAsync();
+```
+
+`AddQueueBoxInbox` registers a name, so a second call with a different name adds a second
+worker rather than replacing the first. Each worker with no `connections` argument shares the
+`IInboxConnectionSource` registered above. Pass a worker its own connection source through the
+optional `connections` parameter when its inbox lives in a different database:
+
+```csharp
+builder.Services.AddQueueBoxInbox(
+    "payments",
+    new InboxOptions { Source = "payments" },
+    handler: PaymentHandler,
+    connections: InboxConnections.From(NpgsqlDataSource.Create(paymentsConnectionString)));
+```
+
 ## Entity Framework Core
 
 `QueueBox.Inbox.DependencyInjection` ships `InboxDbContextFactory`, a helper for a handler that
 writes through Entity Framework Core. Build the context on the handler's own transaction:
 
 ```csharp
-services.AddQueueBoxInbox("orders", new InboxOptions { Source = "orders" }, async (message, transaction, token) =>
+builder.Services.AddQueueBoxInbox("orders", new InboxOptions { Source = "orders" }, async (message, transaction, token) =>
 {
     await using var context = InboxDbContextFactory.CreateOn(
         transaction,

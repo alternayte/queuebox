@@ -36,7 +36,9 @@
        range by default. That range lets a consumer resolve a later QueueBox.Inbox than the one
        this package was built against, which is exactly the drift the lockstep release forbids.
        This target rewrites that range to an exact match on the version the tag names, right
-       before the nuspec file is written. -->
+       before the nuspec file is written. `_ProjectReferencesWithVersions` is an undocumented,
+       SDK-internal item, so an SDK upgrade can rename or remove it; check this target after any
+       SDK bump. -->
   <Target Name="PinCoreDependencyToExactVersion" AfterTargets="_GetProjectReferenceVersions" BeforeTargets="GenerateNuspec">
     <ItemGroup>
       <_ProjectReferencesWithVersions Condition="'%(Filename)' == 'QueueBox.Inbox'">

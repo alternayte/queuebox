@@ -303,13 +303,19 @@ of the queue sets the event-type header. QueueBox refuses the start when the tem
 `{{ eventType }}` and neither field is set.
 
 **A source can name its own inbox attribute headers.** F-100: the RabbitMQ, Kafka and NATS
-sources read three headers before every other step of the fallback chain: the idempotency key,
-the aggregate identifier, and the event type. `attributeHeaders` sets the name of each header. The
+sources read three headers as part of the existing fallback chain: the idempotency key, the
+aggregate identifier, and the event type. `attributeHeaders` sets the name of each header. The
 three defaults are `x-idempotency-key`, `x-aggregate-id` and `x-event-type`, the names QueueBox has
 always read, so an existing deployment needs no change. A Debezium producer instead sends `id`,
 `aggregateId` and `eventType`. Before this setting, a flat payload with those header names needed
 a code change. `attributeHeaders` sets only the header name. It does not change the order of the
 fallback chain, and it does not remove the digest fallback.
+
+The priority differs per attribute. For the idempotency key, the header comes first, before
+`idempotencyKeyPath` and before the AMQP `messageId` property. For the event type and the
+aggregate identifier, the header comes second: `eventTypePath` and `aggregateIdPath` in the
+message body take priority over the header, and the header applies only when the body path gives
+nothing.
 
 ```yaml
 sources:

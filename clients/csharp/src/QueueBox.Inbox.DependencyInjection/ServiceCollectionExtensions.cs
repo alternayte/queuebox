@@ -15,13 +15,20 @@ public static class ServiceCollectionExtensions
     /// <param name="name">A name that is unique among the workers of this container.</param>
     /// <param name="options">The worker's own options. No other worker must share this instance.</param>
     /// <param name="handler">Handles one message.</param>
+    /// <param name="connections">
+    /// The connection source for this worker only. When null, the worker resolves
+    /// <see cref="IInboxConnectionSource"/> from the container instead, so every worker that
+    /// omits this parameter shares one database. Pass a distinct instance for a worker whose
+    /// source lives in a different database than the rest of the host.
+    /// </param>
     /// <returns>The same container, for chaining.</returns>
     /// <exception cref="InvalidOperationException">The name repeats an earlier registration.</exception>
     public static IServiceCollection AddQueueBoxInbox(
         this IServiceCollection services,
         string name,
         InboxOptions options,
-        InboxHandler handler)
+        InboxHandler handler,
+        IInboxConnectionSource? connections = null)
     {
         ArgumentNullException.ThrowIfNull(services);
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
@@ -43,10 +50,10 @@ public static class ServiceCollectionExtensions
         // carries its own factory and its own InboxWorkerHostedService instance.
         services.AddSingleton<IHostedService>(provider =>
         {
-            var connections = provider.GetRequiredService<IInboxConnectionSource>();
+            var resolvedConnections = connections ?? provider.GetRequiredService<IInboxConnectionSource>();
             var logger = provider.GetService<Microsoft.Extensions.Logging.ILogger<InboxWorker>>();
             var timeProvider = provider.GetService<TimeProvider>();
-            return new InboxWorkerHostedService(connections, options, handler, logger, timeProvider);
+            return new InboxWorkerHostedService(resolvedConnections, options, handler, logger, timeProvider);
         });
 
         return services;

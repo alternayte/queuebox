@@ -62,7 +62,39 @@ public class ServiceCollectionExtensionsTests
             .Cast<InboxWorkerHostedService>().ToList();
 
         // A shared options instance is the other silent failure: both workers would poll one source.
-        Assert.Equal(new[] { "orders", "payments" }, hosted.Select(h => h.Options.Source).OrderBy(s => s));
-        Assert.Equal(new[] { 3, 7 }, hosted.Select(h => h.Options.BatchSize).OrderBy(n => n));
+        // Assert the source and the batch size as one tuple per worker, so a bug that pairs the
+        // wrong source with the wrong batch size fails this test.
+        var actual = hosted.Select(h => (h.Options.Source, h.Options.BatchSize)).OrderBy(pair => pair.Source);
+        Assert.Equal(new[] { ("orders", 3), ("payments", 7) }, actual);
+    }
+
+    [Fact]
+    public void Each_worker_keeps_its_own_connection_source()
+    {
+        var services = new ServiceCollection();
+        services.AddSingleton<IInboxConnectionSource>(new FakeConnectionSource());
+
+        var ordersConnections = new FakeConnectionSource();
+        var paymentsConnections = new FakeConnectionSource();
+
+        services.AddQueueBoxInbox(
+            "orders",
+            new InboxOptions { Source = "orders" },
+            (m, t, c) => Task.CompletedTask,
+            connections: ordersConnections);
+        services.AddQueueBoxInbox(
+            "payments",
+            new InboxOptions { Source = "payments" },
+            (m, t, c) => Task.CompletedTask,
+            connections: paymentsConnections);
+
+        var hosted = services.BuildServiceProvider().GetServices<IHostedService>()
+            .Cast<InboxWorkerHostedService>().ToList();
+
+        // Each worker must keep the connection source passed to its own call, not the container's,
+        // and not the other worker's, so a host with two inboxes in two databases works.
+        var bySource = hosted.ToDictionary(h => h.Options.Source);
+        Assert.Same(ordersConnections, bySource["orders"].Connections);
+        Assert.Same(paymentsConnections, bySource["payments"].Connections);
     }
 }

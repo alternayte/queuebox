@@ -252,7 +252,7 @@ class RabbitConsumer(
             val messageId = UUID.randomUUID()
 
             // Extract idempotency key with fallback chain (from ORIGINAL payload):
-            // 1. x-idempotency-key header
+            // 1. the configured idempotency-key header
             // 2. JSONPath from payload
             // 3. messageId property
             // 4. A stable SHA-256 digest of the body

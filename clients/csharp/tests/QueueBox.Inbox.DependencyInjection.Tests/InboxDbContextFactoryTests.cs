@@ -5,11 +5,14 @@ namespace QueueBox.Inbox.DependencyInjection.Tests;
 
 /// <summary>
 /// End-to-end regression tests of the worker's rollback and completion path, run through
-/// <see cref="InboxDbContextFactory.CreateOn{TContext}"/>. On PostgreSQL, Npgsql binds one
-/// transaction per physical connection, so a context that never enlisted throws before it writes a
-/// row rather than committing on its own. That means dropping the helper's
-/// <c>UseTransaction</c> call fails these two tests closed, not open, and neither test tells that
-/// failure apart from a genuine second-connection bug on its own. The real discriminator for the
+/// <see cref="InboxDbContextFactory.CreateOn{TContext}"/>. On PostgreSQL, Npgsql refuses a second
+/// transaction on a connection that already has one open. Dropping the helper's
+/// <c>UseTransaction</c> call therefore fails the first test closed: the context throws before it
+/// writes a row, for the same reason the deliberate throw already does, so the test still passes
+/// and does not tell the two failures apart. The same drop fails the second test open, because the
+/// throw then reaches the worker as an unhandled handler failure, and the row and state
+/// assertions no longer hold, but for a reason other than the genuine second-connection bug this
+/// class targets. Neither test proves the enlistment directly. The real discriminator for the
 /// helper's contract is <see cref="InboxDbContextFactoryUnitTests"/>, which asserts the enlistment
 /// directly. See its remarks for what each test here actually defends.
 /// </summary>

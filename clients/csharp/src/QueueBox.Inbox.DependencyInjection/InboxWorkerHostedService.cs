@@ -7,7 +7,7 @@ namespace QueueBox.Inbox.DependencyInjection;
 /// Runs one named worker for the whole life of the host. One instance per registration, so two
 /// registrations give two workers rather than one.
 /// </summary>
-public sealed class InboxWorkerHostedService : BackgroundService
+internal sealed class InboxWorkerHostedService : BackgroundService
 {
     private readonly IInboxConnectionSource _connections;
     private readonly InboxHandler _handler;
@@ -16,6 +16,9 @@ public sealed class InboxWorkerHostedService : BackgroundService
 
     /// <summary>The options of this registration only. No other worker shares this instance.</summary>
     internal InboxOptions Options { get; }
+
+    /// <summary>The connection source of this registration only.</summary>
+    internal IInboxConnectionSource Connections => _connections;
 
     internal InboxWorkerHostedService(
         IInboxConnectionSource connections,
