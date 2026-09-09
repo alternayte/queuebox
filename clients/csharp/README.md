@@ -109,6 +109,39 @@ reach it could complete a message out of band.
 5. Do external work, such as an HTTP call, only where a repeat is safe. A transaction cannot
    roll back a call to another system. Deduplicate on the source and the idempotency key.
 
+## Entity Framework Core
+
+`QueueBox.Inbox.DependencyInjection` ships `InboxDbContextFactory`, a helper for a handler that
+writes through Entity Framework Core. Build the context on the handler's own transaction:
+
+```csharp
+services.AddQueueBoxInbox("orders", new InboxOptions { Source = "orders" }, async (message, transaction, token) =>
+{
+    await using var context = InboxDbContextFactory.CreateOn<OrderContext>(
+        transaction, options => new OrderContext(options));
+
+    context.Orders.Add(new Order { Id = message.Id });
+    await context.SaveChangesAsync(token);
+});
+```
+
+`CreateOn` builds the context on the connection of the transaction, then calls
+`context.Database.UseTransaction(transaction)`. The application write and the inbox completion
+then share one transaction on one connection, so they commit together or neither of them does.
+
+State this plainly, because it is the mistake this helper exists to prevent: Entity Framework Core
+opens its own connection by default. A handler that constructs a plain `DbContext`, or that opens
+its own transaction instead of the one the handler received, writes on a second connection. That
+write commits on its own, separately from the inbox completion. A later failure then leaves the
+application row written and the inbox row unprocessed, and QueueBox delivers the message again. A
+retry that finds the application row already there, with no memory of writing it, is a duplicate a
+reader does not expect. Always pass the handler's transaction through `InboxDbContextFactory`, and
+never construct the context another way.
+
+The helper targets PostgreSQL through Npgsql today, because the test that guards it runs against
+PostgreSQL. A consumer on Microsoft SQL Server can copy the three lines of `CreateOn` and call
+`UseSqlServer(connection)` in place of `UseNpgsql(connection)`.
+
 ## Settings
 
 | Setting | Default | Meaning |

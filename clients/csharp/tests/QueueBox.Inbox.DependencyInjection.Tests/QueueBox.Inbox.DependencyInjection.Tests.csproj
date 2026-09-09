@@ -19,6 +19,9 @@
 
   <ItemGroup>
     <ProjectReference Include="../../src/QueueBox.Inbox.DependencyInjection/QueueBox.Inbox.DependencyInjection.csproj" />
+    <!-- Reuses the container fixture the integration tests already start, rather than starting a
+         second PostgreSQL container for this project alone. -->
+    <ProjectReference Include="../QueueBox.Inbox.IntegrationTests/QueueBox.Inbox.IntegrationTests.csproj" />
   </ItemGroup>
 
 </Project>
