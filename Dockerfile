@@ -2,7 +2,7 @@
 # F-044: every base image is pinned by digest, so a build is reproducible.
 
 # Build stage
-FROM gradle@sha256:67b8c4bfd2b064e58a7307e2da1fc3881bc03ecc7a57cf61d8b570a02ebfaea2 AS builder
+FROM gradle@sha256:d868117760a7c92214705f47ed173116a5d13e58d68702f974ff30acd062737e AS builder
 # gradle:8.13-jdk21
 WORKDIR /app
 COPY . .
