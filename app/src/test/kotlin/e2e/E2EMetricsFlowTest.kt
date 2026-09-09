@@ -437,7 +437,10 @@ class E2EMetricsFlowTest : E2ETestBase() {
     }
 
     @Test
-    fun `the metrics endpoint reports the age of the oldest pending outbox row`() = runBlocking {
+    // Named for the registry, not the endpoint: this reads `prometheusRegistry` in process
+    // through `scrapeMetric`, never the real HTTP `/metrics` route. The route itself is
+    // covered by MetricsRoutesTest, MetricsTest, and ManagementPortTest. See I5.
+    fun `the metrics registry reports the age of the oldest pending outbox row`() = runBlocking {
         startMockHttpServer()
         poller = startPoller(pollIntervalMs = 20)
 
@@ -454,7 +457,8 @@ class E2EMetricsFlowTest : E2ETestBase() {
     }
 
     @Test
-    fun `the metrics endpoint reports the age of the oldest pending inbox row`() = runBlocking {
+    // Named for the registry, not the endpoint. See the comment above the outbox test.
+    fun `the metrics registry reports the age of the oldest pending inbox row`() = runBlocking {
         insertInboxMessage(source = "orders", idempotencyKey = "k1")
         // A batch size of zero claims nothing, so the row stays 'pending' for the whole test,
         // the same state the gauge measures. The poller still refreshes the gauge on its tick.

@@ -249,8 +249,12 @@ class SqlServerOutboxRepository(
             java.time.Instant.ofEpochSecond(now.epochSeconds, now.nanosecondsOfSecond.toLong())
         )
         val createdAtCol = quoteSqlServerIdentifier(columnMapping.createdAt)
+        // DATEDIFF_BIG(second, ...) counts boundary crossings, not elapsed time: a row 0.9
+        // seconds old reports 1, and a row 0.1 seconds old reports 0, indistinguishable from the
+        // empty-table sentinel. Using millisecond resolution and dividing down to seconds in SQL
+        // gives fractional seconds, matching the PostgreSQL path's precision. See I3.
         val sql = """
-            SELECT DATEDIFF_BIG(second, MIN($createdAtCol), ?)
+            SELECT DATEDIFF_BIG(millisecond, MIN($createdAtCol), ?) / 1000.0
             FROM ${quoteSqlServerIdentifier(tableName)}
             WHERE ${quoteSqlServerIdentifier(columnMapping.state)} = 'pending'
         """.trimIndent()
@@ -260,10 +264,10 @@ class SqlServerOutboxRepository(
             stmt.setTimestamp(1, nowTimestamp)
             stmt.executeQuery().use { rows ->
                 rows.next()
-                // MIN over no pending rows is SQL NULL. The JDBC driver maps a NULL
-                // DATEDIFF_BIG result to 0 on getLong, and 0.0 is exactly the contract this
-                // method promises for that case, so no defensive wasNull() branch is needed.
-                rows.getLong(1).toDouble()
+                // MIN over no pending rows is SQL NULL. The JDBC driver maps a NULL result to
+                // 0.0 on getDouble, and 0.0 is exactly the contract this method promises for
+                // that case, so no defensive wasNull() branch is needed.
+                rows.getDouble(1)
             }
         }
     }
@@ -389,9 +393,15 @@ class SqlServerOutboxRepository(
             conditions += "$topicCol IN (${topics.joinToString(",") { "?" }})"
             topics.forEach { params += it }
         }
-        filter.ids?.takeIf { it.isNotEmpty() }?.let { ids ->
-            conditions += "$idCol IN (${ids.joinToString(",") { "?" }})"
-            ids.forEach { params += it.toString() }
+        // An empty `ids` list narrows the replay to zero rows, the same meaning PostgreSQL
+        // gives an empty list through `id IN ()`. Only a null `ids` field is ignored. See F-096.
+        filter.ids?.let { ids ->
+            if (ids.isEmpty()) {
+                conditions += "1 = 0"
+            } else {
+                conditions += "$idCol IN (${ids.joinToString(",") { "?" }})"
+                ids.forEach { params += it.toString() }
+            }
         }
 
         return conditions to params

@@ -382,10 +382,18 @@ class RabbitConsumerIntegrationTest {
 
             val error = assertFailsWith<Exception> { consumer.start() }
 
-            val message = error.message ?: ""
+            val fullMessage = generateSequence<Throwable>(error) { it.cause }
+                .joinToString(" | ") { it.message ?: it.toString() }
             assertTrue(
-                !message.contains("declareQueue"),
-                "A non-missing-queue failure must not carry the declareQueue remedy: $message"
+                !fullMessage.contains("declareQueue"),
+                "A non-missing-queue failure must not carry the declareQueue remedy: $fullMessage"
+            )
+            // The broker actually answers this exclusive-queue clash with RESOURCE_LOCKED
+            // (405), not ACCESS_REFUSED (403), but the point is the same: the original reply
+            // text must survive unchanged, not be replaced or dropped.
+            assertTrue(
+                fullMessage.contains("RESOURCE_LOCKED") || fullMessage.contains("405"),
+                "The original RESOURCE_LOCKED (405) failure must survive unchanged: $fullMessage"
             )
         } finally {
             holderChannel.close()

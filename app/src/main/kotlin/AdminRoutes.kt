@@ -240,11 +240,21 @@ private suspend fun replayMoved(
         messageRouter.route(sample)?.destination?.let { destinationName(it) } == destination
     }
 
-    // No topic currently in the table resolves to this destination. The replay must move
-    // nothing, never fall through to moving everything.
-    if (matchingTopics.isEmpty()) return 0L
+    // A caller-supplied `topics` field must narrow, never widen. When the caller sets both
+    // `destination` and `topics`, the destination's resolved topic set intersects with the
+    // caller's topics instead of replacing them. See F-096.
+    val callerTopics = filter.topics
+    val resolvedTopics = if (callerTopics != null && callerTopics.isNotEmpty()) {
+        matchingTopics.filter { it in callerTopics }
+    } else {
+        matchingTopics
+    }
 
-    return outboxRepository.replay(filter.copy(destination = null, topics = matchingTopics))
+    // No topic resolves to this destination, or the intersection with the caller's topics is
+    // empty. The replay must move nothing, never fall through to moving everything.
+    if (resolvedTopics.isEmpty()) return 0L
+
+    return outboxRepository.replay(filter.copy(destination = null, topics = resolvedTopics))
 }
 
 private const val DEFAULT_TRANSFORM_TIMEOUT_MS = 100L

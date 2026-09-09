@@ -53,6 +53,10 @@ class OutboxPoller(
                     // Log error but continue polling
                     log.error("The poll cycle failed. The next cycle retries. Reason: {}", ErrorSanitizer.sanitize(e))
                 }
+                // F-094. The gauge refreshes on every cycle, even a saturated one that claims
+                // nothing and even one where `claimBatch` throws, so it never freezes exactly
+                // when the poller is stuck. See I1 and InboxRelay's matching placement.
+                updatePendingGauge()
                 val waitMs = if (config.capture.mode == "polling") {
                     config.pollIntervalMs
                 } else {
@@ -77,7 +81,6 @@ class OutboxPoller(
         val available = capacity.availablePermits
         if (available == 0) return
         val messages = repository.claimBatch(minOf(config.batchSize, available), config.claimTimeoutMs)
-        updatePendingGauge()
         messages.forEach { message ->
             capacity.acquire()
             scope.launch {

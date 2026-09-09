@@ -335,8 +335,12 @@ class SqlServerInboxRepository(
             java.time.Instant.ofEpochSecond(now.epochSeconds, now.nanosecondsOfSecond.toLong())
         )
         val createdAtCol = quoteSqlServerIdentifier(columnMapping.createdAt)
+        // DATEDIFF_BIG(second, ...) counts boundary crossings, not elapsed time: a row 0.9
+        // seconds old reports 1, and a row 0.1 seconds old reports 0, indistinguishable from the
+        // empty-table sentinel. Using millisecond resolution and dividing down to seconds in SQL
+        // gives fractional seconds, matching the PostgreSQL path's precision. See I3.
         val sql = """
-            SELECT DATEDIFF_BIG(second, MIN($createdAtCol), ?)
+            SELECT DATEDIFF_BIG(millisecond, MIN($createdAtCol), ?) / 1000.0
             FROM ${quoteSqlServerIdentifier(tableName)}
             WHERE ${quoteSqlServerIdentifier(columnMapping.state)} = 'pending'
         """.trimIndent()
@@ -345,10 +349,10 @@ class SqlServerInboxRepository(
             stmt.setTimestamp(1, nowTimestamp)
             stmt.executeQuery().use { rows ->
                 rows.next()
-                // MIN over no pending rows is SQL NULL. The JDBC driver maps a NULL
-                // DATEDIFF_BIG result to 0 on getLong, and 0.0 is exactly the contract this
-                // method promises for that case, so no defensive wasNull() branch is needed.
-                rows.getLong(1).toDouble()
+                // MIN over no pending rows is SQL NULL. The JDBC driver maps a NULL result to
+                // 0.0 on getDouble, and 0.0 is exactly the contract this method promises for
+                // that case, so no defensive wasNull() branch is needed.
+                rows.getDouble(1)
             }
         }
     }

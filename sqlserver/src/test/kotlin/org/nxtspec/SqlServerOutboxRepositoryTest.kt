@@ -367,6 +367,20 @@ class SqlServerOutboxRepositoryTest : SqlServerTestBase() {
     }
 
     @Test
+    fun `replay with an empty ids list moves nothing, even a matching sent row`() = runTest {
+        // An empty `ids` list narrows the replay to zero rows on both dialects. See F-096.
+        // An edit that restores `filter.ids?.takeIf { it.isNotEmpty() }?.let` breaks this test,
+        // because it would drop the id clause entirely and move every sent or dead row of the
+        // topic instead of none.
+        val id = insertOutboxMessage(state = "sent")
+
+        val moved = repository.replay(ReplayFilter(ids = emptyList()))
+
+        assertEquals(0L, moved)
+        assertEquals("sent", getOutboxMessageState(id))
+    }
+
+    @Test
     fun `replay selects a topic set resolved from a destination`() = runTest {
         val matching = insertOutboxMessage(state = "sent", topic = "orders.created")
         val other = insertOutboxMessage(state = "sent", topic = "billing.created")

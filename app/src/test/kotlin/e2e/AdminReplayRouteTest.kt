@@ -167,6 +167,50 @@ class AdminReplayRouteTest : E2ETestBase() {
         assertEquals("pending", getOutboxMessageState(ordersPaid))
         assertEquals("sent", getOutboxMessageState(billingCreated))
     }
+
+    @Test
+    fun `a replay with both destination and topics moves only the intersection`() = testApplication {
+        setupApp()
+
+        // "orders-service" resolves to both "orders.created" and "orders.paid". The caller
+        // narrows further to "orders.created" alone, so "orders.paid" must not move even
+        // though it resolves to the same destination. See F-096.
+        val ordersCreated = insertOutboxMessage(topic = "orders.created", state = "sent")
+        val ordersPaid = insertOutboxMessage(topic = "orders.paid", state = "sent")
+        val billingCreated = insertOutboxMessage(topic = "billing.created", state = "sent")
+
+        val response = client.post("/admin/replay") {
+            header(HttpHeaders.Authorization, "Bearer $TOKEN")
+            contentType(ContentType.Application.Json)
+            setBody("""{"destination":"orders-service","topics":["orders.created"]}""")
+        }
+
+        assertEquals(HttpStatusCode.OK, response.status)
+        assertEquals(1L, Json.decodeFromString<ReplayResponse>(response.bodyAsText()).moved)
+        assertEquals("pending", getOutboxMessageState(ordersCreated))
+        assertEquals("sent", getOutboxMessageState(ordersPaid))
+        assertEquals("sent", getOutboxMessageState(billingCreated))
+    }
+
+    @Test
+    fun `a replay with destination and a disjoint topics list moves zero rows`() = testApplication {
+        setupApp()
+
+        // The caller's `topics` names a topic that does not resolve to this destination, so the
+        // intersection is empty. The replay must move zero rows, never fall back to the
+        // destination's full topic set.
+        val ordersCreated = insertOutboxMessage(topic = "orders.created", state = "sent")
+
+        val response = client.post("/admin/replay") {
+            header(HttpHeaders.Authorization, "Bearer $TOKEN")
+            contentType(ContentType.Application.Json)
+            setBody("""{"destination":"orders-service","topics":["billing.created"]}""")
+        }
+
+        assertEquals(HttpStatusCode.OK, response.status)
+        assertEquals(0L, Json.decodeFromString<ReplayResponse>(response.bodyAsText()).moved)
+        assertEquals("sent", getOutboxMessageState(ordersCreated))
+    }
 }
 
 private const val TOKEN = "admin-replay-token"

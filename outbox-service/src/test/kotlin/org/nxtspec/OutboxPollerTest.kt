@@ -1231,4 +1231,84 @@ class OutboxPollerTest {
         // The poll interval is 20 ms, so about 25 cycles ran inside one gauge interval.
         coVerify(exactly = 1) { repository.countByState("pending") }
     }
+
+    // --- I1/F-094: the gauge must not freeze on a saturated or failing poller ---
+
+    private class NeverFinishingPublisher : Publisher {
+        override fun supports(destination: Destination): Boolean = true
+        override suspend fun publish(
+            message: OutboxMessage,
+            destination: Destination,
+            context: PublishContext
+        ): Result<Unit> {
+            delay(Long.MAX_VALUE / 2)
+            return Result.success(Unit)
+        }
+    }
+
+    @Test
+    fun `should refresh the pending gauge every cycle even when the poller is saturated`() = runBlocking {
+        // An edit that puts `if (available == 0) return` in `processBatch` before the gauge
+        // refresh (the previous shape) breaks this test: once the single permit is held by an
+        // in-flight message, later cycles see `available == 0` and return early, so the gauge
+        // call count stops growing.
+        val repository = mockk<OutboxRepositoryInterface>(relaxed = true)
+        val router = mockk<MessageRouter>(relaxed = true)
+        val publisher = NeverFinishingPublisher()
+        val metricsCollector = mockk<MetricsCollectorInterface>(relaxed = true)
+
+        val message = createTestMessage()
+        val destination = createHttpDestination()
+
+        coEvery { repository.claimBatch(any(), any()) } returns listOf(message) andThen emptyList()
+        coEvery { repository.reclaimStale(any()) } returns 0
+        coEvery { repository.countByState("pending") } returns 0
+        every { router.route(any()) } returns RoutingResult(destination, null, resolvedAddress = "test-address")
+
+        val poller = OutboxPoller(
+            config = defaultConfig.copy(concurrency = 1, pollIntervalMs = 20, pendingGaugeIntervalMs = 0),
+            repository = repository,
+            router = router,
+            publishers = listOf(publisher),
+            retryStrategy = retryStrategy,
+            metricsCollector = metricsCollector
+        )
+
+        poller.start()
+        // The one permit is claimed by the first message and never released within this window,
+        // so every later cycle is saturated: `capacity.availablePermits` reads 0.
+        delay(200)
+        poller.shutdown()
+
+        coVerify(atLeast = 3) { repository.countByState("pending") }
+    }
+
+    @Test
+    fun `should refresh the pending gauge every cycle even when claimBatch throws`() = runBlocking {
+        // An edit that moves the gauge refresh back inside `processBatch`, after the
+        // `claimBatch` call, breaks this test: a `claimBatch` throw propagates out of
+        // `processBatch` before that line runs, so the gauge call count stops growing.
+        val repository = mockk<OutboxRepositoryInterface>(relaxed = true)
+        val router = mockk<MessageRouter>(relaxed = true)
+        val metricsCollector = mockk<MetricsCollectorInterface>(relaxed = true)
+
+        coEvery { repository.claimBatch(any(), any()) } throws RuntimeException("Database error")
+        coEvery { repository.reclaimStale(any()) } returns 0
+        coEvery { repository.countByState("pending") } returns 0
+
+        val poller = OutboxPoller(
+            config = defaultConfig.copy(pollIntervalMs = 20, pendingGaugeIntervalMs = 0),
+            repository = repository,
+            router = router,
+            publishers = emptyList(),
+            retryStrategy = retryStrategy,
+            metricsCollector = metricsCollector
+        )
+
+        poller.start()
+        delay(200)
+        poller.shutdown()
+
+        coVerify(atLeast = 3) { repository.countByState("pending") }
+    }
 }
