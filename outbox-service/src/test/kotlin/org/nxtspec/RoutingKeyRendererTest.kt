@@ -1,5 +1,6 @@
 package org.nxtspec
 
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
@@ -314,5 +315,42 @@ class RoutingKeyRendererTest {
         val result = renderer.render("{{ payload.items.field }}", "topic", payload)
 
         assertEquals("", result)
+    }
+
+    @Test
+    fun `a template renders the aggregate type`() {
+        val row = RoutingKeyRenderer.RowContext(
+            topic = "orders.created",
+            key = "order-1",
+            aggregateType = "Task",
+            payload = JsonObject(emptyMap())
+        )
+
+        assertEquals("public.orders.Task.v1", renderer.render("public.orders.{{ aggregateType }}.v1", row))
+    }
+
+    @Test
+    fun `a template renders the key`() {
+        val row = RoutingKeyRenderer.RowContext("orders.created", "order-1", "Task", JsonObject(emptyMap()))
+
+        assertEquals("order-1", renderer.render("{{ key }}", row))
+    }
+
+    @Test
+    fun `an unknown field still renders the default`() {
+        // The existing behaviour. A template that names an unknown field renders the default value,
+        // and Task 6 makes such a template fail the startup instead.
+        val customRenderer = RoutingKeyRenderer(defaultValue = "unknown-default")
+        val row = RoutingKeyRenderer.RowContext("orders.created", null, null, JsonObject(emptyMap()))
+
+        assertEquals("unknown-default", customRenderer.render("{{ nosuchfield }}", row))
+    }
+
+    @Test
+    fun `a null aggregate type renders the default`() {
+        val customRenderer = RoutingKeyRenderer(defaultValue = "no-aggregate")
+        val row = RoutingKeyRenderer.RowContext("orders.created", null, null, JsonObject(emptyMap()))
+
+        assertEquals("no-aggregate", customRenderer.render("{{ aggregateType }}", row))
     }
 }
