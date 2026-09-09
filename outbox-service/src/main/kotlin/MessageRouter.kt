@@ -83,21 +83,27 @@ class MessageRouter(
      * RabbitMQ exchange, the Kafka topic, the NATS subject, or the HTTP path, depending on the
      * destination type.
      *
-     * A RabbitMQ destination that sets `exchangeFrom` reads that column instead, verbatim, and
-     * the template is not rendered at all. A null column value yields an empty address, which
-     * the publisher already fails.
+     * A RabbitMQ destination that sets `exchangeFrom`, a Kafka destination that sets `topicFrom`,
+     * or a NATS destination that sets `subjectFrom` reads that column instead, verbatim, and the
+     * template is not rendered at all. A null column value yields an empty address, which the
+     * publisher already fails.
      */
     private fun resolveAddress(
         destination: Destination,
         context: RoutingKeyRenderer.RowContext,
         row: OutboxMessage
     ): String {
-        val exchangeFrom = (destination as? Destination.RabbitMQ)?.exchangeFrom
-        if (exchangeFrom != null) {
+        val addressFrom = when (destination) {
+            is Destination.RabbitMQ -> destination.exchangeFrom
+            is Destination.Kafka -> destination.topicFrom
+            is Destination.Nats -> destination.subjectFrom
+            is Destination.Http -> null
+        }
+        if (addressFrom != null) {
             // F-091. The single source for both the permitted names and the accessor that reads
-            // each one is Destination.readExchangeFromColumn, so a name added there cannot pass
+            // each one is Destination.readAddressFromColumn, so a name added there cannot pass
             // validation without also gaining a working accessor here.
-            return Destination.readExchangeFromColumn(exchangeFrom, row) ?: ""
+            return Destination.readAddressFromColumn(addressFrom, row) ?: ""
         }
         val template = when (destination) {
             is Destination.RabbitMQ -> destination.exchange

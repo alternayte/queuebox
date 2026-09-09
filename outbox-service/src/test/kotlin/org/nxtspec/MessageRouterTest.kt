@@ -578,4 +578,128 @@ class MessageRouterTest {
         assertNotNull(result)
         assertEquals("", result.resolvedAddress)
     }
+
+    @Test
+    fun `should render the Kafka topic template with the row aggregate type`() {
+        val destinations = mapOf(
+            "dest" to Destination.Kafka(
+                name = "dest",
+                bootstrapServers = "localhost:9092",
+                topic = "public.orders.{{ aggregateType }}.v1"
+            )
+        )
+        val routes = listOf(RouteConfig(topicPattern = "order.*", destination = "dest"))
+        val router = MessageRouter(routes, destinations)
+
+        val result = router.route(
+            OutboxMessage(topic = "order.created", aggregateType = "Task", payload = JsonObject(emptyMap()))
+        )
+
+        assertNotNull(result)
+        assertEquals("public.orders.Task.v1", result.resolvedAddress)
+    }
+
+    @Test
+    fun `the topicFrom column value wins over the Kafka template`() {
+        val destinations = mapOf(
+            "dest" to Destination.Kafka(
+                name = "dest",
+                bootstrapServers = "localhost:9092",
+                topic = "public.orders.{{ aggregateType }}.v1",
+                topicFrom = "topic"
+            )
+        )
+        val routes = listOf(RouteConfig(topicPattern = "order.*", destination = "dest"))
+        val router = MessageRouter(routes, destinations)
+
+        val result = router.route(
+            OutboxMessage(topic = "order.created", payload = JsonObject(emptyMap()), aggregateType = "Task")
+        )
+
+        assertNotNull(result)
+        assertEquals("order.created", result.resolvedAddress)
+    }
+
+    @Test
+    fun `a column outside the permitted set fails the Kafka row`() {
+        val destinations = mapOf(
+            "dest" to Destination.Kafka(
+                name = "dest",
+                bootstrapServers = "localhost:9092",
+                topic = "public.orders.{{ aggregateType }}.v1",
+                topicFrom = "payload"
+            )
+        )
+        val routes = listOf(RouteConfig(topicPattern = "order.*", destination = "dest"))
+        val router = MessageRouter(routes, destinations)
+
+        val result = router.route(
+            OutboxMessage(topic = "order.created", payload = JsonObject(emptyMap()), aggregateType = "Task")
+        )
+
+        assertNotNull(result)
+        assertEquals("", result.resolvedAddress)
+    }
+
+    @Test
+    fun `should render the NATS subject template with the row aggregate type`() {
+        val destinations = mapOf(
+            "dest" to Destination.Nats(
+                name = "dest",
+                servers = "nats://localhost:4222",
+                subject = "public.orders.{{ aggregateType }}.v1"
+            )
+        )
+        val routes = listOf(RouteConfig(topicPattern = "order.*", destination = "dest"))
+        val router = MessageRouter(routes, destinations)
+
+        val result = router.route(
+            OutboxMessage(topic = "order.created", aggregateType = "Order", payload = JsonObject(emptyMap()))
+        )
+
+        assertNotNull(result)
+        assertEquals("public.orders.Order.v1", result.resolvedAddress)
+    }
+
+    @Test
+    fun `the subjectFrom column value wins over the NATS template`() {
+        val destinations = mapOf(
+            "dest" to Destination.Nats(
+                name = "dest",
+                servers = "nats://localhost:4222",
+                subject = "public.orders.{{ aggregateType }}.v1",
+                subjectFrom = "aggregate_type"
+            )
+        )
+        val routes = listOf(RouteConfig(topicPattern = "order.*", destination = "dest"))
+        val router = MessageRouter(routes, destinations)
+
+        val result = router.route(
+            OutboxMessage(topic = "order.created", payload = JsonObject(emptyMap()), aggregateType = "Order")
+        )
+
+        assertNotNull(result)
+        assertEquals("Order", result.resolvedAddress)
+    }
+
+    @Test
+    fun `a null column value fails the NATS row`() {
+        val destinations = mapOf(
+            "dest" to Destination.Nats(
+                name = "dest",
+                servers = "nats://localhost:4222",
+                subject = "public.orders.{{ aggregateType }}.v1",
+                subjectFrom = "key"
+            )
+        )
+        val routes = listOf(RouteConfig(topicPattern = "order.*", destination = "dest"))
+        val router = MessageRouter(routes, destinations)
+
+        val result = router.route(
+            OutboxMessage(topic = "order.created", payload = JsonObject(emptyMap()), key = null)
+        )
+
+        assertNotNull(result)
+        assertEquals("", result.resolvedAddress)
+    }
 }

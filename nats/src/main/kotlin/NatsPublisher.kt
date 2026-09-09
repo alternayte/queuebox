@@ -37,9 +37,8 @@ class NatsPublisher(
 
         val startTime = System.currentTimeMillis()
         return try {
+            val subject = resolveSubject(dest, context)
             val connection = connections.getOrPut(dest.name) { connectionFactory(dest) }
-            // The route wins over the configured subject, exactly as the AMQP routing key does.
-            val subject = context.routingKey ?: dest.subject
             val body = message.payload.toString().toByteArray()
             val headers = buildHeaders(message, dest)
 
@@ -67,6 +66,25 @@ class NatsPublisher(
                 )
             )
         }
+    }
+
+    /**
+     * Validates the subject the router already resolved for this row. F-091. The router is the
+     * single place that renders a destination's address template, so a publisher only checks the
+     * result and never renders one itself.
+     *
+     * @throws NatsPublishException when the rendered subject is empty. QueueBox does not publish
+     *   the message, and it never falls back to the destination's configured subject.
+     */
+    private fun resolveSubject(dest: Destination.Nats, context: PublishContext): String {
+        val subject = context.resolvedAddress
+        if (subject.isBlank()) {
+            throw NatsPublishException(
+                "Destination '${dest.name}' rendered an empty subject from template '${dest.subject}'. " +
+                    "QueueBox does not publish the message."
+            )
+        }
+        return subject
     }
 
     private fun buildHeaders(message: OutboxMessage, dest: Destination.Nats): Headers {

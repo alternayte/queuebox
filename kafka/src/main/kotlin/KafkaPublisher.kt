@@ -44,8 +44,9 @@ class KafkaPublisher(
 
         val startTime = System.currentTimeMillis()
         return try {
+            val topic = resolveTopic(dest, context)
             val producer = producers.getOrPut(dest.name) { producerFactory(dest) }
-            val record = buildRecord(message, dest, context)
+            val record = buildRecord(message, dest, context, topic)
 
             withContext(Dispatchers.IO) {
                 // `get` with a timeout turns the producer future into the suspend contract that
@@ -68,10 +69,30 @@ class KafkaPublisher(
         }
     }
 
+    /**
+     * Validates the topic the router already resolved for this row. F-091. The router is the
+     * single place that renders a destination's address template, so a publisher only checks the
+     * result and never renders one itself.
+     *
+     * @throws KafkaPublishException when the rendered topic is empty. QueueBox does not publish
+     *   the message, and it never falls back to the destination's configured topic.
+     */
+    private fun resolveTopic(dest: Destination.Kafka, context: PublishContext): String {
+        val topic = context.resolvedAddress
+        if (topic.isBlank()) {
+            throw KafkaPublishException(
+                "Destination '${dest.name}' rendered an empty topic from template '${dest.topic}'. " +
+                    "QueueBox does not publish the message."
+            )
+        }
+        return topic
+    }
+
     private fun buildRecord(
         message: OutboxMessage,
         dest: Destination.Kafka,
-        context: PublishContext
+        context: PublishContext,
+        topic: String
     ): ProducerRecord<String, ByteArray> {
         // The route wins over the destination template, exactly as the AMQP routing key does.
         val key = context.routingKey
@@ -81,7 +102,7 @@ class KafkaPublisher(
                 .ifBlank { null }
 
         val record: ProducerRecord<String, ByteArray> =
-            ProducerRecord(dest.topic, key, message.payload.toString().toByteArray())
+            ProducerRecord(topic, key, message.payload.toString().toByteArray())
         (dest.headers + message.headers).forEach { (name, value) ->
             record.headers().add(RecordHeader(name, value.toByteArray()))
         }
