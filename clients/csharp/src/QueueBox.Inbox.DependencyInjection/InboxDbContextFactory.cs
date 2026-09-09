@@ -3,11 +3,13 @@ using Microsoft.EntityFrameworkCore;
 
 namespace QueueBox.Inbox.DependencyInjection;
 
-/// <summary>Builds an Entity Framework Core context that writes inside the message transaction.</summary>
+/// <summary>Enlists an Entity Framework Core context on the transaction of the message.</summary>
 /// <remarks>
-/// This helper targets PostgreSQL through Npgsql, because the test that guards it runs against
-/// PostgreSQL. A consumer on Microsoft SQL Server needs the same three lines with
-/// <c>UseSqlServer(connection)</c> in place of <c>UseNpgsql(connection)</c>.
+/// The caller builds the context and picks the provider, for example
+/// <c>c => new OrderContext(new DbContextOptionsBuilder&lt;OrderContext&gt;().UseNpgsql(c).Options)</c>
+/// on PostgreSQL, or <c>.UseSqlServer(c)</c> on SQL Server. This method enlists whatever context
+/// the caller builds on the transaction of the message, which is the one step a handler must not
+/// skip and the one this package owns on the caller's behalf.
 /// </remarks>
 public static class InboxDbContextFactory
 {
@@ -25,12 +27,12 @@ public static class InboxDbContextFactory
     /// </summary>
     /// <typeparam name="TContext">The context type.</typeparam>
     /// <param name="transaction">The transaction of the message, from the <c>InboxHandler</c>.</param>
-    /// <param name="build">Builds the context from the options this method assembles.</param>
+    /// <param name="build">Builds the context on the given connection. The caller picks the provider here.</param>
     /// <returns>A context that shares the connection and the transaction of the message.</returns>
     /// <exception cref="ArgumentException">The transaction carries no connection.</exception>
     public static TContext CreateOn<TContext>(
         DbTransaction transaction,
-        Func<DbContextOptions<TContext>, TContext> build)
+        Func<DbConnection, TContext> build)
         where TContext : DbContext
     {
         ArgumentNullException.ThrowIfNull(transaction);
@@ -42,11 +44,7 @@ public static class InboxDbContextFactory
                 "the message transaction opened, so it must still be open.",
                 nameof(transaction));
 
-        var options = new DbContextOptionsBuilder<TContext>()
-            .UseNpgsql(connection)
-            .Options;
-
-        var context = build(options);
+        var context = build(connection);
         context.Database.UseTransaction(transaction);
 
         return context;

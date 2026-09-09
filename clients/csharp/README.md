@@ -117,17 +117,19 @@ writes through Entity Framework Core. Build the context on the handler's own tra
 ```csharp
 services.AddQueueBoxInbox("orders", new InboxOptions { Source = "orders" }, async (message, transaction, token) =>
 {
-    await using var context = InboxDbContextFactory.CreateOn<OrderContext>(
-        transaction, options => new OrderContext(options));
+    await using var context = InboxDbContextFactory.CreateOn(
+        transaction,
+        connection => new OrderContext(new DbContextOptionsBuilder<OrderContext>().UseNpgsql(connection).Options));
 
     context.Orders.Add(new Order { Id = message.Id });
     await context.SaveChangesAsync(token);
 });
 ```
 
-`CreateOn` builds the context on the connection of the transaction, then calls
-`context.Database.UseTransaction(transaction)`. The application write and the inbox completion
-then share one transaction on one connection, so they commit together or neither of them does.
+`CreateOn` hands the transaction's own connection to the `build` delegate, so the caller picks the
+provider, then calls `context.Database.UseTransaction(transaction)` on the context the delegate
+returns. The application write and the inbox completion then share one transaction on one
+connection, so they commit together or neither of them does.
 
 State this plainly, because it is the mistake this helper exists to prevent: Entity Framework Core
 opens its own connection by default. A handler that constructs a plain `DbContext`, or that opens
@@ -138,9 +140,18 @@ retry that finds the application row already there, with no memory of writing it
 reader does not expect. Always pass the handler's transaction through `InboxDbContextFactory`, and
 never construct the context another way.
 
-The helper targets PostgreSQL through Npgsql today, because the test that guards it runs against
-PostgreSQL. A consumer on Microsoft SQL Server can copy the three lines of `CreateOn` and call
-`UseSqlServer(connection)` in place of `UseNpgsql(connection)`.
+On Microsoft SQL Server, pass a `build` delegate that calls `UseSqlServer(connection)` instead:
+
+```csharp
+InboxDbContextFactory.CreateOn(
+    transaction,
+    connection => new OrderContext(new DbContextOptionsBuilder<OrderContext>().UseSqlServer(connection).Options));
+```
+
+`InboxDbContextFactory` itself references only `Microsoft.EntityFrameworkCore.Relational`, for
+`UseTransaction`. It carries no database provider, so a SQL Server consumer of this package never
+pulls Npgsql, and a PostgreSQL consumer never pulls `Microsoft.Data.SqlClient`. Add whichever
+provider package the `build` delegate above needs.
 
 ## Settings
 

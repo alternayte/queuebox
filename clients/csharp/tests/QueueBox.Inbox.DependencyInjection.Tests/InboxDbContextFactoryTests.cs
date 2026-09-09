@@ -1,3 +1,4 @@
+using Microsoft.EntityFrameworkCore;
 using Xunit;
 
 namespace QueueBox.Inbox.DependencyInjection.Tests;
@@ -8,12 +9,12 @@ namespace QueueBox.Inbox.DependencyInjection.Tests;
 /// </summary>
 public sealed class InboxDbContextFactoryTests
 {
-    // Edit that would make this fail: change CreateOn to build its own connection (for example
-    // `new DbContextOptionsBuilder<TContext>().UseNpgsql(transaction.Connection!.ConnectionString)`
-    // instead of `UseNpgsql(transaction.Connection)`), or drop the `UseTransaction` call. Either
-    // change puts the application write on a second connection, so it survives the rollback and
-    // the assertions below fail. This is the proof the finding exists for: a happy-path test alone
-    // cannot tell a shared connection from two connections that both happen to succeed.
+    // Edit that would make this fail: drop the `context.Database.UseTransaction(transaction)`
+    // call inside CreateOn, or pass the caller's build delegate a connection string instead of
+    // the connection instance. Either change puts the application write on a second connection,
+    // so it survives the rollback and the assertions below fail. This is the proof the finding
+    // exists for: a happy-path test alone cannot tell a shared connection from two connections
+    // that both happen to succeed.
     [Fact]
     public async Task A_write_through_the_helper_rolls_back_when_the_handler_throws()
     {
@@ -22,8 +23,9 @@ public sealed class InboxDbContextFactoryTests
 
         var handler = new InboxHandler(async (message, transaction, token) =>
         {
-            await using var context = InboxDbContextFactory.CreateOn<OrderContext>(
-                transaction, options => new OrderContext(options));
+            await using var context = InboxDbContextFactory.CreateOn(
+                transaction,
+                connection => new OrderContext(new DbContextOptionsBuilder<OrderContext>().UseNpgsql(connection).Options));
             context.Orders.Add(new Order { Id = message.Id });
             await context.SaveChangesAsync(token);
 
@@ -50,8 +52,9 @@ public sealed class InboxDbContextFactoryTests
 
         var handler = new InboxHandler(async (message, transaction, token) =>
         {
-            await using var context = InboxDbContextFactory.CreateOn<OrderContext>(
-                transaction, options => new OrderContext(options));
+            await using var context = InboxDbContextFactory.CreateOn(
+                transaction,
+                connection => new OrderContext(new DbContextOptionsBuilder<OrderContext>().UseNpgsql(connection).Options));
             context.Orders.Add(new Order { Id = message.Id });
             await context.SaveChangesAsync(token);
         });
