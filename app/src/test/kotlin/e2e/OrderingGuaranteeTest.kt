@@ -21,7 +21,10 @@ class OrderingGuaranteeTest : E2ETestBase() {
     @Test
     fun `QueueBox delivers at least once`() = runBlocking {
         val server = startMockHttpServer()
-        // The first attempt fails after the broker received the body, which is the crash window.
+        // This exercises the same at-least-once contract as a crash between the publish and the
+        // mark sent, but not that crash itself: the destination's first reply is a transient
+        // failure (500), not a process death. Both leave the row unmarked after one delivery
+        // attempt, so both must retry, which is the sentence under test.
         server.setResponse(HttpStatusCode.InternalServerError)
         val id =
             insertOutboxMessage(
@@ -39,7 +42,30 @@ class OrderingGuaranteeTest : E2ETestBase() {
     }
 
     @Test
-    fun `in push mode one aggregate holds at most one message in flight`() = runBlocking {
+    fun `the relay reserves one in-flight message per aggregate_id across every source together`() = runBlocking {
+        // Two sources, one aggregate. Push claims no source term, so a bug that scoped the
+        // reservation by source would let both sources hold a 'processing' row at once.
+        // idx_inbox_one_processing_per_aggregate (E2ETestBase.createTables) makes that outcome
+        // a constraint violation rather than a value a sampler could miss: if the reservation
+        // ever let two rows of "agg-1" run together, the second UPDATE fails, the relay's
+        // transaction rolls back, and this row never reaches 'processed'. Waiting for all four
+        // to reach 'processed' is therefore proof, not a sample.
+        listOf("s1", "s2", "s1", "s2").forEachIndexed { n, source ->
+            insertInboxMessage(
+                source = source,
+                idempotencyKey = "k$n",
+                aggregateId = "agg-1",
+                consumption = "push",
+                eventType = "evt"
+            )
+        }
+        startRelay()
+
+        assertTrue(awaitProcessedCount(aggregateId = "agg-1", count = 4))
+    }
+
+    @Test
+    fun `the relay forwards the messages of one aggregate one at a time, in the order of created_at`() = runBlocking {
         repeat(4) { n ->
             insertInboxMessage(
                 source = "s",
@@ -51,17 +77,12 @@ class OrderingGuaranteeTest : E2ETestBase() {
         }
         startRelay()
 
-        // The relay forwards one at a time, so the inbox never holds two rows of the aggregate
-        // in state 'processing' at one time.
-        val peak = observePeakInFlight(aggregateId = "agg-1", untilForwarded = 4)
-        assertEquals(1, peak)
-
-        // The order is the order of created_at.
+        assertTrue(awaitProcessedCount(aggregateId = "agg-1", count = 4))
         assertEquals(listOf("k0", "k1", "k2", "k3"), forwardedIdempotencyKeysInOrder())
     }
 
     @Test
-    fun `in pull mode one aggregate holds at most one message in flight`() = runBlocking {
+    fun `in pull mode the claim reserves one in-flight message per (source, aggregate_id)`() = runBlocking {
         repeat(4) { n ->
             insertInboxMessage(
                 source = "s",
@@ -80,7 +101,21 @@ class OrderingGuaranteeTest : E2ETestBase() {
     }
 
     @Test
-    fun `QueueBox preserves no order between two aggregates`() = runBlocking {
+    fun `a pull claim on one source never blocks a pull claim of the same aggregate on a different source`() =
+        runBlocking {
+            insertInboxMessage(source = "orders", idempotencyKey = "o0", aggregateId = "agg-x", consumption = "pull")
+            insertInboxMessage(source = "payments", idempotencyKey = "p0", aggregateId = "agg-x", consumption = "pull")
+
+            val ordersClaim = claimPull(source = "orders", batch = 10)
+            val paymentsClaim = claimPull(source = "payments", batch = 10)
+
+            // Both sources claim their own row of the same aggregate. Neither sees the other.
+            assertEquals(1, ordersClaim.size)
+            assertEquals(1, paymentsClaim.size)
+        }
+
+    @Test
+    fun `QueueBox preserves no order between two different aggregates`() = runBlocking {
         insertInboxMessage(source = "s", idempotencyKey = "a0", aggregateId = "agg-1", consumption = "pull")
         insertInboxMessage(source = "s", idempotencyKey = "b0", aggregateId = "agg-2", consumption = "pull")
 
@@ -88,6 +123,31 @@ class OrderingGuaranteeTest : E2ETestBase() {
 
         // Both aggregates leave one claim together. No reader can rely on an order between them.
         assertEquals(setOf("agg-1", "agg-2"), claimed.map { it.aggregateId }.toSet())
+    }
+
+    @Test
+    fun `a row with no aggregate_id takes part in no ordering`() = runBlocking {
+        // A row of a busy aggregate sits in 'processing' throughout the test. A free row, with
+        // no aggregate_id, must still reach 'processed' promptly: nothing about the busy
+        // aggregate can hold it back, because it takes part in no aggregate's ordering.
+        insertInboxMessage(
+            source = "s",
+            idempotencyKey = "busy",
+            aggregateId = "agg-busy",
+            state = "processing",
+            consumption = "push",
+            eventType = "evt"
+        )
+        insertInboxMessage(
+            source = "s",
+            idempotencyKey = "free",
+            aggregateId = null,
+            consumption = "push",
+            eventType = "evt"
+        )
+        startRelay()
+
+        assertTrue(awaitUntil { getInboxMessage("s", "free")?.state == "processed" })
     }
 
     @Test

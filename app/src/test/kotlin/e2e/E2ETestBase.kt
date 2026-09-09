@@ -193,6 +193,17 @@ abstract class E2ETestBase {
     private fun createTables() {
         transaction {
             SchemaUtils.create(OutboxTable, InboxTable)
+            // Turns "at most one push message of an aggregate is 'processing', across every
+            // source" from a fact a test must sample for, and can miss, into a fact the
+            // database enforces on every write. A test that violates it fails with a constraint
+            // violation rather than a value a sampler happened not to observe. Scoped to
+            // `consumption = 'push'`, because the pull rule is source-scoped instead: two pull
+            // rows of one aggregate on two different sources are allowed to run together, by
+            // design. See OrderingGuaranteeTest.
+            exec(
+                "CREATE UNIQUE INDEX IF NOT EXISTS idx_inbox_one_processing_per_aggregate " +
+                    "ON inbox (aggregate_id) WHERE state = 'processing' AND consumption = 'push'"
+            )
         }
     }
 
@@ -277,7 +288,12 @@ abstract class E2ETestBase {
         eventType: String? = null
     ): UUID {
         val id = UUID.randomUUID()
+        // A pull claim requires `scheduled_at <= clock_timestamp()`, evaluated by the database.
+        // `now` here is the application clock, and the container clock can run a few
+        // milliseconds behind it, which made a fresh row transiently ineligible for a claim
+        // called immediately after insert. The margin absorbs that drift.
         val now = Clock.System.now()
+        val scheduledAt = now.minus(kotlin.time.Duration.parse("2s"))
         transaction {
             InboxTable.insert {
                 it[InboxTable.id] = id
@@ -288,6 +304,7 @@ abstract class E2ETestBase {
                 it[InboxTable.payload] = payload
                 it[InboxTable.state] = state
                 it[InboxTable.consumption] = consumption
+                it[InboxTable.scheduledAt] = scheduledAt
                 it[createdAt] = now
             }
         }
@@ -410,37 +427,25 @@ abstract class E2ETestBase {
     }
 
     /**
-     * Samples the count of `inbox` rows of one aggregate in state `processing`, until
-     * `state = 'processed'` rows of that aggregate reach `untilForwarded`, and returns the
-     * highest count seen.
+     * Waits until `state = 'processed'` rows of one aggregate reach `count`.
+     *
+     * A test must not use a sampled peak to prove "at most one in flight": a sampler that
+     * misses every processing window returns a peak that looks like the invariant held, when it
+     * proves nothing either way. `idx_inbox_one_processing_per_aggregate`, created in
+     * `createTables`, makes the invariant continuous instead of sampled: the database itself
+     * rejects a second concurrent 'processing' row of one aggregate. This helper only waits for
+     * every row to finish; if the invariant did not hold, the write that broke it would fail
+     * with a constraint violation and the count here would never reach `count`.
      */
-    protected suspend fun observePeakInFlight(
-        aggregateId: String,
-        untilForwarded: Int,
-        timeoutMs: Long = 15000,
-        pollMs: Long = 5
-    ): Int {
-        var peak = 0
-        val deadline = System.currentTimeMillis() + timeoutMs
-        while (System.currentTimeMillis() < deadline) {
-            val processing = transaction {
-                InboxTable.selectAll()
-                    .where { (InboxTable.aggregateId eq aggregateId) and (InboxTable.state eq "processing") }
-                    .count()
-                    .toInt()
-            }
-            if (processing > peak) peak = processing
-            val processed = transaction {
+    protected suspend fun awaitProcessedCount(aggregateId: String, count: Int, timeoutMs: Long = 15000): Boolean =
+        awaitUntil(timeoutMs = timeoutMs) {
+            transaction {
                 InboxTable.selectAll()
                     .where { (InboxTable.aggregateId eq aggregateId) and (InboxTable.state eq "processed") }
                     .count()
                     .toInt()
-            }
-            if (processed >= untilForwarded) break
-            kotlinx.coroutines.delay(pollMs)
+            } >= count
         }
-        return peak
-    }
 
     /**
      * Reads the `x-idempotency-key` header of every outbox row, in the order that

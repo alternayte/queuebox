@@ -117,20 +117,20 @@ The `aggregate_id` column is the unit of order. Both consumption modes hold one 
 aggregate in flight at a time, but the two modes scope that reservation differently, and an
 adopter must not treat them as the same rule.
 
-- In push mode, the relay reserves one in-flight message per `aggregate_id`, across every
-  source together. The relay is one process that reads every push row, so it needs no source
-  term in its claim. It forwards the messages of one aggregate one at a time, in the order of
-  `created_at`.
-- In pull mode, the claim reserves one in-flight message per `(source, aggregate_id)`, because a
+- In push mode, the relay reserves one in-flight message per aggregate_id across every source
+  together. The relay is one process that reads every push row, so it needs no source term in
+  its claim.
+- The relay forwards the messages of one aggregate one at a time, in the order of created_at.
+- In pull mode, the claim reserves one in-flight message per (source, aggregate_id), because a
   pull worker binds to one source. The claim never returns a message whose aggregate already
   holds a message in state `processing` on that same source, and the rule holds across every
-  worker instance of that source, because it lives in the claim statement. A message of
-  `aggregate_id` `A` on source `orders` and a message of the same `aggregate_id` `A` on source
-  `payments` can run at the same time; the two sources do not see each other.
-- QueueBox preserves no order between two different aggregates. Two aggregates progress at one
-  time, by design.
-- A row with no `aggregate_id` takes part in no ordering. It is delivered as soon as a worker is
-  free.
+  worker instance of that source, because it lives in the claim statement.
+- A pull claim on one source never blocks a pull claim of the same aggregate on a different
+  source. A message of `aggregate_id` `A` on source `orders` and a message of the same
+  `aggregate_id` `A` on source `payments` can run at the same time; the two sources do not see
+  each other.
+- QueueBox preserves no order between two different aggregates.
+- A row with no aggregate_id takes part in no ordering.
 
 One difference from a log-based capture tool deserves a plain statement. A poller delivers in
 claim order, not in commit order. A row can take its identifier before another row and still
