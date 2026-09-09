@@ -191,6 +191,7 @@ class E2EInboxRelayTest : E2ETestBase() {
                 override suspend fun markDead(id: UUID, claimToken: UUID?, error: String?) = true
                 override suspend fun renewClaim(id: UUID, claimToken: UUID?, leaseMs: Long): Boolean = true
                 override suspend fun countByState(state: String): Long = 0
+                override suspend fun oldestPendingAgeSeconds(): Double = 0.0
                 override suspend fun reclaimStale(olderThan: kotlin.time.Duration): Int = 0
                 override suspend fun deleteOlderThan(state: String, cutoff: kotlinx.datetime.Instant, limit: Int): Int =
                     0

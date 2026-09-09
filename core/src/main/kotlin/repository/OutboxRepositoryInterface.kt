@@ -28,6 +28,15 @@ interface OutboxRepositoryInterface {
 
     suspend fun countByState(state: String): Long
 
+    /**
+     * The age in seconds of the oldest row in state 'pending', or 0.0 when no row is pending.
+     *
+     * F-094. A count of pending rows cannot tell an operator whether the relay is busy or dead.
+     * The age can. The poll cycle calls this and caches the result, so a metrics scrape costs no
+     * query.
+     */
+    suspend fun oldestPendingAgeSeconds(): Double
+
     suspend fun reclaimStale(olderThan: Duration): Int
 
     suspend fun deleteOlderThan(state: String, cutoff: Instant, limit: Int): Int

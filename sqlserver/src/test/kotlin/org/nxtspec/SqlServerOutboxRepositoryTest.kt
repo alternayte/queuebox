@@ -9,6 +9,7 @@ import kotlinx.serialization.json.JsonObject
 import org.junit.jupiter.api.RepeatedTest
 import org.junit.jupiter.api.Test
 import java.util.Collections
+import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -150,6 +151,41 @@ class SqlServerOutboxRepositoryTest : SqlServerTestBase() {
         assertEquals(1, repository.countByState("sent"))
         assertEquals(1, repository.countByState("dead"))
         assertEquals(0, repository.countByState("processing"))
+    }
+
+    // --- Oldest pending age (F-094) ---
+
+    private fun insertOutboxRowCreatedSecondsAgo(seconds: Long, state: String = "pending"): UUID {
+        val id = insertOutboxMessage(state = state)
+        setOutboxCreatedAt(id, Clock.System.now() - seconds.seconds)
+        return id
+    }
+
+    @Test
+    fun `the oldest pending age is zero on an empty table`() = runTest {
+        assertEquals(0.0, repository.oldestPendingAgeSeconds())
+    }
+
+    @Test
+    fun `the oldest pending age measures the oldest pending row`() = runTest {
+        insertOutboxRowCreatedSecondsAgo(seconds = 60)
+        insertOutboxRowCreatedSecondsAgo(seconds = 10)
+
+        val age = repository.oldestPendingAgeSeconds()
+
+        // The oldest row is 60 seconds old. The tolerance absorbs the round trip, and it must
+        // stay wide enough that a loaded machine does not fail the test. The previous phase
+        // fixed several tests that asserted a wall clock too tightly.
+        assertTrue(age in 55.0..75.0, "the age was $age")
+    }
+
+    @Test
+    fun `a row that is not pending does not count`() = runTest {
+        val id = insertOutboxRowCreatedSecondsAgo(seconds = 300, state = "processing")
+
+        repository.markSent(id, getOutboxClaimToken(id))
+
+        assertEquals(0.0, repository.oldestPendingAgeSeconds())
     }
 
     @Test

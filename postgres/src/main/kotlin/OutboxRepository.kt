@@ -201,6 +201,24 @@ class OutboxRepository(
             .count()
     }
 
+    // F-094. The age comes from clock_timestamp() on the database, never from the application
+    // clock, so a clock difference between the application host and the database host cannot
+    // distort it.
+    override suspend fun oldestPendingAgeSeconds(): Double = joinOrNewTransaction {
+        val sql = """
+            SELECT COALESCE(EXTRACT(EPOCH FROM (clock_timestamp() - MIN(${q(columnMapping.createdAt)}))), 0)
+            FROM ${q(tableName)}
+            WHERE ${q(columnMapping.state)} = 'pending'
+        """.trimIndent()
+        val conn = TransactionManager.current().connection.connection as java.sql.Connection
+        conn.createStatement().use { stmt ->
+            stmt.executeQuery(sql).use { rows ->
+                rows.next()
+                rows.getDouble(1)
+            }
+        }
+    }
+
     override suspend fun reclaimStale(olderThan: Duration): Int = joinOrNewTransaction {
         val now = Clock.System.now()
         table.update({

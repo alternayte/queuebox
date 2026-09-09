@@ -33,6 +33,7 @@ class RetentionBatchingTest {
         override suspend fun markDead(id: UUID, claimToken: UUID?, error: String?): Boolean = true
         override suspend fun renewClaim(id: UUID, claimToken: UUID?, leaseMs: Long): Boolean = true
         override suspend fun countByState(state: String): Long = rows.count { it.state == state }.toLong()
+        override suspend fun oldestPendingAgeSeconds(): Double = 0.0
 
         override suspend fun reclaimStale(olderThan: Duration): Int = 0
 
@@ -86,6 +87,7 @@ class RetentionBatchingTest {
         override fun recordProcessingDuration(durationMs: Long) = Unit
         override fun recordPublishDuration(durationMs: Long, destinationType: String) = Unit
         override fun updatePendingCount(count: Long) = Unit
+        override fun updateOutboxOldestPendingAge(seconds: Double) = Unit
         override fun recordInboxReceived() = Unit
         override fun recordInboxDuplicate() = Unit
         override fun recordInboxForwarded() = Unit

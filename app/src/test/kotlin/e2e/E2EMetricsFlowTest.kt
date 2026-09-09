@@ -435,4 +435,21 @@ class E2EMetricsFlowTest : E2ETestBase() {
         // Note: queuebox_uptime_seconds and queuebox_info are registered by QueueBoxMetrics
         // when MetricsCollector is instantiated, so they should be present
     }
+
+    @Test
+    fun `the metrics endpoint reports the age of the oldest pending outbox row`() = runBlocking {
+        startMockHttpServer()
+        poller = startPoller(pollIntervalMs = 20)
+
+        // Scheduled in the future, so claimBatch never claims it. The row stays 'pending' for
+        // the whole test, the same state the gauge measures.
+        insertOutboxMessage(
+            topic = "orders.created",
+            payload = JsonObject(emptyMap()),
+            scheduledAt = kotlinx.datetime.Clock.System.now() + kotlin.time.Duration.parse("1h")
+        )
+
+        // The poller refreshes the gauge on its tick, so wait for the value rather than assume it.
+        assertTrue(awaitUntil { scrapeMetric("queuebox_outbox_oldest_pending_age_seconds") > 0.0 })
+    }
 }

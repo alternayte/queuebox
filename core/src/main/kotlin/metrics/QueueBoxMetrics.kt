@@ -7,6 +7,7 @@ import io.micrometer.core.instrument.Timer
 import org.nxtspec.BuildInfo
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.atomic.AtomicReference
 
 /**
  * Central metrics definitions for QueueBox using Micrometer.
@@ -41,6 +42,15 @@ class QueueBoxMetrics(private val registry: MeterRegistry) {
     val outboxMessagesPending: Gauge = Gauge
         .builder("queuebox_outbox_messages_pending", pendingMessageCount) { it.get().toDouble() }
         .description("Current number of pending outbox messages")
+        .register(registry)
+
+    private val oldestPendingAgeSeconds = AtomicReference(0.0)
+
+    // F-094: the age of the oldest pending row. A count cannot separate a busy relay from a dead
+    // one. The poll cycle refreshes this value, so a scrape reads a number and runs no query.
+    val outboxOldestPendingAge: Gauge = Gauge
+        .builder("queuebox_outbox_oldest_pending_age_seconds", oldestPendingAgeSeconds) { it.get() }
+        .description("Age in seconds of the oldest pending outbox message")
         .register(registry)
 
     // Outbox timers
@@ -135,6 +145,11 @@ class QueueBoxMetrics(private val registry: MeterRegistry) {
     fun setPendingMessageCount(count: Long) {
         pendingMessageCount.set(count)
     }
+
+    /**
+     * Update the age in seconds of the oldest pending outbox row. F-094.
+     */
+    fun updateOutboxOldestPendingAge(seconds: Double) = oldestPendingAgeSeconds.set(seconds)
 
     /**
      * Record processing duration in milliseconds.

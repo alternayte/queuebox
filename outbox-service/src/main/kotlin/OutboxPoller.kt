@@ -107,6 +107,7 @@ class OutboxPoller(
         if (now - lastPendingGaugeAtMs < config.pendingGaugeIntervalMs) return
         lastPendingGaugeAtMs = now
         collector.updatePendingCount(repository.countByState("pending"))
+        collector.updateOutboxOldestPendingAge(repository.oldestPendingAgeSeconds())
     }
 
     /**

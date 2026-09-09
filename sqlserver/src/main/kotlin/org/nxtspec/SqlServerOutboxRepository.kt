@@ -236,6 +236,34 @@ class SqlServerOutboxRepository(
             .count()
     }
 
+    // F-094. The subtraction runs as DATEDIFF_BIG in the database, not in Kotlin. `created_at` is
+    // a value the driver writes from a Kotlin Instant, in the same way `claimBatch` binds
+    // `scheduledAt` as a JDBC parameter above, rather than a value SYSUTCDATETIME() writes on the
+    // server. The "now" side of the subtraction must go through the same JDBC path so it lands on
+    // the same storage representation as `created_at`, exactly as `claimBatch` already does for
+    // `scheduledAt`.
+    override suspend fun oldestPendingAgeSeconds(): Double = joinOrNewTransaction {
+        val now = Clock.System.now()
+        val nowTimestamp = Timestamp.from(
+            java.time.Instant.ofEpochSecond(now.epochSeconds, now.nanosecondsOfSecond.toLong())
+        )
+        val createdAtCol = quoteSqlServerIdentifier(columnMapping.createdAt)
+        val sql = """
+            SELECT COALESCE(DATEDIFF_BIG(second, MIN($createdAtCol), ?), 0)
+            FROM ${quoteSqlServerIdentifier(tableName)}
+            WHERE ${quoteSqlServerIdentifier(columnMapping.state)} = 'pending'
+        """.trimIndent()
+        val conn = org.jetbrains.exposed.sql.transactions.TransactionManager.current()
+            .connection.connection as java.sql.Connection
+        conn.prepareStatement(sql).use { stmt ->
+            stmt.setTimestamp(1, nowTimestamp)
+            stmt.executeQuery().use { rows ->
+                rows.next()
+                rows.getLong(1).toDouble()
+            }
+        }
+    }
+
     override suspend fun reclaimStale(olderThan: Duration): Int = joinOrNewTransaction {
         val now = Clock.System.now()
         table.update({

@@ -157,6 +157,17 @@ abstract class E2ETestBase {
     private val startedPollers = CopyOnWriteArrayList<OutboxPoller>()
 
     /**
+     * The Prometheus registry that `startPoller` wires its [org.nxtspec.app.MetricsCollector]
+     * into, so a test can scrape a gauge that the poller updates.
+     */
+    protected val prometheusRegistry: io.micrometer.prometheusmetrics.PrometheusMeterRegistry =
+        io.micrometer.prometheusmetrics.PrometheusMeterRegistry(
+            io.micrometer.prometheusmetrics.PrometheusConfig.DEFAULT
+        )
+
+    private val metricsCollector = org.nxtspec.app.MetricsCollector(prometheusRegistry)
+
+    /**
      * Get the AMQP URL for connecting to the RabbitMQ container.
      */
     protected val amqpUrl: String
@@ -437,11 +448,30 @@ abstract class E2ETestBase {
                 destinations = mapOf("test-http" to destination)
             ),
             publishers = listOf(HttpPublisher()),
-            retryStrategy = RetryStrategy(config)
+            retryStrategy = RetryStrategy(config),
+            metricsCollector = metricsCollector
         )
         poller.start()
         startedPollers.add(poller)
         return poller
+    }
+
+    /**
+     * Reads one metric value out of the Prometheus exposition text that
+     * [prometheusRegistry] scrapes.
+     *
+     * The exposition format is one `name value` line per series, with an optional `{tags}`
+     * block between the name and the value. `queuebox_outbox_oldest_pending_age_seconds`
+     * carries no tags, so a plain prefix match is enough.
+     *
+     * @return the scraped value, or 0.0 when the metric has not registered a sample yet.
+     */
+    protected fun scrapeMetric(name: String): Double {
+        val line = prometheusRegistry.scrape()
+            .lineSequence()
+            .firstOrNull { !it.startsWith("#") && (it == name || it.startsWith("$name ") || it.startsWith("$name{")) }
+            ?: return 0.0
+        return line.substringAfterLast(' ').toDouble()
     }
 
     /**
