@@ -66,12 +66,40 @@ class RedactionCorpusTest {
         // The key prefix and the scheme name were unbounded, so the patterns were quadratic and a
         // five thousand character message cost hundreds of milliseconds. The redaction runs on
         // every failure, and the length of an error text is not ours to choose, so the cost was
-        // also a denial of service. This bound is generous: the quadratic version needed minutes.
-        val text = "amqp://user:aa  bb@rabbit:5672/vh " + "x".repeat(50_000)
+        // also a denial of service.
+        //
+        // A wall-clock bound on one run is not a fit measure on a shared or loaded machine. This
+        // test times the sanitiser at a small size and at a size four times as large, both over
+        // several repetitions, and compares the growth of the total time to the growth of the
+        // length. A linear implementation takes about four times as long. A quadratic one takes
+        // about sixteen times as long. The ratio threshold sits between the two, far from both,
+        // so a slow machine cannot push a linear result across it, and a quadratic result cannot
+        // hide under it.
+        fun textOfLength(length: Int) = "amqp://user:aa  bb@rabbit:5672/vh " + "x".repeat(length)
 
-        val elapsed = measureTime { ErrorSanitizer.sanitize(text) }
+        val smallText = textOfLength(12_500)
+        val largeText = textOfLength(50_000)
+        val repetitions = 20
 
-        assertTrue(elapsed.inWholeSeconds < 5, "The redaction took $elapsed, which means it is quadratic again")
+        // A JVM pays a one-time cost for class loading and JIT compilation on the first calls to
+        // a code path. Without a warm-up, that fixed cost would dominate the small-size timing
+        // and understate the apparent growth, letting a quadratic implementation pass by chance.
+        repeat(5) {
+            ErrorSanitizer.sanitize(smallText)
+            ErrorSanitizer.sanitize(largeText)
+        }
+
+        val smallElapsed = measureTime { repeat(repetitions) { ErrorSanitizer.sanitize(smallText) } }
+        val largeElapsed = measureTime { repeat(repetitions) { ErrorSanitizer.sanitize(largeText) } }
+
+        val growthRatio = largeElapsed.inWholeNanoseconds.toDouble() /
+            smallElapsed.inWholeNanoseconds.coerceAtLeast(1).toDouble()
+
+        assertTrue(
+            growthRatio < 9.0,
+            "A four fold increase in length took the sanitiser $growthRatio times as long " +
+                "(small: $smallElapsed, large: $largeElapsed), which means it is quadratic again"
+        )
     }
 
     private companion object {
