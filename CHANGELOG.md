@@ -9,21 +9,121 @@ the configuration schema and for the database schema.
 
 ## [Unreleased]
 
+## [0.2.0] — 2026-09-10
+
+This release closes fifteen findings that a first external adopter reported after a migration from
+Debezium. It touches the RabbitMQ inbox consumer, the pull claim of all three client libraries, the
+outbox destination model, the metrics, the admin surface, and the .NET client.
+
 ### Added
 
-- A RabbitMQ destination can now set its own `routingKeyTemplate`. The router renders it against
-  the row and the publisher uses the result when the matched route sets no `routingKeyTemplate`
-  of its own. (F-091)
+- **A per-row destination address.** A RabbitMQ destination can set its own `exchange` as a
+  template, or read the exchange from a row column through `exchangeFrom`. The same choice exists
+  for the Kafka `topic` (`topicFrom`) and the NATS subject (`subjectFrom`). A service with many
+  aggregate types no longer needs one destination and one route per type. A rendered address that
+  is empty, or that the broker refuses, fails the row through the normal retry path; QueueBox never
+  guesses a name and never falls back to a default.
+- **An `aggregate_type` field to render an address from.** A row can carry `aggregate_type`, and a
+  destination template can read it, in the same way Debezium reads `aggregatetype`.
+- **Startup validation of every address template.** QueueBox now checks the exchange template, the
+  topic template and the subject template of every destination at startup, and fails fast with the
+  name of the unknown field and the name of the destination, instead of failing on the first
+  message.
+- **A RabbitMQ destination can set its own `routingKeyTemplate`.** The router renders it against the
+  row, and the publisher uses the result when the matched route sets no `routingKeyTemplate` of its
+  own.
+- **A documented outbox insert.** `docs/integration.md` now shows a worked insert for each database,
+  inside the application transaction, with `headers` and `aggregate_type` populated, together with
+  the Entity Framework Core mapping for both columns.
+- **A queue-not-found error that names its own fix.** A missing RabbitMQ source queue now states
+  that the queue does not exist, that QueueBox does not declare a source queue by default, and that
+  `declareQueue: true` changes that. A new per-source `declareQueue` setting, default `false`,
+  declares a durable queue with the configured name before QueueBox consumes from it.
+- **Two lag metrics, in seconds.** `queuebox_outbox_oldest_pending_age_seconds` and
+  `queuebox_inbox_oldest_pending_age_seconds` report the age of the oldest row in state `pending`
+  for the outbox table and the inbox table, and zero when no row is pending. A row count alone
+  cannot tell an operator whether the relay is busy or has stopped.
+- **`POST /admin/replay`.** Behind the existing admin guard, the endpoint moves a selected set of
+  `sent` or `dead` rows back to `pending`, selected by a time range, by source, by destination, or
+  by an explicit list of identifiers. A request with no filter answers 400, because a replay of
+  everything must never be an accident. A row in `pending` or `processing` never moves, because the
+  relay owns it. The response reports the count of rows moved.
+- **A per-source `attributeHeaders` block.** A source can map the three inbox attribute header
+  names, `idempotencyKey`, `aggregateId` and `eventType`, to the header names its own producer
+  sends. Each name defaults to the value QueueBox has always read, so no existing deployment
+  changes. The setting replaces a header name inside the existing fallback chain and keeps the
+  chain order.
+- **`QueueBox.Inbox.DependencyInjection`, a new NuGet package.** It ships `AddQueueBoxInbox`, which
+  registers the options, the connection source, and exactly one hosted service per named worker. A
+  second registration under the same name throws instead of silently replacing the first worker.
+  It also ships an Entity Framework Core helper that builds a database context on the connection
+  and the transaction of the message, so the application write and the completion commit together
+  or neither does. The core package, `QueueBox.Inbox`, keeps its single dependency on
+  `Microsoft.Extensions.Logging.Abstractions`, which is why these helpers ship in a second package
+  rather than in the core one. Both packages publish at the same version, and
+  `QueueBox.Inbox.DependencyInjection` depends on `QueueBox.Inbox` pinned to that exact version, so
+  the two can never drift apart.
+- **The ordering guarantee, stated in `docs/delivery-semantics.md`.** QueueBox delivers at least
+  once. In push mode, one aggregate holds at most one message in flight, so the relay preserves the
+  order of that aggregate. In pull mode the same rule now holds, and it holds across every worker
+  instance. QueueBox preserves no order between two different aggregates. A poller delivers in claim
+  order, not in commit order, so a reader that needs commit order must not rely on the row
+  identifier.
+
+### Fixed
+
+- **The RabbitMQ consumer no longer requeues a body that never parses.** A body that is not JSON now
+  produces one row in state `dead`, in one transaction, with the raw body and the reason, and one
+  acknowledgement. Before this fix the consumer requeued the same body forever at broker speed, and
+  an operator had to stop the container and purge the queue by hand. A genuine storage failure still
+  requeues, because that failure is transient and a body that is not JSON is not.
+- **The pull claim now reserves one in-flight message per aggregate**, in all three client
+  libraries, on both PostgreSQL and SQL Server. Before this fix, several handlers of one aggregate
+  ran at the same time in an arbitrary order, and a handler that read a row and then wrote it failed
+  with a duplicate key error whenever it met a sibling message.
 
 ### Breaking changes
 
-- The pull client concurrency default is now one, in all three client libraries. It was the batch
-  size, which is ten, so ten handlers ran at one time and nothing in the API said so. A handler
-  that reads a row and then writes it failed with a duplicate key error when it met a sibling
+- **The pull client concurrency default is now one**, in all three client libraries. It was the
+  batch size, which is ten, so ten handlers ran at one time and nothing in the API said so. A
+  handler that read a row and then wrote it failed with a duplicate key error when it met a sibling
   message. To restore the old behaviour, set `MaxConcurrency` (C# and Go) or `maxConcurrency`
-  (TypeScript) to the batch size. (F-088)
-- A route-level `routingKeyTemplate` no longer selects the NATS subject. Use the destination's
-  `subject` template or `subjectFrom` instead. (F-091)
+  (TypeScript) to the batch size.
+- **A route-level `routingKeyTemplate` no longer selects the NATS subject.** Use the destination's
+  `subject` template or `subjectFrom` instead.
+- **The SQL Server pull claim's lock timeout is now ten seconds**, down from a longer wait that
+  competed with driver defaults. Set every driver request timeout or command timeout to at least 30
+  seconds, so the server always raises `Msg 51000` before the driver itself gives up. A driver
+  timeout that fires first hides the retry signal and can leave the per-source lock held until the
+  connection resets.
+- **`Msg 51000` from a pull claim is now a transient error, and a client must retry it rather than
+  treat it as a data error.** The message means that `sp_getapplock` could not take the per-source
+  lock in time, because another worker of the same source holds it, not that the claimed row is
+  invalid. A client that already retries a transient failure needs no code change; a client that
+  distinguishes error codes must add this one to its retry list.
+- **A known limitation of the SQL Server pull claim: per-source throughput has a ceiling.** The
+  claim serializes per source through an application lock, so one source reaches roughly 110 to 140
+  claims per second, and adding more workers to that source does not raise the ceiling. Scale by
+  adding sources instead of workers. PostgreSQL has no such constraint, because its claim does not
+  serialize through an application lock.
+
+### Security
+
+- The Netty version floor is raised to 4.2.17.Final, which closes CVE-2026-75595.
+
+### Migrations
+
+Two migrations ship with this release, for both PostgreSQL and SQL Server.
+
+- **`V9__add_aggregate_type.sql`** adds a nullable `aggregate_type` column to the outbox table. It
+  is additive. An existing writer that never sets the column keeps working.
+- **`V8__add_pull_claim_indexes.sql`** adds two indexes that the pull claim needs. On both engines
+  the migration uses a plain `CREATE INDEX`, which locks out inserts to the inbox table for the
+  duration of the build. **Applying this migration to a populated database needs a maintenance
+  window.** An operator who cannot take one must apply the index online instead:
+  `CREATE INDEX CONCURRENTLY` on PostgreSQL, run outside a transaction block; on SQL Server,
+  `CREATE INDEX ... WITH (ONLINE = ON)`, available on Enterprise Edition and on Azure SQL. See
+  `docs/development/migrations.md`.
 
 ## [0.1.0] — 2026-09-06
 
@@ -166,5 +266,6 @@ release exists.
   cannot push a credential into a log.
 - The admin surface is off by default.
 
-[Unreleased]: https://github.com/AlterNayte/queuebox/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/AlterNayte/queuebox/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/AlterNayte/queuebox/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/AlterNayte/queuebox/releases/tag/v0.1.0
