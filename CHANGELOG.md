@@ -11,18 +11,37 @@ the configuration schema and for the database schema.
 
 ## [0.2.0] — 2026-09-10
 
-This release closes fifteen findings that a first external adopter reported after a migration from
-Debezium. It touches the RabbitMQ inbox consumer, the pull claim of all three client libraries, the
-outbox destination model, the metrics, the admin surface, and the .NET client.
+Four tags publish together at this release: `v0.2.0`, which ships the server image alone, and
+`csharp-v0.2.0`, `typescript-v0.2.0` and `clients/go/v0.2.0`, which each ship one pull client
+library. A tag ships only the artifact it names. The entries below say which tag carries each
+change, so an operator upgrading the image, or a consumer upgrading one client library, can tell
+what they actually get.
 
-### Added
+This is also the first entry in this file for Kafka, for NATS, and for the three pull client
+libraries, none of which the `0.1.0` entry named. The client libraries already shipped once each,
+as `csharp-v0.1.0` and `csharp-v0.1.1`, as `typescript-v0.1.0`, and as `clients/go/v0.1.0` and
+`clients/go/v0.1.1`, each carrying an initial pull worker for PostgreSQL and SQL Server. This
+release is the first to record any of that here.
 
+### `v0.2.0` — the server image
+
+#### Added
+
+- **A Kafka inbox source and outbox destination.** Kafka has no per-message acknowledgement, only
+  an offset, so the consumer processes one partition in offset order and commits only the run that
+  the inbox already stored. A body that is not JSON is stored dead and its offset still moves.
+- **A NATS JetStream inbox source and outbox destination.** The source is JetStream only, because
+  core NATS delivers a message once, to whoever is listening, and cannot acknowledge anything. The
+  consumer is durable and pull based, and it acknowledges one message at a time, only after the
+  inbox row commits.
 - **A per-row destination address.** A RabbitMQ destination can set its own `exchange` as a
   template, or read the exchange from a row column through `exchangeFrom`. The same choice exists
-  for the Kafka `topic` (`topicFrom`) and the NATS subject (`subjectFrom`). A service with many
-  aggregate types no longer needs one destination and one route per type. A rendered address that
-  is empty, or that the broker refuses, fails the row through the normal retry path; QueueBox never
-  guesses a name and never falls back to a default.
+  for the Kafka `topic` (`topicFrom`) and the NATS subject (`subjectFrom`). The column a `*From`
+  setting names must be one of exactly three permitted names: `aggregate_type`, `topic`, or `key`;
+  any other name fails the startup. A service with many aggregate types no longer needs one
+  destination and one route per type. A rendered address that is empty, or that the broker refuses,
+  fails the row through the normal retry path; QueueBox never guesses a name and never falls back
+  to a default.
 - **An `aggregate_type` field to render an address from.** A row can carry `aggregate_type`, and a
   destination template can read it, in the same way Debezium reads `aggregatetype`.
 - **Startup validation of every address template.** QueueBox now checks the exchange template, the
@@ -42,7 +61,9 @@ outbox destination model, the metrics, the admin surface, and the .NET client.
 - **Two lag metrics, in seconds.** `queuebox_outbox_oldest_pending_age_seconds` and
   `queuebox_inbox_oldest_pending_age_seconds` report the age of the oldest row in state `pending`
   for the outbox table and the inbox table, and zero when no row is pending. A row count alone
-  cannot tell an operator whether the relay is busy or has stopped.
+  cannot tell an operator whether the relay is busy or has stopped. Each gauge refreshes at most
+  once per interval: `outbox.pendingGaugeIntervalMs` and `inbox.relay.pendingGaugeIntervalMs`,
+  both 5000 by default, so a metrics scrape runs no extra database query.
 - **`POST /admin/replay`.** Behind the existing admin guard, the endpoint moves a selected set of
   `sent` or `dead` rows back to `pending`, selected by a time range, by source, by destination, or
   by an explicit list of identifiers. A request with no filter answers 400, because a replay of
@@ -52,17 +73,7 @@ outbox destination model, the metrics, the admin surface, and the .NET client.
   names, `idempotencyKey`, `aggregateId` and `eventType`, to the header names its own producer
   sends. Each name defaults to the value QueueBox has always read, so no existing deployment
   changes. The setting replaces a header name inside the existing fallback chain and keeps the
-  chain order.
-- **`QueueBox.Inbox.DependencyInjection`, a new NuGet package.** It ships `AddQueueBoxInbox`, which
-  registers the options, the connection source, and exactly one hosted service per named worker. A
-  second registration under the same name throws instead of silently replacing the first worker.
-  It also ships an Entity Framework Core helper that builds a database context on the connection
-  and the transaction of the message, so the application write and the completion commit together
-  or neither does. The core package, `QueueBox.Inbox`, keeps its single dependency on
-  `Microsoft.Extensions.Logging.Abstractions`, which is why these helpers ship in a second package
-  rather than in the core one. Both packages publish at the same version, and
-  `QueueBox.Inbox.DependencyInjection` depends on `QueueBox.Inbox` pinned to that exact version, so
-  the two can never drift apart.
+  chain order. RabbitMQ, Kafka and NATS all read this setting.
 - **The ordering guarantee, stated in `docs/delivery-semantics.md`.** QueueBox delivers at least
   once. In push mode, one aggregate holds at most one message in flight, so the relay preserves the
   order of that aggregate. In pull mode the same rule now holds, and it holds across every worker
@@ -70,46 +81,41 @@ outbox destination model, the metrics, the admin surface, and the .NET client.
   order, not in commit order, so a reader that needs commit order must not rely on the row
   identifier.
 
-### Fixed
+#### Fixed
 
 - **The RabbitMQ consumer no longer requeues a body that never parses.** A body that is not JSON now
   produces one row in state `dead`, in one transaction, with the raw body and the reason, and one
   acknowledgement. Before this fix the consumer requeued the same body forever at broker speed, and
   an operator had to stop the container and purge the queue by hand. A genuine storage failure still
   requeues, because that failure is transient and a body that is not JSON is not.
-- **The pull claim now reserves one in-flight message per aggregate**, in all three client
-  libraries, on both PostgreSQL and SQL Server. Before this fix, several handlers of one aggregate
-  ran at the same time in an arbitrary order, and a handler that read a row and then wrote it failed
-  with a duplicate key error whenever it met a sibling message.
 
-### Breaking changes
+#### Breaking changes
 
-- **The pull client concurrency default is now one**, in all three client libraries. It was the
-  batch size, which is ten, so ten handlers ran at one time and nothing in the API said so. A
-  handler that read a row and then wrote it failed with a duplicate key error when it met a sibling
-  message. To restore the old behaviour, set `MaxConcurrency` (C# and Go) or `maxConcurrency`
-  (TypeScript) to the batch size.
 - **A route-level `routingKeyTemplate` no longer selects the NATS subject.** Use the destination's
   `subject` template or `subjectFrom` instead.
-- **The SQL Server pull claim's lock timeout is now ten seconds**, down from a longer wait that
-  competed with driver defaults. Set every driver request timeout or command timeout to at least 30
-  seconds, so the server always raises `Msg 51000` before the driver itself gives up. A driver
-  timeout that fires first hides the retry signal and can leave the per-source lock held until the
-  connection resets.
-- **`Msg 51000` from a pull claim is now a transient error, and a client must retry it rather than
-  treat it as a data error.** The message means that `sp_getapplock` could not take the per-source
-  lock in time, because another worker of the same source holds it, not that the claimed row is
-  invalid. A client that already retries a transient failure needs no code change; a client that
-  distinguishes error codes must add this one to its retry list.
-- **A known limitation of the SQL Server pull claim: per-source throughput has a ceiling.** The
-  claim serializes per source through an application lock, so one source reaches roughly 110 to 140
-  claims per second, and adding more workers to that source does not raise the ceiling. Scale by
-  adding sources instead of workers. PostgreSQL has no such constraint, because its claim does not
-  serialize through an application lock.
 
-### Security
+#### Security
 
 - The Netty version floor is raised to 4.2.17.Final, which closes CVE-2026-75595.
+- The redaction of a driver error and of a masked credential now runs in time linear to the length
+  of the text. The previous pattern was quadratic, so a destination or a driver that returned a
+  long error text could stall the caller. The behaviour is unchanged for every real credential and
+  every registered URI scheme.
+
+#### Known limitations
+
+- **SQL Server pull claim throughput has a per-source ceiling.** The claim serializes per source
+  through an application lock, so one source reaches roughly 110 to 140 claims per second, and
+  adding more workers to that source does not raise the ceiling. Scale by adding sources instead of
+  workers. PostgreSQL has no such constraint, because its claim does not serialize through an
+  application lock.
+- **SQL Server stores `created_at` as the local wall clock of the writing host, not as a UTC
+  instant**, because the column is `DATETIME2` and the driver converts it through the JVM default
+  calendar. This release adds three operator-visible features that read that column: the two age
+  gauges and the `POST /admin/replay` time-range filter. Claim order and retention age already
+  depended on it. Each is wrong by the host's UTC offset when application instances, or the
+  database itself, do not share one time zone. Run every QueueBox instance for one SQL Server
+  database in the same time zone, and prefer UTC for all of them.
 
 ### Migrations
 
@@ -122,8 +128,50 @@ Two migrations ship with this release, for both PostgreSQL and SQL Server.
   duration of the build. **Applying this migration to a populated database needs a maintenance
   window.** An operator who cannot take one must apply the index online instead:
   `CREATE INDEX CONCURRENTLY` on PostgreSQL, run outside a transaction block; on SQL Server,
-  `CREATE INDEX ... WITH (ONLINE = ON)`, available on Enterprise Edition and on Azure SQL. See
-  `docs/development/migrations.md`.
+  `CREATE INDEX ... WITH (ONLINE = ON)`, available on Enterprise Edition and on Azure SQL. Both
+  migrations create filtered indexes, which on SQL Server need `SET QUOTED_IDENTIFIER ON` at
+  create time. Flyway's own driver sets this on by default, but an operator who applies `V8`
+  by hand on SQL Server must set it explicitly first. See `docs/development/migrations.md`.
+
+### `csharp-v0.2.0`, `typescript-v0.2.0`, `clients/go/v0.2.0` — the pull client libraries
+
+These three tags publish together, each at 0.2.0, and each carries the same three changes.
+
+#### Added
+
+- **`QueueBox.Inbox.DependencyInjection`, a new NuGet package, published for the first time
+  alongside `csharp-v0.2.0`.** It ships `AddQueueBoxInbox`, which registers the options, the
+  connection source, and exactly one hosted service per named worker. A second registration under
+  the same name throws instead of silently replacing the first worker. It also ships an Entity
+  Framework Core helper that builds a database context on the connection and the transaction of the
+  message, so the application write and the completion commit together or neither does. The core
+  package, `QueueBox.Inbox`, keeps its single dependency on
+  `Microsoft.Extensions.Logging.Abstractions`, which is why these helpers ship in a second package
+  rather than in the core one. Both packages publish at the same version, and
+  `QueueBox.Inbox.DependencyInjection` depends on `QueueBox.Inbox` pinned to that exact version, so
+  the two can never drift apart.
+- **The pull claim now reserves one in-flight message per aggregate**, in all three client
+  libraries, on both PostgreSQL and SQL Server. Before this fix, several handlers of one aggregate
+  ran at the same time in an arbitrary order, and a handler that read a row and then wrote it failed
+  with a duplicate key error whenever it met a sibling message.
+
+#### Breaking changes
+
+- **The pull client concurrency default is now one**, in all three client libraries. It was the
+  batch size, so as many handlers ran at one time as the batch size configured, and nothing in the
+  API said so. A handler that read a row and then wrote it failed with a duplicate key error when it
+  met a sibling message. To restore the old behaviour, set `MaxConcurrency` (C# and Go) or
+  `maxConcurrency` (TypeScript) to the batch size.
+- **The SQL Server pull claim's lock timeout is now ten seconds**, down from a longer wait that
+  competed with driver defaults. Set every driver request timeout or command timeout to at least 30
+  seconds, so the server always raises `Msg 51000` before the driver itself gives up. A driver
+  timeout that fires first hides the retry signal and can leave the per-source lock held until the
+  connection resets.
+- **`Msg 51000` from a pull claim is now a transient error, and a client must retry it rather than
+  treat it as a data error.** The message means that `sp_getapplock` could not take the per-source
+  lock in time, because another worker of the same source holds it, not that the claimed row is
+  invalid. A client that already retries a transient failure needs no code change; a client that
+  distinguishes error codes must add this one to its retry list.
 
 ## [0.1.0] — 2026-09-06
 
