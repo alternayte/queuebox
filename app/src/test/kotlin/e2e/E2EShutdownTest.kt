@@ -3,6 +3,7 @@ package org.nxtspec.e2e
 import com.zaxxer.hikari.HikariConfig
 import com.zaxxer.hikari.HikariDataSource
 import io.ktor.client.HttpClient
+import io.ktor.client.engine.cio.CIO
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.bodyAsText
@@ -92,7 +93,12 @@ class E2EShutdownTest : E2ETestBase() {
         }
         server.start(wait = false)
 
-        val client = HttpClient()
+        // The request stays open on purpose, across the latch wait, the drain and the server
+        // stop. The CIO engine gives a request 15 seconds by default, which is shorter than that
+        // sequence takes on a loaded build, so the client abandoned a request the server went on
+        // to complete. The budget below only has to cover a slow machine. The assertion is
+        // unchanged: a request that the server never completes still fails.
+        val client = HttpClient(CIO) { engine { requestTimeout = 120_000 } }
         val request = async(Dispatchers.IO) {
             client.post("http://localhost:$port/inbox/stripe") {
                 contentType(ContentType.Application.Json)
