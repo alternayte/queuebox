@@ -258,6 +258,10 @@ sources:
     prefetchCount: 10
     declareQueue: false                   # Default. See the note below.
     topic: "{{ source }}"                 # Outbox topic template. The default needs no event type.
+    attributeHeaders:                     # Optional. See the note below.
+      idempotencyKey: id                  # Default: x-idempotency-key
+      aggregateId: aggregateId            # Default: x-aggregate-id
+      eventType: eventType                # Default: x-event-type
 
 # Automatic cleanup of old messages
 retention:
@@ -290,13 +294,28 @@ body also deduplicate, and the second event is NOT forwarded.
 [message-flow.md](message-flow.md) states the rule in full.
 
 **The event type of an AMQP source.** QueueBox reads the event type from `eventTypePath` in the
-message body first. When that gives nothing, QueueBox reads the AMQP header `x-event-type`. The
-header name is fixed. A message with no event type renders `{{ eventType }}` as an empty string,
-and the relay marks such a message dead. The default topic template of an AMQP source is therefore
-`{{ source }}`, which every message can render. To use `{{ eventType }}` in the template, set
-`eventTypePath`, or set `eventTypeFromHeader: true` to declare that every publisher of the queue
-sets the `x-event-type` header. QueueBox refuses the start when the template uses `{{ eventType }}`
-and neither field is set.
+message body first. When that gives nothing, QueueBox reads the AMQP header `x-event-type`, or the
+name that `attributeHeaders.eventType` sets. A message with no event type renders `{{ eventType }}`
+as an empty string, and the relay marks such a message dead. The default topic template of an AMQP
+source is therefore `{{ source }}`, which every message can render. To use `{{ eventType }}` in the
+template, set `eventTypePath`, or set `eventTypeFromHeader: true` to declare that every publisher
+of the queue sets the event-type header. QueueBox refuses the start when the template uses
+`{{ eventType }}` and neither field is set.
+
+**A source can name its own inbox attribute headers.** F-100: the RabbitMQ, Kafka and NATS
+sources read three headers as part of the existing fallback chain: the idempotency key, the
+aggregate identifier, and the event type. `attributeHeaders` sets the name of each header. The
+three defaults are `x-idempotency-key`, `x-aggregate-id` and `x-event-type`, the names QueueBox has
+always read, so an existing deployment needs no change. A Debezium producer instead sends `id`,
+`aggregateId` and `eventType`. Before this setting, a flat payload with those header names needed
+a code change. `attributeHeaders` sets only the header name. It does not change the order of the
+fallback chain, and it does not remove the digest fallback.
+
+The priority differs per attribute. For the idempotency key, the header comes first, before
+`idempotencyKeyPath` and before the AMQP `messageId` property. For the event type and the
+aggregate identifier, the header comes second: `eventTypePath` and `aggregateIdPath` in the
+message body take priority over the header, and the header applies only when the body path gives
+nothing.
 
 ```yaml
 sources:
@@ -508,6 +527,16 @@ column name also fails the start. Each failure names the offending value and the
 | `prefetchCount` | No | `10` |
 | `declareQueue` | No | `false` |
 | `topic` | No | `{{ source }}` |
+| `attributeHeaders` | No | see below |
+
+`attributeHeaders` also applies to the Kafka and NATS sources, with the same three fields and the
+same defaults:
+
+| Field | Required | Default |
+|-------|----------|---------|
+| `attributeHeaders.idempotencyKey` | No | `x-idempotency-key` |
+| `attributeHeaders.aggregateId` | No | `x-aggregate-id` |
+| `attributeHeaders.eventType` | No | `x-event-type` |
 
 #### Authentication Requirements
 

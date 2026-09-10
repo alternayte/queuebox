@@ -13,7 +13,6 @@ import kotlinx.coroutines.job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.datetime.Clock
-import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
@@ -31,7 +30,6 @@ import org.nxtspec.transform.InboxTransformPipeline
 import org.nxtspec.transform.InboxTransformResult
 import java.util.UUID
 
-@Serializable
 data class RabbitConsumerConfig(
     val consumption: String = "push",
     val queueName: String,
@@ -41,7 +39,8 @@ data class RabbitConsumerConfig(
     val aggregateIdPath: String? = null,
     /**
      * Optional JSONPath to the event type in the message body. The consumer reads this path
-     * first, and it falls back to the `x-event-type` AMQP header.
+     * first, and it falls back to the AMQP header that `attributeHeaders.eventType` names,
+     * which defaults to `x-event-type`.
      */
     val eventTypePath: String? = null,
     /**
@@ -52,7 +51,9 @@ data class RabbitConsumerConfig(
      * empty queue that never receives a message, and that failure is silent. A missing queue
      * must fail loudly instead, so an operator sets this field on purpose.
      */
-    val declareQueue: Boolean = false
+    val declareQueue: Boolean = false,
+    /** The header names that carry the three inbox attributes. See F-100. */
+    val attributeHeaders: AttributeHeaders = AttributeHeaders()
 )
 
 private sealed interface AckCommand {
@@ -251,7 +252,7 @@ class RabbitConsumer(
             val messageId = UUID.randomUUID()
 
             // Extract idempotency key with fallback chain (from ORIGINAL payload):
-            // 1. x-idempotency-key header
+            // 1. the configured idempotency-key header
             // 2. JSONPath from payload
             // 3. messageId property
             // 4. A stable SHA-256 digest of the body
@@ -428,8 +429,8 @@ class RabbitConsumer(
     }
 
     private fun extractIdempotencyKey(properties: AMQP.BasicProperties, payload: JsonElement, body: ByteArray): String {
-        // Priority 1: x-idempotency-key header
-        val headerKey = properties.headers?.get("x-idempotency-key")
+        // Priority 1: the configured idempotency-key header
+        val headerKey = properties.headers?.get(config.attributeHeaders.idempotencyKey)
         if (headerKey != null) {
             return headerKey.toString()
         }
@@ -500,7 +501,8 @@ class RabbitConsumer(
      * Reads the event type of a delivery. See the fifth review gate.
      *
      * Priority 1 is the `eventTypePath` in the body, which gives an AMQP source the same
-     * capability as an HTTP source. Priority 2 is the `x-event-type` AMQP header.
+     * capability as an HTTP source. Priority 2 is the AMQP header that `attributeHeaders.eventType`
+     * names, which defaults to `x-event-type`.
      */
     private fun extractEventType(properties: AMQP.BasicProperties, payload: JsonElement): String? {
         config.eventTypePath?.let { path ->
@@ -510,7 +512,7 @@ class RabbitConsumer(
             }
         }
 
-        return properties.headers?.get("x-event-type")?.toString()
+        return properties.headers?.get(config.attributeHeaders.eventType)?.toString()
     }
 
     private fun extractAggregateId(properties: AMQP.BasicProperties, payload: JsonElement): String? {
@@ -522,8 +524,8 @@ class RabbitConsumer(
             }
         }
 
-        // Priority 2: x-aggregate-id header fallback
-        return properties.headers?.get("x-aggregate-id")?.toString()
+        // Priority 2: the configured aggregate-id header fallback
+        return properties.headers?.get(config.attributeHeaders.aggregateId)?.toString()
     }
 
     /**

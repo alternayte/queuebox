@@ -315,6 +315,20 @@ data class RouteConfig(
     val transform: TransformConfig? = null
 )
 
+/**
+ * The header names that carry the three inbox attributes. F-100.
+ *
+ * The defaults are the names QueueBox has always read. A Debezium producer sends `id`,
+ * `eventType` and `aggregateId` instead, and before this setting a flat payload with those
+ * headers needed a code change.
+ */
+@Serializable
+data class AttributeHeaders(
+    val idempotencyKey: String = "x-idempotency-key",
+    val aggregateId: String = "x-aggregate-id",
+    val eventType: String = "x-event-type"
+)
+
 @Serializable
 sealed class SourceConfig {
     abstract val transform: TransformConfig?
@@ -361,12 +375,14 @@ sealed class SourceConfig {
         val aggregateIdPath: String? = null,
         /**
          * Optional JSONPath to the event type in the message body. The consumer reads this path
-         * first, and it falls back to the `x-event-type` record header.
+         * first, and it falls back to the record header that `attributeHeaders.eventType` names,
+         * which defaults to `x-event-type`.
          */
         val eventTypePath: String? = null,
         /**
-         * Declares that every producer of these topics sets the `x-event-type` record header.
-         * See the RabbitMQ source for why the declaration is explicit.
+         * Declares that every producer of these topics sets the record header that
+         * `attributeHeaders.eventType` names. See the RabbitMQ source for why the declaration
+         * is explicit.
          */
         val eventTypeFromHeader: Boolean = false,
         /**
@@ -380,6 +396,8 @@ sealed class SourceConfig {
         val saslMechanism: String? = null,
         val saslUsername: String? = null,
         val saslPassword: Secret? = null,
+        /** The header names that carry the three inbox attributes. See F-100. */
+        val attributeHeaders: AttributeHeaders = AttributeHeaders(),
         override val transform: TransformConfig? = null,
         /** The default renders the source name, which every message carries. */
         override val topic: String = "{{ source }}",
@@ -391,8 +409,8 @@ sealed class SourceConfig {
             "eventTypePath=$eventTypePath, eventTypeFromHeader=$eventTypeFromHeader, " +
             "autoOffsetReset=$autoOffsetReset, maxPollRecords=$maxPollRecords, " +
             "securityProtocol=$securityProtocol, saslMechanism=$saslMechanism, " +
-            "saslUsername=$saslUsername, transform=$transform, topic=$topic, " +
-            "consumption=$consumption, rateLimit=$rateLimit)"
+            "saslUsername=$saslUsername, attributeHeaders=$attributeHeaders, transform=$transform, " +
+            "topic=$topic, consumption=$consumption, rateLimit=$rateLimit)"
     }
 
     /**
@@ -416,7 +434,10 @@ sealed class SourceConfig {
         val idempotencyKeyPath: String = "$.id",
         val aggregateIdPath: String? = null,
         val eventTypePath: String? = null,
-        /** Declares that every publisher sets the `x-event-type` message header. */
+        /**
+         * Declares that every publisher sets the message header that `attributeHeaders.eventType`
+         * names.
+         */
         val eventTypeFromHeader: Boolean = false,
         /** How long JetStream waits for the acknowledgement before it redelivers. */
         val ackWaitMs: Long = 30000,
@@ -425,6 +446,8 @@ sealed class SourceConfig {
         val username: String? = null,
         val password: Secret? = null,
         val token: Secret? = null,
+        /** The header names that carry the three inbox attributes. See F-100. */
+        val attributeHeaders: AttributeHeaders = AttributeHeaders(),
         override val transform: TransformConfig? = null,
         override val topic: String = "{{ source }}",
         override val consumption: String = "push",
@@ -435,7 +458,8 @@ sealed class SourceConfig {
             "idempotencyKeyPath=$idempotencyKeyPath, aggregateIdPath=$aggregateIdPath, " +
             "eventTypePath=$eventTypePath, eventTypeFromHeader=$eventTypeFromHeader, " +
             "ackWaitMs=$ackWaitMs, batchSize=$batchSize, username=$username, " +
-            "transform=$transform, topic=$topic, consumption=$consumption, rateLimit=$rateLimit)"
+            "attributeHeaders=$attributeHeaders, transform=$transform, topic=$topic, " +
+            "consumption=$consumption, rateLimit=$rateLimit)"
     }
 
     @Serializable
@@ -447,11 +471,13 @@ sealed class SourceConfig {
         val aggregateIdPath: String? = null,
         /**
          * Optional JSONPath to the event type in the message body, like the HTTP source.
-         * The consumer reads this path first, and it falls back to the `x-event-type` header.
+         * The consumer reads this path first, and it falls back to the header that
+         * `attributeHeaders.eventType` names, which defaults to `x-event-type`.
          */
         val eventTypePath: String? = null,
         /**
-         * Declares that every publisher of this queue sets the `x-event-type` header.
+         * Declares that every publisher of this queue sets the header that
+         * `attributeHeaders.eventType` names.
          *
          * The header is the only other source of the event type. Set this to true to use
          * `{{ eventType }}` in the topic template without an `eventTypePath`. The declaration
@@ -469,6 +495,8 @@ sealed class SourceConfig {
          * already exist and QueueBox must create it.
          */
         val declareQueue: Boolean = false,
+        /** The header names that carry the three inbox attributes. See F-100. */
+        val attributeHeaders: AttributeHeaders = AttributeHeaders(),
         override val transform: TransformConfig? = null,
         /**
          * The default renders the source name, which every message carries. A template that
@@ -485,7 +513,8 @@ sealed class SourceConfig {
             "connectionUrl=${CredentialMasking.maskUrl(connectionUrl)}, " +
             "idempotencyKeyPath=$idempotencyKeyPath, aggregateIdPath=$aggregateIdPath, " +
             "eventTypePath=$eventTypePath, eventTypeFromHeader=$eventTypeFromHeader, " +
-            "prefetchCount=$prefetchCount, declareQueue=$declareQueue, transform=$transform, " +
+            "prefetchCount=$prefetchCount, declareQueue=$declareQueue, " +
+            "attributeHeaders=$attributeHeaders, transform=$transform, " +
             "topic=$topic, rateLimit=$rateLimit)"
     }
 }

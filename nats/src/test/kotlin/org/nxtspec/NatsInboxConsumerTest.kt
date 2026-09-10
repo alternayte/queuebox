@@ -140,6 +140,80 @@ class NatsInboxConsumerTest {
     }
 
     @Test
+    fun `a source reads the attribute names that the configuration gives it`() = runBlocking {
+        val prefix = "orders${UUID.randomUUID().toString().take(8)}"
+        val stream = createStream(prefix)
+        // A flat payload with Debezium's header names, and no field in the body that the
+        // fallback chain could read. Only the configured header names can satisfy this.
+        publish(
+            "$prefix.created",
+            """{"orderTotal":42}""",
+            mapOf("id" to "evt-1", "aggregateId" to "order-7", "eventType" to "OrderPlaced")
+        )
+
+        val stored = ConcurrentHashMap<String, InboxMessage>()
+        val consumer = NatsInboxConsumer(
+            storeMessage = { message ->
+                stored[message.idempotencyKey] = message
+                InboxResult.Stored
+            },
+            extractor = IdempotencyExtractor(),
+            config = consumerConfig(stream, "$prefix.>").copy(
+                attributeHeaders = AttributeHeaders(
+                    idempotencyKey = "id",
+                    aggregateId = "aggregateId",
+                    eventType = "eventType"
+                )
+            )
+        )
+
+        try {
+            consumer.start()
+            withTimeout(60000) { while (stored.isEmpty()) delay(100) }
+            val message = assertNotNull(stored["evt-1"])
+            assertEquals("order-7", message.aggregateId)
+            assertEquals("OrderPlaced", message.eventType)
+        } finally {
+            consumer.stop()
+        }
+    }
+
+    @Test
+    fun `the default names still work when the configuration sets nothing`() = runBlocking {
+        val prefix = "orders${UUID.randomUUID().toString().take(8)}"
+        val stream = createStream(prefix)
+        publish(
+            "$prefix.created",
+            """{"orderTotal":42}""",
+            mapOf(
+                "x-idempotency-key" to "evt-2",
+                "x-aggregate-id" to "order-8",
+                "x-event-type" to "OrderPaid"
+            )
+        )
+
+        val stored = ConcurrentHashMap<String, InboxMessage>()
+        val consumer = NatsInboxConsumer(
+            storeMessage = { message ->
+                stored[message.idempotencyKey] = message
+                InboxResult.Stored
+            },
+            extractor = IdempotencyExtractor(),
+            config = consumerConfig(stream, "$prefix.>")
+        )
+
+        try {
+            consumer.start()
+            withTimeout(60000) { while (stored.isEmpty()) delay(100) }
+            val message = assertNotNull(stored["evt-2"])
+            assertEquals("order-8", message.aggregateId)
+            assertEquals("OrderPaid", message.eventType)
+        } finally {
+            consumer.stop()
+        }
+    }
+
+    @Test
     fun `a failed store is redelivered rather than acknowledged`() = runBlocking {
         val prefix = "orders${UUID.randomUUID().toString().take(8)}"
         val stream = createStream(prefix)

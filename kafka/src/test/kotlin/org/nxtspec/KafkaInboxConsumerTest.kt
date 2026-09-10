@@ -128,6 +128,80 @@ class KafkaInboxConsumerTest {
     }
 
     @Test
+    fun `a source reads the attribute names that the configuration gives it`() = runBlocking {
+        val topic = "orders-${UUID.randomUUID()}"
+        // A flat payload with Debezium's header names, and no field in the body that the
+        // fallback chain could read. Only the configured header names can satisfy this.
+        send(
+            topic,
+            null,
+            """{"orderTotal":42}""",
+            mapOf("id" to "evt-1", "aggregateId" to "order-7", "eventType" to "OrderPlaced")
+        )
+
+        val stored = ConcurrentHashMap<String, InboxMessage>()
+        val consumer = KafkaInboxConsumer(
+            storeMessage = { message ->
+                stored[message.idempotencyKey] = message
+                InboxResult.Stored
+            },
+            extractor = IdempotencyExtractor(),
+            config = consumerConfig(topic, "group-${UUID.randomUUID()}").copy(
+                attributeHeaders = AttributeHeaders(
+                    idempotencyKey = "id",
+                    aggregateId = "aggregateId",
+                    eventType = "eventType"
+                )
+            )
+        )
+
+        try {
+            consumer.start()
+            withTimeout(60000) { while (stored.isEmpty()) delay(100) }
+            val message = assertNotNull(stored["evt-1"])
+            assertEquals("order-7", message.aggregateId)
+            assertEquals("OrderPlaced", message.eventType)
+        } finally {
+            consumer.stop()
+        }
+    }
+
+    @Test
+    fun `the default names still work when the configuration sets nothing`() = runBlocking {
+        val topic = "orders-${UUID.randomUUID()}"
+        send(
+            topic,
+            null,
+            """{"orderTotal":42}""",
+            mapOf(
+                "x-idempotency-key" to "evt-2",
+                "x-aggregate-id" to "order-8",
+                "x-event-type" to "OrderPaid"
+            )
+        )
+
+        val stored = ConcurrentHashMap<String, InboxMessage>()
+        val consumer = KafkaInboxConsumer(
+            storeMessage = { message ->
+                stored[message.idempotencyKey] = message
+                InboxResult.Stored
+            },
+            extractor = IdempotencyExtractor(),
+            config = consumerConfig(topic, "group-${UUID.randomUUID()}")
+        )
+
+        try {
+            consumer.start()
+            withTimeout(60000) { while (stored.isEmpty()) delay(100) }
+            val message = assertNotNull(stored["evt-2"])
+            assertEquals("order-8", message.aggregateId)
+            assertEquals("OrderPaid", message.eventType)
+        } finally {
+            consumer.stop()
+        }
+    }
+
+    @Test
     fun `a failed store leaves the offset uncommitted, so the record is read again`() = runBlocking {
         val topic = "orders-${UUID.randomUUID()}"
         send(topic, "order-3", """{"id":"evt-retry","type":"order.created"}""")

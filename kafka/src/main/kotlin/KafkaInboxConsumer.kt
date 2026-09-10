@@ -47,7 +47,9 @@ data class KafkaConsumerConfig(
     val securityProtocol: String = "PLAINTEXT",
     val saslMechanism: String? = null,
     val saslUsername: String? = null,
-    val saslPassword: Secret? = null
+    val saslPassword: Secret? = null,
+    /** The header names that carry the three inbox attributes. See F-100. */
+    val attributeHeaders: AttributeHeaders = AttributeHeaders()
 )
 
 /**
@@ -328,7 +330,7 @@ class KafkaInboxConsumer(
         payload: JsonElement,
         body: ByteArray
     ): String {
-        header(record, "x-idempotency-key")?.let { return it }
+        header(record, config.attributeHeaders.idempotencyKey)?.let { return it }
         val extracted = extractor.extract(payload, config.idempotencyKeyPath)
         if (extracted.isSuccess) return extracted.getOrThrow()
         record.key()?.takeIf { it.isNotBlank() }?.let { return it }
@@ -340,7 +342,7 @@ class KafkaInboxConsumer(
             val extracted = extractor.extract(payload, path)
             if (extracted.isSuccess) return extracted.getOrThrow()
         }
-        return header(record, "x-event-type")
+        return header(record, config.attributeHeaders.eventType)
     }
 
     private fun extractAggregateId(record: ConsumerRecord<String, ByteArray>, payload: JsonElement): String? {
@@ -348,7 +350,7 @@ class KafkaInboxConsumer(
             val extracted = extractor.extract(payload, path)
             if (extracted.isSuccess) return extracted.getOrThrow()
         }
-        return header(record, "x-aggregate-id") ?: record.key()
+        return header(record, config.attributeHeaders.aggregateId) ?: record.key()
     }
 
     private fun bodyDigest(body: ByteArray): String {

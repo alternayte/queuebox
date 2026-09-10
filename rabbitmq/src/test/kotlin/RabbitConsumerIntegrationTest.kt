@@ -231,6 +231,61 @@ class RabbitConsumerIntegrationTest {
     }
 
     @Test
+    fun `a source reads the attribute names that the configuration gives it`() = runBlocking {
+        val config = RabbitConsumerConfig(
+            queueName = TEST_QUEUE,
+            sourceName = "test-source",
+            attributeHeaders = AttributeHeaders(
+                idempotencyKey = "id",
+                aggregateId = "aggregateId",
+                eventType = "eventType"
+            )
+        )
+        consumer = RabbitConsumer(connection, mockStore, extractor, config)
+        consumer.start()
+
+        // A flat payload with Debezium's header names, and no field in the body that the
+        // fallback chain could read. Only the configured header names can satisfy this.
+        publishMessage(
+            """{"orderTotal": 42}""",
+            headers = mapOf("id" to "evt-1", "aggregateId" to "order-7", "eventType" to "OrderPlaced")
+        )
+
+        delay(500)
+
+        assertEquals(1, storedMessages.size)
+        assertEquals("evt-1", storedMessages[0].idempotencyKey)
+        assertEquals("order-7", storedMessages[0].aggregateId)
+        assertEquals("OrderPlaced", storedMessages[0].eventType)
+    }
+
+    @Test
+    fun `the default names still work when the configuration sets nothing`() = runBlocking {
+        val config = RabbitConsumerConfig(
+            queueName = TEST_QUEUE,
+            sourceName = "test-source"
+        )
+        consumer = RabbitConsumer(connection, mockStore, extractor, config)
+        consumer.start()
+
+        publishMessage(
+            """{"orderTotal": 42}""",
+            headers = mapOf(
+                "x-idempotency-key" to "evt-2",
+                "x-aggregate-id" to "order-8",
+                "x-event-type" to "OrderPaid"
+            )
+        )
+
+        delay(500)
+
+        assertEquals(1, storedMessages.size)
+        assertEquals("evt-2", storedMessages[0].idempotencyKey)
+        assertEquals("order-8", storedMessages[0].aggregateId)
+        assertEquals("OrderPaid", storedMessages[0].eventType)
+    }
+
+    @Test
     fun `event type extracted from x-event-type header`() = runBlocking {
         val config = RabbitConsumerConfig(
             queueName = TEST_QUEUE,

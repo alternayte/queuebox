@@ -1,9 +1,11 @@
 <Solution>
   <Folder Name="/src/">
     <Project Path="src/QueueBox.Inbox/QueueBox.Inbox.csproj" />
+    <Project Path="src/QueueBox.Inbox.DependencyInjection/QueueBox.Inbox.DependencyInjection.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/QueueBox.Inbox.IntegrationTests/QueueBox.Inbox.IntegrationTests.csproj" />
     <Project Path="tests/QueueBox.Inbox.Tests/QueueBox.Inbox.Tests.csproj" />
+    <Project Path="tests/QueueBox.Inbox.DependencyInjection.Tests/QueueBox.Inbox.DependencyInjection.Tests.csproj" />
   </Folder>
 </Solution>

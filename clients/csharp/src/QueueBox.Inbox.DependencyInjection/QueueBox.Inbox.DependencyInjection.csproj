@@ -1,0 +1,58 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>QueueBox.Inbox.DependencyInjection</RootNamespace>
+    <AssemblyName>QueueBox.Inbox.DependencyInjection</AssemblyName>
+
+    <PackageId>QueueBox.Inbox.DependencyInjection</PackageId>
+    <Version>0.1.0</Version>
+    <Description>Dependency injection registration for QueueBox.Inbox. It adds one named worker as a hosted service per call, so a host with several workers keeps every one of them running.</Description>
+    <Authors>AlterNayte</Authors>
+    <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
+    <PackageProjectUrl>https://github.com/alternayte/queuebox</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/alternayte/queuebox</RepositoryUrl>
+    <PackageTags>queuebox;inbox;outbox;transactional;dependencyinjection;hosting</PackageTags>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <!-- NuGet shows this file on the package page. Without it the page carries the description
+         and nothing else. -->
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- The README travels inside the package, so the page on NuGet shows it. -->
+    <None Include="../../README.md" Pack="true" PackagePath="/" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The test project asserts each worker's own options through an internal property. -->
+    <InternalsVisibleTo Include="QueueBox.Inbox.DependencyInjection.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../QueueBox.Inbox/QueueBox.Inbox.csproj" />
+  </ItemGroup>
+
+  <!-- The pack process turns a ProjectReference into a package dependency with a minimum-version
+       range by default. That range lets a consumer resolve a later QueueBox.Inbox than the one
+       this package was built against, which is exactly the drift the lockstep release forbids.
+       This target rewrites that range to an exact match on the version the tag names, right
+       before the nuspec file is written. `_ProjectReferencesWithVersions` is an undocumented,
+       SDK-internal item, so an SDK upgrade can rename or remove it; check this target after any
+       SDK bump. -->
+  <Target Name="PinCoreDependencyToExactVersion" AfterTargets="_GetProjectReferenceVersions" BeforeTargets="GenerateNuspec">
+    <ItemGroup>
+      <_ProjectReferencesWithVersions Condition="'%(Filename)' == 'QueueBox.Inbox'">
+        <ProjectVersion>[%(_ProjectReferencesWithVersions.ProjectVersion)]</ProjectVersion>
+      </_ProjectReferencesWithVersions>
+    </ItemGroup>
+  </Target>
+
+  <ItemGroup>
+    <!-- The core package stays free of a container and a host. A consumer with no container pays
+         nothing, because only this package carries these two references. -->
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="8.0.11" />
+    <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" Version="8.0.1" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="8.0.2" />
+  </ItemGroup>
+
+</Project>

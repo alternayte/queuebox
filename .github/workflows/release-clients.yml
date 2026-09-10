@@ -75,12 +75,41 @@ jobs:
         # A push to NuGet cannot be undone, so the whole contract runs before it.
         run: dotnet test clients/csharp/tests/QueueBox.Inbox.IntegrationTests -c Release --no-build
 
+      - name: Run the dependency injection package tests
+        run: dotnet test clients/csharp/tests/QueueBox.Inbox.DependencyInjection.Tests -c Release --no-build
+
       - name: Pack the version that the tag names
+        # Both packages ship from one tag at one version. The dependency injection package
+        # depends on the core package, and its csproj pins that dependency to an exact version
+        # match, so the same -p:Version value keeps the two locked together.
         run: |
           dotnet pack clients/csharp/src/QueueBox.Inbox \
             -c Release \
             -o artifacts \
             -p:Version=${{ steps.version.outputs.version }}
+
+          dotnet pack clients/csharp/src/QueueBox.Inbox.DependencyInjection \
+            -c Release \
+            -o artifacts \
+            -p:Version=${{ steps.version.outputs.version }}
+
+      - name: Prove the dependency injection package pins the core package exactly
+        # A lockstep claim that nothing verifies breaks quietly, and the failure would appear
+        # only after both packages are public and immutable. This step unpacks the nuspec and
+        # fails the job when the core dependency is not an exact version match for the tag.
+        run: |
+          version="${{ steps.version.outputs.version }}"
+          package="artifacts/QueueBox.Inbox.DependencyInjection.${version}.nupkg"
+          nuspec_dir="$(mktemp -d)"
+          unzip -o -q "$package" -d "$nuspec_dir"
+          nuspec_file="$(find "$nuspec_dir" -maxdepth 1 -name '*.nuspec')"
+          expected="<dependency id=\"QueueBox.Inbox\" version=\"[${version}]\""
+          if ! grep -qF "$expected" "$nuspec_file"; then
+            echo "The nuspec does not pin QueueBox.Inbox to an exact version match for ${version}." >&2
+            grep "QueueBox.Inbox" "$nuspec_file" >&2 || true
+            exit 1
+          fi
+          echo "Confirmed: the nuspec pins QueueBox.Inbox to an exact match for ${version}."
 
       - name: Ask nuget.org for a short-lived key
         # The trusted publishing policy on nuget.org names this repository and this workflow
@@ -92,9 +121,15 @@ jobs:
           user: ${{ secrets.NUGET_USER }}
 
       - name: Push to NuGet
-        # `--skip-duplicate` makes a repeated tag a no-op rather than a failure.
+        # `--skip-duplicate` makes a repeated tag a no-op rather than a failure. Both packages
+        # push from the one tag, at the one version, so the two ship together.
         run: |
           dotnet nuget push "artifacts/QueueBox.Inbox.${{ steps.version.outputs.version }}.nupkg" \
+            --api-key "${{ steps.nuget_login.outputs.NUGET_API_KEY }}" \
+            --source https://api.nuget.org/v3/index.json \
+            --skip-duplicate
+
+          dotnet nuget push "artifacts/QueueBox.Inbox.DependencyInjection.${{ steps.version.outputs.version }}.nupkg" \
             --api-key "${{ steps.nuget_login.outputs.NUGET_API_KEY }}" \
             --source https://api.nuget.org/v3/index.json \
             --skip-duplicate
@@ -105,7 +140,7 @@ jobs:
         run: |
           gh release create "${GITHUB_REF_NAME}" \
             --title "QueueBox.Inbox ${{ steps.version.outputs.version }}" \
-            --notes "The C# pull inbox client library, version ${{ steps.version.outputs.version }}. See clients/csharp/README.md." \
+            --notes "The C# pull inbox client library, version ${{ steps.version.outputs.version }}, and QueueBox.Inbox.DependencyInjection at the same version. See clients/csharp/README.md." \
             artifacts/*.nupkg
 
   typescript:

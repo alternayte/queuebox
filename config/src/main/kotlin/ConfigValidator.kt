@@ -356,37 +356,7 @@ object ConfigValidator {
 
             is SourceConfig.Kafka ->
                 // A Kafka source has the same two sources of the event type as an AMQP one: the
-                // body path and the `x-event-type` record header. The header cannot be checked at
-                // startup, so the operator declares it.
-                require(source.eventTypePath != null || source.eventTypeFromHeader) {
-                    "Source '$name' topic template '${source.topic}' uses eventType, but " +
-                        "'sources.$name.eventTypePath' is not set and " +
-                        "'sources.$name.eventTypeFromHeader' is false. The inbox relay would mark " +
-                        "every message with no event type as dead. Set " +
-                        "'sources.$name.eventTypePath', or set " +
-                        "'sources.$name.eventTypeFromHeader' to true when every producer sets the " +
-                        "'x-event-type' record header, or set a 'sources.$name.topic' template that " +
-                        "does not use eventType."
-                }
-
-            is SourceConfig.Nats ->
-                // A NATS message carries headers, so the event type has the same two sources as
-                // an AMQP or a Kafka one.
-                require(source.eventTypePath != null || source.eventTypeFromHeader) {
-                    "Source '$name' topic template '${source.topic}' uses eventType, but " +
-                        "'sources.$name.eventTypePath' is not set and " +
-                        "'sources.$name.eventTypeFromHeader' is false. The inbox relay would mark " +
-                        "every message with no event type as dead. Set " +
-                        "'sources.$name.eventTypePath', or set " +
-                        "'sources.$name.eventTypeFromHeader' to true when every publisher sets the " +
-                        "'x-event-type' message header, or set a 'sources.$name.topic' template " +
-                        "that does not use eventType."
-                }
-
-            is SourceConfig.RabbitMQ ->
-                // Fifth review gate. An AMQP source has two sources of the event type: the
-                // 'eventTypePath' in the body, and the 'x-event-type' header. A publisher that
-                // sets neither gives an empty topic, and the relay marks the message dead. The
+                // body path and the record header that `attributeHeaders.eventType` names. The
                 // header cannot be checked at startup, so the operator declares it.
                 require(source.eventTypePath != null || source.eventTypeFromHeader) {
                     "Source '$name' topic template '${source.topic}' uses eventType, but " +
@@ -394,9 +364,41 @@ object ConfigValidator {
                         "'sources.$name.eventTypeFromHeader' is false. The inbox relay would mark " +
                         "every message with no event type as dead. Set " +
                         "'sources.$name.eventTypePath', or set " +
+                        "'sources.$name.eventTypeFromHeader' to true when every producer sets the " +
+                        "'${source.attributeHeaders.eventType}' record header, or set a " +
+                        "'sources.$name.topic' template that does not use eventType."
+                }
+
+            is SourceConfig.Nats ->
+                // A NATS message carries headers, so the event type has the same two sources as
+                // an AMQP or a Kafka one: the body path and the header that
+                // `attributeHeaders.eventType` names.
+                require(source.eventTypePath != null || source.eventTypeFromHeader) {
+                    "Source '$name' topic template '${source.topic}' uses eventType, but " +
+                        "'sources.$name.eventTypePath' is not set and " +
+                        "'sources.$name.eventTypeFromHeader' is false. The inbox relay would mark " +
+                        "every message with no event type as dead. Set " +
+                        "'sources.$name.eventTypePath', or set " +
                         "'sources.$name.eventTypeFromHeader' to true when every publisher sets the " +
-                        "'x-event-type' AMQP header, or set a 'sources.$name.topic' template that " +
-                        "does not use eventType."
+                        "'${source.attributeHeaders.eventType}' message header, or set a " +
+                        "'sources.$name.topic' template that does not use eventType."
+                }
+
+            is SourceConfig.RabbitMQ ->
+                // Fifth review gate. An AMQP source has two sources of the event type: the
+                // 'eventTypePath' in the body, and the header that 'attributeHeaders.eventType'
+                // names. A publisher that sets neither gives an empty topic, and the relay marks
+                // the message dead. The header cannot be checked at startup, so the operator
+                // declares it.
+                require(source.eventTypePath != null || source.eventTypeFromHeader) {
+                    "Source '$name' topic template '${source.topic}' uses eventType, but " +
+                        "'sources.$name.eventTypePath' is not set and " +
+                        "'sources.$name.eventTypeFromHeader' is false. The inbox relay would mark " +
+                        "every message with no event type as dead. Set " +
+                        "'sources.$name.eventTypePath', or set " +
+                        "'sources.$name.eventTypeFromHeader' to true when every publisher sets the " +
+                        "'${source.attributeHeaders.eventType}' AMQP header, or set a " +
+                        "'sources.$name.topic' template that does not use eventType."
                 }
         }
     }

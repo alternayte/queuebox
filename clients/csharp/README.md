@@ -109,6 +109,102 @@ reach it could complete a message out of band.
 5. Do external work, such as an HTTP call, only where a repeat is safe. A transaction cannot
    roll back a call to another system. Deduplicate on the source and the idempotency key.
 
+## Dependency injection
+
+A second package, `QueueBox.Inbox.DependencyInjection`, registers a worker as an
+`IHostedService` and runs it for the life of the host.
+
+```
+dotnet add package QueueBox.Inbox.DependencyInjection
+```
+
+Register an `IInboxConnectionSource`, then call `AddQueueBoxInbox`:
+
+```csharp
+using Npgsql;
+using QueueBox.Inbox;
+using QueueBox.Inbox.DependencyInjection;
+
+var builder = Host.CreateApplicationBuilder(args);
+
+builder.Services.AddSingleton<IInboxConnectionSource>(
+    InboxConnections.From(NpgsqlDataSource.Create(builder.Configuration.GetConnectionString("Queuebox"))));
+
+builder.Services.AddQueueBoxInbox(
+    "orders",
+    new InboxOptions { Source = "orders" },
+    async (message, transaction, token) =>
+    {
+        await using var command = transaction.CreateCommand();
+
+        command.CommandText = "INSERT INTO orders (id, total) VALUES (@id, @total)";
+        command
+            .WithParameter("@id", message.Payload.GetProperty("id").GetString())
+            .WithParameter("@total", message.Payload.GetProperty("total").GetInt32());
+
+        await command.ExecuteNonQueryAsync(token);
+    });
+
+await builder.Build().RunAsync();
+```
+
+`AddQueueBoxInbox` registers a name, so a second call with a different name adds a second
+worker rather than replacing the first. Each worker with no `connections` argument shares the
+`IInboxConnectionSource` registered above. Pass a worker its own connection source through the
+optional `connections` parameter when its inbox lives in a different database:
+
+```csharp
+builder.Services.AddQueueBoxInbox(
+    "payments",
+    new InboxOptions { Source = "payments" },
+    handler: PaymentHandler,
+    connections: InboxConnections.From(NpgsqlDataSource.Create(paymentsConnectionString)));
+```
+
+## Entity Framework Core
+
+`QueueBox.Inbox.DependencyInjection` ships `InboxDbContextFactory`, a helper for a handler that
+writes through Entity Framework Core. Build the context on the handler's own transaction:
+
+```csharp
+builder.Services.AddQueueBoxInbox("orders", new InboxOptions { Source = "orders" }, async (message, transaction, token) =>
+{
+    await using var context = InboxDbContextFactory.CreateOn(
+        transaction,
+        connection => new OrderContext(new DbContextOptionsBuilder<OrderContext>().UseNpgsql(connection).Options));
+
+    context.Orders.Add(new Order { Id = message.Id });
+    await context.SaveChangesAsync(token);
+});
+```
+
+`CreateOn` hands the transaction's own connection to the `build` delegate, so the caller picks the
+provider, then calls `context.Database.UseTransaction(transaction)` on the context the delegate
+returns. The application write and the inbox completion then share one transaction on one
+connection, so they commit together or neither of them does.
+
+State this plainly, because it is the mistake this helper exists to prevent: Entity Framework Core
+opens its own connection by default. A handler that constructs a plain `DbContext`, or that opens
+its own transaction instead of the one the handler received, writes on a second connection. That
+write commits on its own, separately from the inbox completion. A later failure then leaves the
+application row written and the inbox row unprocessed, and QueueBox delivers the message again. A
+retry that finds the application row already there, with no memory of writing it, is a duplicate a
+reader does not expect. Always pass the handler's transaction through `InboxDbContextFactory`, and
+never construct the context another way.
+
+On Microsoft SQL Server, pass a `build` delegate that calls `UseSqlServer(connection)` instead:
+
+```csharp
+InboxDbContextFactory.CreateOn(
+    transaction,
+    connection => new OrderContext(new DbContextOptionsBuilder<OrderContext>().UseSqlServer(connection).Options));
+```
+
+`InboxDbContextFactory` itself references only `Microsoft.EntityFrameworkCore.Relational`, for
+`UseTransaction`. It carries no database provider, so a SQL Server consumer of this package never
+pulls Npgsql, and a PostgreSQL consumer never pulls `Microsoft.Data.SqlClient`. Add whichever
+provider package the `build` delegate above needs.
+
 ## Settings
 
 | Setting | Default | Meaning |
