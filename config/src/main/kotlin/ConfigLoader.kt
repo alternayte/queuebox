@@ -62,7 +62,8 @@ object ConfigLoader {
      * message prints through `EnvConfigLoader.yamlPathToEnvKey`. This source makes that one
      * convention the convention that works.
      */
-    private fun createEnvSource(env: () -> Map<String, String>) = MapPropertySource(EnvConfigLoader.loadFromEnv(env))
+    private fun createEnvSource(env: () -> Map<String, String>) =
+        MapPropertySource(EnvConfigLoader.loadNestedFromEnv(env))
 
     /**
      * Loads configuration from YAML file with optional environment variable overrides.
@@ -82,11 +83,16 @@ object ConfigLoader {
         env: () -> Map<String, String> = { System.getenv() }
     ): QueueBoxConfig {
         val externalPath = env()[CONFIG_FILE_ENV] ?: DEFAULT_EXTERNAL_PATH
-        // F-076: the packaged resource is a fallback, not an overlay. Hoplite cascades a map node
-        // key by key, so an external file that declares one destination used to inherit every
-        // destination and every source of the packaged file. A deployment then served an inbox
-        // endpoint that its own configuration never declared. An external file therefore replaces
-        // the resource. An environment variable still wins over both.
+        // The packaged resource is a fallback, not an overlay. Hoplite cascades a map node key by
+        // key, so a configuration that declares one destination used to inherit every destination
+        // and every source of the packaged file. A deployment then served an inbox endpoint that
+        // its own configuration never declared.
+        //
+        // F-076 fixed this for an external file, which replaces the resource. A deployment that
+        // configures QueueBox through the QUEUEBOX_ variables alone kept the old behaviour, and
+        // inherited the packaged `stripe` and `github` inbox endpoints, the packaged destinations
+        // and the packaged routes. So the resource now loads only when neither an external file
+        // nor a QUEUEBOX_ variable configures QueueBox, which is the local run it was written for.
         val externalFile = File(externalPath)
         val config = try {
             ConfigLoaderBuilder.default()
@@ -95,7 +101,7 @@ object ConfigLoader {
                 .apply {
                     if (externalFile.isFile) {
                         addFileSource(externalFile)
-                    } else {
+                    } else if (!EnvConfigLoader.hasEnvConfig(env)) {
                         addResourceSource("/$path", optional = optional)
                     }
                 }
