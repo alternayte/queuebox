@@ -9,6 +9,17 @@ the configuration schema and for the database schema.
 
 ## [Unreleased]
 
+## [0.2.1] — 2026-09-11
+
+This release ships the server image alone, as `v0.2.1`. No client library changed, so
+`QueueBox.Inbox`, `QueueBox.Inbox.DependencyInjection`, `@alternayte/queuebox-inbox` and the Go
+client all stay at 0.2.0.
+
+Both fixes below affect one deployment shape: a deployment that configures QueueBox with the
+`QUEUEBOX_` variables and mounts no configuration file. `docs/configuration.md` documents that
+shape, and it did not work. A deployment that mounts a configuration file is unaffected by either
+fix.
+
 ### Fixed
 
 - **A deployment that configures QueueBox through the `QUEUEBOX_` variables alone no longer
@@ -41,6 +52,12 @@ the configuration schema and for the database schema.
   `EnvConfigLoader` documented this as working, and named `QUEUEBOX_ROUTES_0_TOPIC_PATTERN` as an
   example. The example was wrong twice: the feature did not work, and a leaf name carries no
   underscore, so the variable is `QUEUEBOX_ROUTES_0_TOPICPATTERN`.
+
+- **The environment only example in `docs/configuration.md` now starts.** Its `docker run` block
+  and its Compose block declare the `stripe` source but set no `eventTypePath`. The startup
+  validator rejects that, because the default topic template reads `eventType` and every message
+  of the source would go dead. Both blocks now set it. A test carries the same variables, so a
+  later change to either block that breaks the deployment fails the build.
 
 ## [0.2.0] — 2026-09-10
 
