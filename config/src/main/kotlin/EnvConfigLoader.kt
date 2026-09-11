@@ -92,22 +92,22 @@ object EnvConfigLoader {
         val root = mutableMapOf<String, Any>()
         for ((path, value) in flat) {
             val segments = path.split(".")
-            var node = root
-            for ((position, segment) in segments.withIndex()) {
-                if (position == segments.lastIndex) {
-                    node[segment] = value
-                } else {
-                    val child = node[segment]
-                    @Suppress("UNCHECKED_CAST")
-                    node = if (child is MutableMap<*, *>) {
-                        child as MutableMap<String, Any>
-                    } else {
-                        mutableMapOf<String, Any>().also { node[segment] = it }
-                    }
-                }
-            }
+            descend(root, segments.dropLast(1))[segments.last()] = value
         }
         return collapseIndexNodes(root)
+    }
+
+    /** Walks the path, and creates a map for a segment that holds none yet. */
+    private fun descend(root: MutableMap<String, Any>, path: List<String>): MutableMap<String, Any> {
+        var node = root
+        for (segment in path) {
+            val child = node[segment]
+
+            @Suppress("UNCHECKED_CAST")
+            node = child as? MutableMap<String, Any>
+                ?: mutableMapOf<String, Any>().also { node[segment] = it }
+        }
+        return node
     }
 
     /** Replaces every node whose keys are all digits with a list, in index order. */

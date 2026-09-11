@@ -658,6 +658,7 @@ docker run -e QUEUEBOX_DATABASE_URL=jdbc:postgresql://db:5432/queuebox \
            -e QUEUEBOX_SOURCES_STRIPE_TYPE=http \
            -e QUEUEBOX_SOURCES_STRIPE_PATH=/stripe \
            -e QUEUEBOX_SOURCES_STRIPE_IDEMPOTENCYKEYPATH="$.id" \
+           -e QUEUEBOX_SOURCES_STRIPE_EVENTTYPEPATH="$.type" \
            queuebox
 ```
 
@@ -678,6 +679,7 @@ services:
       QUEUEBOX_SOURCES_STRIPE_TYPE: http
       QUEUEBOX_SOURCES_STRIPE_PATH: /stripe
       QUEUEBOX_SOURCES_STRIPE_IDEMPOTENCYKEYPATH: "$.id"
+      QUEUEBOX_SOURCES_STRIPE_EVENTTYPEPATH: "$.type"
 ```
 
 **Minimum required variables:**
