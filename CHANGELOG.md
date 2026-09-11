@@ -9,6 +9,39 @@ the configuration schema and for the database schema.
 
 ## [Unreleased]
 
+### Fixed
+
+- **A deployment that configures QueueBox through the `QUEUEBOX_` variables alone no longer
+  inherits the packaged demonstration configuration.** QueueBox packages a `queuebox.yml` in the
+  image as a fallback for a local run. It carries two demonstration inbox sources, `stripe` and
+  `github`, two destinations, and two routes. A deployment that set only the `QUEUEBOX_` variables
+  read that file as its base, and Hoplite merged it key by key, so the deployment served
+  `/inbox/stripe` and `/inbox/github` although its own configuration declared no source, and it
+  carried a route to `https://api.example.com`. QueueBox now reads the packaged file only when the
+  deployment supplies no external file **and** sets no `QUEUEBOX_` variable.
+
+  An external file already replaced the packaged file rather than merging with it. Only the
+  variable-only path was affected.
+
+  **Check this before you upgrade.** On a deployment that sets the `QUEUEBOX_` variables and
+  mounts no configuration file, request `POST /inbox/stripe` and `POST /inbox/github`. An answer
+  other than 404 means the deployment served an inherited endpoint, and this upgrade closes it.
+  A deployment that relied on an inherited source, destination or route must now declare it. A
+  deployment that mounts a configuration file, as every `docker-compose.yml` in this repository
+  does, is unaffected.
+
+- **A route now binds from the `QUEUEBOX_` variables.** `routes` is the one list in the
+  configuration. QueueBox passed every variable to Hoplite as a flat path, so
+  `QUEUEBOX_ROUTES_0_TOPICPATTERN` arrived as `routes.0.topicpattern`, which reads as a map keyed
+  by `0`. Hoplite builds no list from a map, and the start failed with `'routes': Required a List
+  but a Map cannot be converted to a collection`. A deployment could therefore declare no route
+  through the variables, and had to supply a configuration file. QueueBox now builds a real list
+  from the indices, in index order.
+
+  `EnvConfigLoader` documented this as working, and named `QUEUEBOX_ROUTES_0_TOPIC_PATTERN` as an
+  example. The example was wrong twice: the feature did not work, and a leaf name carries no
+  underscore, so the variable is `QUEUEBOX_ROUTES_0_TOPICPATTERN`.
+
 ## [0.2.0] — 2026-09-10
 
 Four tags publish together at this release: `v0.2.0`, which ships the server image alone, and

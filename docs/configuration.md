@@ -11,10 +11,15 @@ QueueBox reads the configuration from three sources. The first source that holds
 3. The YAML resource packaged in the image.
 
 Source 2 and source 3 are alternatives, not layers. An external file **replaces** the packaged
-resource. The packaged resource is the fallback for a deployment that supplies no external file.
-An external file must therefore be a **complete** configuration. A file that declares one
+resource. An external file must therefore be a **complete** configuration. A file that declares one
 destination gets that destination and no other. It does not inherit a destination, a source or a
 route from the packaged resource. See finding F-076 in `hardening-doc.md`.
+
+The packaged resource is the fallback for a run that configures QueueBox in no other way. QueueBox
+reads it only when the deployment supplies no external file **and** sets no `QUEUEBOX_` variable.
+A deployment that configures QueueBox through the variables alone therefore inherits no source, no
+destination and no route from it, and serves only the endpoints that its own configuration
+declares.
 
 An environment variable still wins over the file that QueueBox reads.
 
@@ -653,6 +658,7 @@ docker run -e QUEUEBOX_DATABASE_URL=jdbc:postgresql://db:5432/queuebox \
            -e QUEUEBOX_SOURCES_STRIPE_TYPE=http \
            -e QUEUEBOX_SOURCES_STRIPE_PATH=/stripe \
            -e QUEUEBOX_SOURCES_STRIPE_IDEMPOTENCYKEYPATH="$.id" \
+           -e QUEUEBOX_SOURCES_STRIPE_EVENTTYPEPATH="$.type" \
            queuebox
 ```
 
@@ -673,6 +679,7 @@ services:
       QUEUEBOX_SOURCES_STRIPE_TYPE: http
       QUEUEBOX_SOURCES_STRIPE_PATH: /stripe
       QUEUEBOX_SOURCES_STRIPE_IDEMPOTENCYKEYPATH: "$.id"
+      QUEUEBOX_SOURCES_STRIPE_EVENTTYPEPATH: "$.type"
 ```
 
 **Minimum required variables:**

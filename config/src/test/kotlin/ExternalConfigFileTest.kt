@@ -126,4 +126,36 @@ class ExternalConfigFileTest {
         assertEquals(setOf("only-mine"), config.destinations.keys)
         assertEquals(setOf("only-my-source"), config.sources.keys)
     }
+
+    /**
+     * A deployment that configures QueueBox through the QUEUEBOX_ variables alone must inherit
+     * nothing from the packaged resource.
+     *
+     * F-076 stopped an external file from merging with the packaged resource, but the environment
+     * only path kept the old behaviour. Such a deployment inherited the packaged `stripe` and
+     * `github` sources, so it served two HTTP inbox endpoints that its own configuration never
+     * declared, and it inherited a route to `https://api.example.com`.
+     */
+    @Test
+    fun `an environment only deployment inherits nothing from the packaged resource`() {
+        val config = ConfigLoader.load(
+            env = {
+                mapOf(
+                    "QUEUEBOX_DATABASE_URL" to "jdbc:postgresql://db:5432/app",
+                    "QUEUEBOX_DATABASE_USERNAME" to "app",
+                    "QUEUEBOX_DATABASE_PASSWORD" to "secret",
+                    "QUEUEBOX_SERVER_HTTPPORT" to "9099"
+                )
+            }
+        )
+
+        // The environment really reached the configuration, so an empty result below cannot come
+        // from a load that failed to read anything.
+        assertEquals(9099, config.server.httpPort)
+        assertEquals("jdbc:postgresql://db:5432/app", config.database.url)
+
+        assertEquals(emptySet(), config.sources.keys, "The packaged sources must not appear")
+        assertEquals(emptySet(), config.destinations.keys, "The packaged destinations must not appear")
+        assertEquals(emptyList(), config.routes, "The packaged routes must not appear")
+    }
 }
