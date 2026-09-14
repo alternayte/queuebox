@@ -9,7 +9,7 @@ COPY . .
 RUN gradle :app:installDist --no-daemon
 
 # Runtime stage
-FROM eclipse-temurin@sha256:974b08960c5d96694c780e65b2d5705268ab1e1ca1a0dd0caf4ba6c3fe34d699
+FROM eclipse-temurin@sha256:dcf835e52330939b6c9f90ecab8aafcbcaa8fbf48423db44de884cf978c10144
 # eclipse-temurin:21-jre-alpine
 WORKDIR /app
 
