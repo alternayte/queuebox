@@ -46,8 +46,8 @@ lz4Floor = "1.8.1"
 plexusUtilsFloor = "3.6.1"
 
 # Testing
-testcontainers = "1.20.4"
-mockk = "1.13.13"
+testcontainers = "1.21.4"
+mockk = "1.14.11"
 
 [libraries]
 kotlinGradlePlugin = { module = "org.jetbrains.kotlin:kotlin-gradle-plugin", version.ref = "kotlin" }
