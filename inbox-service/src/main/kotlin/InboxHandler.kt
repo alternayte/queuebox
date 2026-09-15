@@ -1,6 +1,5 @@
 package org.nxtspec
 
-import kotlinx.datetime.Clock
 import kotlinx.serialization.json.JsonElement
 import org.nxtspec.logging.logger
 import org.nxtspec.metrics.InboxRejectionReason
@@ -10,6 +9,7 @@ import org.nxtspec.transform.InboxTransformContext
 import org.nxtspec.transform.InboxTransformPipeline
 import org.nxtspec.transform.InboxTransformResult
 import java.util.UUID
+import kotlin.time.Clock
 
 sealed class InboxHandlerResult {
     data class Accepted(val messageId: UUID) : InboxHandlerResult()

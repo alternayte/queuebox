@@ -1,10 +1,10 @@
 package org.nxtspec
 
-import kotlinx.datetime.Clock
-import kotlinx.datetime.Instant
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonElement
 import java.util.UUID
+import kotlin.time.Clock
+import kotlin.time.Instant
 
 @Serializable
 data class InboxMessage(

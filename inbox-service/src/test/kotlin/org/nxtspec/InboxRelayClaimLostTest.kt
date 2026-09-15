@@ -1,7 +1,6 @@
 package org.nxtspec
 
 import kotlinx.coroutines.runBlocking
-import kotlinx.datetime.Instant
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import org.nxtspec.metrics.MetricsCollectorInterface
@@ -12,6 +11,7 @@ import java.util.UUID
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.time.Duration
+import kotlin.time.Instant
 
 /**
  * Seventh review gate. The relay must observe a lost claim and must not forward the message.

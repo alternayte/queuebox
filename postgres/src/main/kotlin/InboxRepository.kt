@@ -1,22 +1,23 @@
 package org.nxtspec
 
-import kotlinx.datetime.Clock
-import kotlinx.datetime.Instant
-import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
-import org.jetbrains.exposed.sql.SqlExpressionBuilder.greater
-import org.jetbrains.exposed.sql.SqlExpressionBuilder.inList
-import org.jetbrains.exposed.sql.SqlExpressionBuilder.isNull
-import org.jetbrains.exposed.sql.SqlExpressionBuilder.less
-import org.jetbrains.exposed.sql.SqlExpressionBuilder.lessEq
-import org.jetbrains.exposed.sql.and
-import org.jetbrains.exposed.sql.deleteWhere
-import org.jetbrains.exposed.sql.insertIgnore
-import org.jetbrains.exposed.sql.or
-import org.jetbrains.exposed.sql.selectAll
-import org.jetbrains.exposed.sql.update
+import org.jetbrains.exposed.v1.core.and
+import org.jetbrains.exposed.v1.core.eq
+import org.jetbrains.exposed.v1.core.greater
+import org.jetbrains.exposed.v1.core.inList
+import org.jetbrains.exposed.v1.core.isNull
+import org.jetbrains.exposed.v1.core.less
+import org.jetbrains.exposed.v1.core.lessEq
+import org.jetbrains.exposed.v1.core.or
+import org.jetbrains.exposed.v1.jdbc.deleteWhere
+import org.jetbrains.exposed.v1.jdbc.insertIgnore
+import org.jetbrains.exposed.v1.jdbc.select
+import org.jetbrains.exposed.v1.jdbc.selectAll
+import org.jetbrains.exposed.v1.jdbc.update
 import org.nxtspec.repository.InboxRepositoryInterface
 import java.util.UUID
+import kotlin.time.Clock
 import kotlin.time.Duration
+import kotlin.time.Instant
 
 class InboxRepository(
     private val columnMapping: InboxColumnMapping = InboxColumnMapping(),
@@ -72,7 +73,7 @@ class InboxRepository(
     override suspend fun claimPending(batchSize: Int, leaseMs: Long): List<InboxMessage> = joinOrNewTransaction {
         require(batchSize > 0 && leaseMs in 1..Int.MAX_VALUE.toLong())
         val t = q(tableName)
-        val conn0 = org.jetbrains.exposed.sql.transactions.TransactionManager.current()
+        val conn0 = org.jetbrains.exposed.v1.jdbc.transactions.TransactionManager.current()
             .connection.connection as java.sql.Connection
 
         // Serialise the claim against every other replica. The lock is released on commit.
@@ -122,7 +123,7 @@ class InboxRepository(
             java.time.Instant.ofEpochSecond(now.epochSeconds, now.nanosecondsOfSecond.toLong())
         )
 
-        val conn = org.jetbrains.exposed.sql.transactions.TransactionManager.current()
+        val conn = org.jetbrains.exposed.v1.jdbc.transactions.TransactionManager.current()
             .connection.connection as java.sql.Connection
         val claimed = conn.prepareStatement(sql).use { stmt ->
             stmt.setTimestamp(1, nowTimestamp)
@@ -180,10 +181,10 @@ class InboxRepository(
         } > 0
     }
 
-    private fun claimFence(id: UUID, claimToken: UUID?): org.jetbrains.exposed.sql.Op<Boolean> {
+    private fun claimFence(id: UUID, claimToken: UUID?): org.jetbrains.exposed.v1.core.Op<Boolean> {
         val base = (table.id eq id) and (table.state eq "processing")
         return if (claimToken == null) {
-            org.jetbrains.exposed.sql.Op.FALSE
+            org.jetbrains.exposed.v1.core.Op.FALSE
         } else {
             base and (table.claimToken eq claimToken) and (table.leaseExpiresAt greater databaseNow)
         }
@@ -199,16 +200,16 @@ class InboxRepository(
         }
     }
 
-    private val databaseNow = object : org.jetbrains.exposed.sql.Expression<Instant>() {
-        override fun toQueryBuilder(queryBuilder: org.jetbrains.exposed.sql.QueryBuilder) {
+    private val databaseNow = object : org.jetbrains.exposed.v1.core.Expression<Instant>() {
+        override fun toQueryBuilder(queryBuilder: org.jetbrains.exposed.v1.core.QueryBuilder) {
             queryBuilder.append("clock_timestamp()")
         }
     }
 
     override suspend fun renewClaim(id: UUID, claimToken: UUID?, leaseMs: Long): Boolean = joinOrNewTransaction {
         require(leaseMs > 0)
-        val expires = object : org.jetbrains.exposed.sql.Expression<Instant>() {
-            override fun toQueryBuilder(queryBuilder: org.jetbrains.exposed.sql.QueryBuilder) {
+        val expires = object : org.jetbrains.exposed.v1.core.Expression<Instant>() {
+            override fun toQueryBuilder(queryBuilder: org.jetbrains.exposed.v1.core.QueryBuilder) {
                 queryBuilder.append("clock_timestamp() + INTERVAL '1 millisecond' * $leaseMs")
             }
         }
@@ -228,7 +229,7 @@ class InboxRepository(
             FROM ${q(tableName)}
             WHERE ${q(columnMapping.state)} = 'pending'
         """.trimIndent()
-        val conn = org.jetbrains.exposed.sql.transactions.TransactionManager.current()
+        val conn = org.jetbrains.exposed.v1.jdbc.transactions.TransactionManager.current()
             .connection.connection as java.sql.Connection
         conn.createStatement().use { stmt ->
             stmt.executeQuery(sql).use { rows ->
@@ -267,10 +268,10 @@ class InboxRepository(
         payload = kotlinx.serialization.json.Json.parseToJsonElement(getString(columnMapping.payload)),
         state = stringToMessageState(getString(columnMapping.state)),
         createdAt = getTimestamp(columnMapping.createdAt).toInstant().let {
-            kotlinx.datetime.Instant.fromEpochSeconds(it.epochSecond, it.nano)
+            kotlin.time.Instant.fromEpochSeconds(it.epochSecond, it.nano)
         },
         processedAt = getTimestamp(columnMapping.processedAt)?.toInstant()?.let {
-            kotlinx.datetime.Instant.fromEpochSeconds(it.epochSecond, it.nano)
+            kotlin.time.Instant.fromEpochSeconds(it.epochSecond, it.nano)
         },
         correlationId = getString(columnMapping.correlationId),
         claimToken = getString(columnMapping.claimToken)?.let(UUID::fromString),
@@ -278,7 +279,7 @@ class InboxRepository(
             Instant.fromEpochSeconds(it.epochSecond, it.nano)
         },
         claimedAt = getTimestamp(columnMapping.claimedAt)?.toInstant()?.let {
-            kotlinx.datetime.Instant.fromEpochSeconds(it.epochSecond, it.nano)
+            kotlin.time.Instant.fromEpochSeconds(it.epochSecond, it.nano)
         }
     )
 

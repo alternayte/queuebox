@@ -1,7 +1,7 @@
 package org.nxtspec
 
 import kotlinx.coroutines.test.runTest
-import org.jetbrains.exposed.sql.transactions.transaction
+import org.jetbrains.exposed.v1.jdbc.transactions.transaction
 import org.junit.jupiter.api.Test
 import org.testcontainers.containers.MSSQLServerContainer
 import org.testcontainers.containers.wait.strategy.Wait

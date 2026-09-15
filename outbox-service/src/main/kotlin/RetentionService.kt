@@ -1,12 +1,12 @@
 package org.nxtspec
 
 import kotlinx.coroutines.*
-import kotlinx.datetime.Clock
 import org.nxtspec.logging.logger
 import org.nxtspec.metrics.MetricsCollectorInterface
 import org.nxtspec.repository.InboxRepositoryInterface
 import org.nxtspec.repository.OutboxRepositoryInterface
 import java.util.concurrent.atomic.AtomicBoolean
+import kotlin.time.Clock
 
 /**
  * Service that handles retention cleanup for outbox and inbox tables.

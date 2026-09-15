@@ -1,10 +1,10 @@
 package org.nxtspec
 
 import kotlinx.coroutines.runBlocking
-import kotlinx.datetime.Clock
 import org.junit.jupiter.api.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
+import kotlin.time.Clock
 import kotlin.time.Duration.Companion.minutes
 
 /**

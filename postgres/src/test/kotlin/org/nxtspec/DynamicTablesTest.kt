@@ -2,10 +2,11 @@ package org.nxtspec
 
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
-import org.jetbrains.exposed.sql.SchemaUtils
-import org.jetbrains.exposed.sql.insert
-import org.jetbrains.exposed.sql.selectAll
-import org.jetbrains.exposed.sql.transactions.transaction
+import org.jetbrains.exposed.v1.core.eq
+import org.jetbrains.exposed.v1.jdbc.SchemaUtils
+import org.jetbrains.exposed.v1.jdbc.insert
+import org.jetbrains.exposed.v1.jdbc.selectAll
+import org.jetbrains.exposed.v1.jdbc.transactions.transaction
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Test
 import java.util.UUID
@@ -34,7 +35,7 @@ class DynamicTablesTest : PostgresTestBase() {
 
         // Verify we can insert and query data
         val id = UUID.randomUUID()
-        val now = kotlinx.datetime.Clock.System.now()
+        val now = kotlin.time.Clock.System.now()
 
         transaction {
             table.insert {
@@ -82,7 +83,7 @@ class DynamicTablesTest : PostgresTestBase() {
         }
 
         val id = UUID.randomUUID()
-        val now = kotlinx.datetime.Clock.System.now()
+        val now = kotlin.time.Clock.System.now()
 
         transaction {
             table.insert {
@@ -118,7 +119,7 @@ class DynamicTablesTest : PostgresTestBase() {
         }
 
         val id = UUID.randomUUID()
-        val now = kotlinx.datetime.Clock.System.now()
+        val now = kotlin.time.Clock.System.now()
 
         // Test insert with all columns including nullable key
         transaction {
@@ -156,7 +157,7 @@ class DynamicTablesTest : PostgresTestBase() {
         }
 
         val id = UUID.randomUUID()
-        val now = kotlinx.datetime.Clock.System.now()
+        val now = kotlin.time.Clock.System.now()
 
         transaction {
             table.insert {
@@ -201,7 +202,7 @@ class DynamicTablesTest : PostgresTestBase() {
         }
 
         val id = UUID.randomUUID()
-        val now = kotlinx.datetime.Clock.System.now()
+        val now = kotlin.time.Clock.System.now()
 
         transaction {
             table.insert {
@@ -234,7 +235,7 @@ class DynamicTablesTest : PostgresTestBase() {
             SchemaUtils.create(table)
         }
 
-        val now = kotlinx.datetime.Clock.System.now()
+        val now = kotlin.time.Clock.System.now()
 
         // Insert first message
         transaction {
@@ -306,7 +307,7 @@ class DynamicTablesTest : PostgresTestBase() {
 
         // Insert with default state and attempt values
         val id = UUID.randomUUID()
-        val now = kotlinx.datetime.Clock.System.now()
+        val now = kotlin.time.Clock.System.now()
 
         transaction {
             table.insert {
@@ -338,7 +339,7 @@ class DynamicTablesTest : PostgresTestBase() {
         }
 
         val id = UUID.randomUUID()
-        val now = kotlinx.datetime.Clock.System.now()
+        val now = kotlin.time.Clock.System.now()
 
         transaction {
             table.insert {

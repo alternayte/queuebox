@@ -8,7 +8,6 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
-import kotlinx.datetime.Clock
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
@@ -32,6 +31,7 @@ import org.nxtspec.transform.InboxTransformResult
 import java.time.Duration
 import java.util.Properties
 import java.util.UUID
+import kotlin.time.Clock
 
 data class KafkaConsumerConfig(
     val sourceName: String,

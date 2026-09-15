@@ -1,9 +1,9 @@
 package org.nxtspec.repository
 
-import kotlinx.datetime.Instant
 import kotlinx.serialization.Serializable
 import org.nxtspec.UUIDSerializer
 import java.util.UUID
+import kotlin.time.Instant
 
 /**
  * Selects the rows that a replay moves back to state 'pending'. See F-096.

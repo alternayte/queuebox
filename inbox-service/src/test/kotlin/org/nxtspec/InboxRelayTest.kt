@@ -1,7 +1,6 @@
 package org.nxtspec
 
 import kotlinx.coroutines.runBlocking
-import kotlinx.datetime.Instant
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import org.nxtspec.metrics.MetricsCollectorInterface
@@ -13,6 +12,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 import kotlin.time.Duration
+import kotlin.time.Instant
 
 /**
  * Covers F-002. The relay moves a stored inbox message into the outbox table with a fixed

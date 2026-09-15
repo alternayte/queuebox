@@ -9,7 +9,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.supervisorScope
-import kotlinx.datetime.Clock
 import org.nxtspec.logging.CORRELATION_ID_HEADER
 import org.nxtspec.logging.LogKeys
 import org.nxtspec.logging.logger
@@ -20,6 +19,7 @@ import org.nxtspec.repository.OutboxRepositoryInterface
 import org.nxtspec.repository.TransactionRunner
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
+import kotlin.time.Clock
 import kotlin.time.Duration.Companion.milliseconds
 
 /**

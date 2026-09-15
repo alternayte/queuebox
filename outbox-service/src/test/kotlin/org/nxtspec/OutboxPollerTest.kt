@@ -3,7 +3,6 @@ package org.nxtspec
 import io.mockk.*
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
-import kotlinx.datetime.Clock
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import org.nxtspec.metrics.MetricsCollectorInterface
@@ -14,6 +13,7 @@ import java.util.UUID
 import kotlin.test.Test
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
+import kotlin.time.Clock
 
 class OutboxPollerTest {
 

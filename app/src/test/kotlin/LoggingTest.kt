@@ -9,7 +9,6 @@ import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
-import kotlinx.datetime.Clock
 import kotlinx.serialization.json.JsonObject
 import org.nxtspec.Destination
 import org.nxtspec.MessageRouter
@@ -26,6 +25,7 @@ import java.util.UUID
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertTrue
+import kotlin.time.Clock
 
 /**
  * Covers F-046. QueueBox logs through SLF4J, and a failed publish names the message.

@@ -1,35 +1,36 @@
 package org.nxtspec
 
-import kotlinx.datetime.Clock
-import kotlinx.datetime.Instant
-import kotlinx.datetime.toKotlinInstant
 import kotlinx.serialization.builtins.MapSerializer
 import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.json.Json
-import org.jetbrains.exposed.sql.ResultRow
-import org.jetbrains.exposed.sql.SortOrder
-import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
-import org.jetbrains.exposed.sql.SqlExpressionBuilder.greater
-import org.jetbrains.exposed.sql.SqlExpressionBuilder.inList
-import org.jetbrains.exposed.sql.SqlExpressionBuilder.isNull
-import org.jetbrains.exposed.sql.SqlExpressionBuilder.less
-import org.jetbrains.exposed.sql.SqlExpressionBuilder.lessEq
-import org.jetbrains.exposed.sql.SqlExpressionBuilder.notInList
-import org.jetbrains.exposed.sql.SqlExpressionBuilder.plus
-import org.jetbrains.exposed.sql.and
-import org.jetbrains.exposed.sql.deleteWhere
-import org.jetbrains.exposed.sql.insert
-import org.jetbrains.exposed.sql.or
-import org.jetbrains.exposed.sql.selectAll
-import org.jetbrains.exposed.sql.transactions.TransactionManager
-import org.jetbrains.exposed.sql.update
+import org.jetbrains.exposed.v1.core.ResultRow
+import org.jetbrains.exposed.v1.core.SortOrder
+import org.jetbrains.exposed.v1.core.and
+import org.jetbrains.exposed.v1.core.eq
+import org.jetbrains.exposed.v1.core.greater
+import org.jetbrains.exposed.v1.core.inList
+import org.jetbrains.exposed.v1.core.isNull
+import org.jetbrains.exposed.v1.core.less
+import org.jetbrains.exposed.v1.core.lessEq
+import org.jetbrains.exposed.v1.core.notInList
+import org.jetbrains.exposed.v1.core.or
+import org.jetbrains.exposed.v1.core.plus
+import org.jetbrains.exposed.v1.jdbc.deleteWhere
+import org.jetbrains.exposed.v1.jdbc.insert
+import org.jetbrains.exposed.v1.jdbc.select
+import org.jetbrains.exposed.v1.jdbc.selectAll
+import org.jetbrains.exposed.v1.jdbc.transactions.TransactionManager
+import org.jetbrains.exposed.v1.jdbc.update
 import org.nxtspec.repository.OutboxRepositoryInterface
 import org.nxtspec.repository.ReplayFilter
 import java.sql.ResultSet
 import java.sql.Timestamp
 import java.util.UUID
+import kotlin.time.Clock
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
+import kotlin.time.Instant
+import kotlin.time.toKotlinInstant
 
 /**
  * SQL Server implementation of the outbox repository.
@@ -156,25 +157,25 @@ class SqlServerOutboxRepository(
         } > 0
     }
 
-    private fun claimFence(id: UUID, claimToken: UUID?): org.jetbrains.exposed.sql.Op<Boolean> {
+    private fun claimFence(id: UUID, claimToken: UUID?): org.jetbrains.exposed.v1.core.Op<Boolean> {
         val base = (table.id eq id) and (table.state eq "processing")
         return if (claimToken == null) {
-            org.jetbrains.exposed.sql.Op.FALSE
+            org.jetbrains.exposed.v1.core.Op.FALSE
         } else {
             base and (table.claimToken eq claimToken) and (table.leaseExpiresAt greater databaseNow)
         }
     }
 
-    private val databaseNow = object : org.jetbrains.exposed.sql.Expression<Instant>() {
-        override fun toQueryBuilder(queryBuilder: org.jetbrains.exposed.sql.QueryBuilder) {
+    private val databaseNow = object : org.jetbrains.exposed.v1.core.Expression<Instant>() {
+        override fun toQueryBuilder(queryBuilder: org.jetbrains.exposed.v1.core.QueryBuilder) {
             queryBuilder.append("SYSUTCDATETIME()")
         }
     }
 
     override suspend fun renewClaim(id: UUID, claimToken: UUID?, leaseMs: Long): Boolean = joinOrNewTransaction {
         require(leaseMs > 0)
-        val expires = object : org.jetbrains.exposed.sql.Expression<Instant>() {
-            override fun toQueryBuilder(queryBuilder: org.jetbrains.exposed.sql.QueryBuilder) {
+        val expires = object : org.jetbrains.exposed.v1.core.Expression<Instant>() {
+            override fun toQueryBuilder(queryBuilder: org.jetbrains.exposed.v1.core.QueryBuilder) {
                 queryBuilder.append("DATEADD(millisecond, $leaseMs, SYSUTCDATETIME())")
             }
         }
@@ -189,7 +190,7 @@ class SqlServerOutboxRepository(
      * deadline is measured against its own clock and the nearer of the two wins.
      */
     override suspend fun nextWakeDelayMs(maxWaitMs: Long): Long = joinOrNewTransaction {
-        val conn = org.jetbrains.exposed.sql.transactions.TransactionManager.current()
+        val conn = org.jetbrains.exposed.v1.jdbc.transactions.TransactionManager.current()
             .connection.connection as java.sql.Connection
         minOf(nextScheduleDelayMs(conn, maxWaitMs), nextLeaseDelayMs(conn, maxWaitMs))
             .coerceIn(1, maxWaitMs)
@@ -258,7 +259,7 @@ class SqlServerOutboxRepository(
             FROM ${quoteSqlServerIdentifier(tableName)}
             WHERE ${quoteSqlServerIdentifier(columnMapping.state)} = 'pending'
         """.trimIndent()
-        val conn = org.jetbrains.exposed.sql.transactions.TransactionManager.current()
+        val conn = org.jetbrains.exposed.v1.jdbc.transactions.TransactionManager.current()
             .connection.connection as java.sql.Connection
         conn.prepareStatement(sql).use { stmt ->
             stmt.setTimestamp(1, nowTimestamp)

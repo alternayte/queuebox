@@ -10,8 +10,8 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
-import org.jetbrains.exposed.sql.selectAll
-import org.jetbrains.exposed.sql.transactions.transaction
+import org.jetbrains.exposed.v1.jdbc.selectAll
+import org.jetbrains.exposed.v1.jdbc.transactions.transaction
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Test
 import org.nxtspec.Destination
@@ -193,8 +193,7 @@ class E2EInboxRelayTest : E2ETestBase() {
                 override suspend fun countByState(state: String): Long = 0
                 override suspend fun oldestPendingAgeSeconds(): Double = 0.0
                 override suspend fun reclaimStale(olderThan: kotlin.time.Duration): Int = 0
-                override suspend fun deleteOlderThan(state: String, cutoff: kotlinx.datetime.Instant, limit: Int): Int =
-                    0
+                override suspend fun deleteOlderThan(state: String, cutoff: kotlin.time.Instant, limit: Int): Int = 0
                 override suspend fun deleteExceptMostRecent(state: String, keepCount: Int, limit: Int): Int = 0
                 override suspend fun replay(filter: org.nxtspec.repository.ReplayFilter): Long = 0L
                 override suspend fun distinctTopics(): List<String> = emptyList()
@@ -223,7 +222,7 @@ class E2EInboxRelayTest : E2ETestBase() {
         assertEquals("processing", getInboxMessage("stripe", "evt_fail_1")!!.state)
 
         // The F-006 reclaim returns it to 'pending' after the visibility timeout.
-        org.jetbrains.exposed.sql.transactions.transaction {
+        org.jetbrains.exposed.v1.jdbc.transactions.transaction {
             exec(
                 "UPDATE inbox SET lease_expires_at = clock_timestamp() - INTERVAL '1 second' WHERE state = 'processing'"
             )
