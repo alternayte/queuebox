@@ -9,6 +9,20 @@ the configuration schema and for the database schema.
 
 ## [Unreleased]
 
+## [0.3.1] — 2026-09-15
+
+This release ships the server image alone, as `v0.3.1`. No client library changed, so
+`QueueBox.Inbox`, `QueueBox.Inbox.DependencyInjection`, `@alternayte/queuebox-inbox` and the Go
+client all stay at 0.3.0.
+
+### Fixed
+
+- **The image reports its release version.** The image build had no access to the Git tag, so the
+  `queuebox_info` metric of every published image carried `version="0.0.0-SNAPSHOT"`, including
+  0.2.1 and 0.3.0. The release now passes the tag version into the image build, and the release
+  workflow checks the pushed image before it publishes the GitHub release. The code in the image
+  is otherwise identical to 0.3.0.
+
 ## [0.3.0] — 2026-09-15
 
 Four tags publish together at this release: `v0.3.0`, which ships the server image, and
@@ -419,7 +433,8 @@ release exists.
   cannot push a credential into a log.
 - The admin surface is off by default.
 
-[Unreleased]: https://github.com/AlterNayte/queuebox/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/AlterNayte/queuebox/compare/v0.3.1...HEAD
+[0.3.1]: https://github.com/AlterNayte/queuebox/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/AlterNayte/queuebox/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/AlterNayte/queuebox/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/AlterNayte/queuebox/compare/v0.1.0...v0.2.0
