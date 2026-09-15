@@ -380,4 +380,19 @@ class InboxRepositoryTest : PostgresTestBase() {
 
         assertEquals(0.0, repository.oldestPendingAgeSeconds())
     }
+
+    @Test
+    fun `a claimed message carries the stored headers`() = runBlocking {
+        val message = InboxMessage(
+            source = "stripe",
+            idempotencyKey = "evt_headers",
+            payload = JsonObject(emptyMap()),
+            headers = mapOf("x-tenant" to "acme", "X-Mixed-Case" to "Value", "x-json" to "{\"a\":1}")
+        )
+        repository.store(message)
+
+        val claimed = repository.claimPending(10).single()
+
+        assertEquals(message.headers, claimed.headers)
+    }
 }

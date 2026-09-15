@@ -297,4 +297,38 @@ class KafkaInboxConsumerTest {
             consumer.stop()
         }
     }
+
+    @Test
+    fun `a stored record carries its headers and a filtered record is skipped`() = runBlocking {
+        val topic = "orders-${UUID.randomUUID()}"
+        send(topic, "k", """{"id":"filtered","type":"t"}""", mapOf("x-test" to "1"))
+        producer().use { client ->
+            val record = ProducerRecord(topic, "k", """{"id":"kept","type":"t"}""".toByteArray())
+            record.headers().add(RecordHeader("x-tenant", "acme".toByteArray()))
+            record.headers().add(RecordHeader("x-raw", byteArrayOf(0xFF.toByte())))
+            client.send(record).get()
+        }
+
+        val stored = ConcurrentHashMap<String, InboxMessage>()
+        val consumer = KafkaInboxConsumer(
+            storeMessage = { message ->
+                stored[message.idempotencyKey] = message
+                InboxResult.Stored
+            },
+            extractor = IdempotencyExtractor(),
+            config = consumerConfig(topic, "group-${UUID.randomUUID()}").copy(
+                filter = HeaderFilterConfig(exclude = listOf(HeaderRule("x-test", exists = true)))
+            )
+        )
+
+        try {
+            consumer.start()
+            withTimeout(60000) { while (stored.isEmpty()) delay(100) }
+
+            assertEquals(setOf("kept"), stored.keys)
+            assertEquals(mapOf("x-tenant" to "acme", "x-raw" to "base64:/w=="), stored.getValue("kept").headers)
+        } finally {
+            consumer.stop()
+        }
+    }
 }

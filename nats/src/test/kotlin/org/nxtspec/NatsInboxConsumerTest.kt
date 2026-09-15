@@ -317,4 +317,34 @@ class NatsInboxConsumerTest {
             consumer.stop()
         }
     }
+
+    @Test
+    fun `a stored message carries its headers and a filtered message is acknowledged and not stored`() = runBlocking {
+        val prefix = "orders${UUID.randomUUID().toString().take(8)}"
+        val stream = createStream(prefix)
+        publish("$prefix.created", """{"id":"filtered","type":"t"}""", mapOf("x-tenant" to "other"))
+        publish("$prefix.created", """{"id":"kept","type":"t"}""", mapOf("x-tenant" to "acme"))
+
+        val stored = ConcurrentHashMap<String, InboxMessage>()
+        val consumer = NatsInboxConsumer(
+            storeMessage = { message ->
+                stored[message.idempotencyKey] = message
+                InboxResult.Stored
+            },
+            extractor = IdempotencyExtractor(),
+            config = consumerConfig(stream, "$prefix.>").copy(
+                filter = HeaderFilterConfig(require = listOf(HeaderRule("x-tenant", equals = "acme")))
+            )
+        )
+
+        try {
+            consumer.start()
+            withTimeout(60000) { while (stored.isEmpty()) delay(100) }
+
+            assertEquals(setOf("kept"), stored.keys)
+            assertEquals(mapOf("x-tenant" to "acme"), stored.getValue("kept").headers)
+        } finally {
+            consumer.stop()
+        }
+    }
 }

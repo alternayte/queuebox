@@ -7,6 +7,7 @@ import io.mockk.mockk
 import io.mockk.verify
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.jupiter.api.AfterEach
@@ -626,5 +627,26 @@ class RabbitConsumerIntegrationTest {
                 channel.basicNack(response.envelope.deliveryTag, false, false)
             }
         }
+    }
+
+    @Test
+    fun `a stored delivery carries its headers and a filtered delivery is acknowledged and not stored`() = runBlocking {
+        val config = RabbitConsumerConfig(
+            queueName = TEST_QUEUE,
+            sourceName = "test-source",
+            idempotencyKeyPath = "$.id",
+            filter = HeaderFilterConfig(require = listOf(HeaderRule("x-tenant", equals = "acme")))
+        )
+        consumer = RabbitConsumer(connection, mockStore, extractor, config)
+        consumer.start()
+
+        publishMessage("""{"id": "filtered"}""", headers = mapOf("x-tenant" to "other"))
+        publishMessage("""{"id": "kept"}""", headers = mapOf("x-tenant" to "acme", "x-count" to 3))
+
+        withTimeout(10000) { while (storedMessages.isEmpty()) delay(100) }
+        delay(500)
+
+        assertEquals(listOf("kept"), storedMessages.map { it.idempotencyKey })
+        assertEquals(mapOf("x-tenant" to "acme", "x-count" to "3"), storedMessages.single().headers)
     }
 }
