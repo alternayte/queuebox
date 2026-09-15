@@ -9,6 +9,20 @@ the configuration schema and for the database schema.
 
 ## [Unreleased]
 
+## [0.3.2] — 2026-09-15
+
+This release ships the server image alone, as `v0.3.2`. No client library changed, so all four
+client packages stay at 0.3.0.
+
+### Fixed
+
+- **A RabbitMQ destination publishes persistent messages.** The publisher set no AMQP delivery
+  mode, so the broker treated every message as transient, and a broker restart lost every
+  delivered message that still waited in a durable queue. The publisher now sets delivery mode 2
+  by default. The new destination field `deliveryMode` accepts `persistent`, the default, or
+  `transient`. Kafka destinations already publish with `acks=all` and idempotence, and NATS
+  destinations already persist through JetStream by default, so neither changes.
+
 ## [0.3.1] — 2026-09-15
 
 This release ships the server image alone, as `v0.3.1`. No client library changed, so
@@ -433,7 +447,8 @@ release exists.
   cannot push a credential into a log.
 - The admin surface is off by default.
 
-[Unreleased]: https://github.com/AlterNayte/queuebox/compare/v0.3.1...HEAD
+[Unreleased]: https://github.com/AlterNayte/queuebox/compare/v0.3.2...HEAD
+[0.3.2]: https://github.com/AlterNayte/queuebox/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/AlterNayte/queuebox/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/AlterNayte/queuebox/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/AlterNayte/queuebox/compare/v0.2.0...v0.2.1

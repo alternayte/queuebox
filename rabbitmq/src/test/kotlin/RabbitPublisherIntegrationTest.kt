@@ -435,4 +435,38 @@ class RabbitPublisherIntegrationTest {
         // Ten publishes, two distinct exchange names. A declare per message is the defect this guards.
         assertEquals(2, declaredExchangeCount(publisher))
     }
+
+    @Test
+    fun `a destination publishes persistent by default and transient when configured`(): Unit = runBlocking {
+        val exchangeName = "delivery-mode-exchange"
+        val queueName = "delivery-mode-queue"
+        val routingKey = "test.topic"
+        val factory = ConnectionFactory().apply { setUri(amqpUrl) }
+        factory.newConnection().use { conn ->
+            conn.createChannel().use { channel ->
+                channel.exchangeDeclare(exchangeName, "topic", true)
+                channel.queueDeclare(queueName, true, false, false, null)
+                channel.queueBind(queueName, exchangeName, routingKey)
+            }
+        }
+
+        fun publishAndReadMode(destination: Destination.RabbitMQ): Int? {
+            val message = OutboxMessage(id = UUID.randomUUID(), topic = routingKey, payload = JsonObject(emptyMap()))
+            val result = runBlocking {
+                publisher.publish(
+                    message,
+                    destination,
+                    PublishContext(resolvedAddress = exchangeName, resolvedDestinationRoutingKey = routingKey)
+                )
+            }
+            assertTrue(result.isSuccess, "Publish should succeed")
+            return factory.newConnection().use { conn ->
+                conn.createChannel().use { channel -> channel.basicGet(queueName, true)?.props?.deliveryMode }
+            }
+        }
+
+        val base = Destination.RabbitMQ(name = "delivery-mode", url = amqpUrl, exchange = exchangeName)
+        assertEquals(2, publishAndReadMode(base))
+        assertEquals(1, publishAndReadMode(base.copy(name = "delivery-mode-transient", persistent = false)))
+    }
 }

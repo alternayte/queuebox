@@ -702,7 +702,8 @@ internal fun toDestination(name: String, destConfig: DestinationConfig): Destina
         exchangeType = destConfig.exchangeType,
         routingKeyTemplate = destConfig.routingKeyTemplate,
         headers = destConfig.headers,
-        exchangeFrom = destConfig.exchangeFrom
+        exchangeFrom = destConfig.exchangeFrom,
+        persistent = destConfig.deliveryMode == "persistent"
     )
 }
 

@@ -123,14 +123,16 @@ sealed interface Destination {
          * are routing fields that an application sets deliberately, and a wider set would let a
          * broker name come from data that was never meant for routing, for example the payload.
          */
-        val exchangeFrom: String? = null
+        val exchangeFrom: String? = null,
+        /** True publishes with AMQP delivery mode 2, so a durable queue keeps the message on disk. */
+        val persistent: Boolean = true
     ) : Destination {
         /**
          * F-038: an AMQP URI carries the broker password, so the printed form masks it.
          */
         override fun toString(): String = "RabbitMQ(name=$name, url=${CredentialMasking.maskUrl(url)}, " +
             "exchange=$exchange, exchangeType=$exchangeType, routingKeyTemplate=$routingKeyTemplate, " +
-            "headers=${CredentialMasking.maskHeaders(headers)}, exchangeFrom=$exchangeFrom)"
+            "headers=${CredentialMasking.maskHeaders(headers)}, exchangeFrom=$exchangeFrom, persistent=$persistent)"
     }
 
     companion object {

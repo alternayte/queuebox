@@ -159,6 +159,9 @@ destinations:
     exchangeFrom: null                 # A row column instead: 'aggregate_type', 'topic', or 'key'.
                                        # Wins over `exchange`, and the template is not rendered.
     exchangeType: topic
+    deliveryMode: persistent           # Or 'transient'. A persistent message in a durable queue
+                                       # survives a broker restart. Kafka publishes with acks=all
+                                       # and idempotence, and NATS persists through JetStream.
   events-topic:
     type: kafka
     bootstrapServers: broker-1:9092,broker-2:9092
