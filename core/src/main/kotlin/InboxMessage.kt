@@ -27,5 +27,7 @@ data class InboxMessage(
     val consumption: String = "push",
     val scheduledAt: Instant = Clock.System.now(),
     val attempt: Int = 0,
-    val lastError: String? = null
+    val lastError: String? = null,
+    /** The headers that the broker or the webhook request carried. One value per key. */
+    val headers: Map<String, String> = emptyMap()
 )

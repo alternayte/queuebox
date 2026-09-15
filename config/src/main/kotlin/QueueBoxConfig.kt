@@ -145,7 +145,8 @@ data class InboxColumnMapping(
     val consumption: String = "consumption",
     val scheduledAt: String = "scheduled_at",
     val attempt: String = "attempt",
-    val lastError: String = "last_error"
+    val lastError: String = "last_error",
+    val headers: String = "headers"
 )
 
 @Serializable
@@ -329,6 +330,29 @@ data class AttributeHeaders(
     val eventType: String = "x-event-type"
 )
 
+/**
+ * Header filter of one inbox source.
+ *
+ * A message passes when it matches every `require` rule and no `exclude` rule. A message that does
+ * not pass is acknowledged at the broker, or answered with 202 on a webhook, and it is not stored.
+ */
+@Serializable
+data class HeaderFilterConfig(val require: List<HeaderRule> = emptyList(), val exclude: List<HeaderRule> = emptyList())
+
+/**
+ * One header test. `header` is matched case-insensitively, and the value exactly. Exactly one of
+ * `equals`, `in`, `matches` or `exists` is set. `matches` is a topic glob: `*` matches one
+ * dot-separated segment, and `**` matches anything.
+ */
+@Serializable
+data class HeaderRule(
+    val header: String,
+    val equals: String? = null,
+    val `in`: List<String>? = null,
+    val matches: String? = null,
+    val exists: Boolean? = null
+)
+
 @Serializable
 sealed class SourceConfig {
     abstract val transform: TransformConfig?
@@ -343,6 +367,9 @@ sealed class SourceConfig {
     /** Optional rate limit for this source. See F-024. */
     abstract val rateLimit: RateLimitConfig?
 
+    /** Optional header filter. A message that does not pass is acknowledged and not stored. */
+    abstract val filter: HeaderFilterConfig?
+
     @Serializable
     @SerialName("http")
     data class Http(
@@ -354,6 +381,7 @@ sealed class SourceConfig {
         override val topic: String = "{{ eventType }}",
         override val consumption: String = "push",
         override val rateLimit: RateLimitConfig? = null,
+        override val filter: HeaderFilterConfig? = null,
         val auth: InboxAuthConfig? = null
     ) : SourceConfig()
 
@@ -402,7 +430,8 @@ sealed class SourceConfig {
         /** The default renders the source name, which every message carries. */
         override val topic: String = "{{ source }}",
         override val consumption: String = "push",
-        override val rateLimit: RateLimitConfig? = null
+        override val rateLimit: RateLimitConfig? = null,
+        override val filter: HeaderFilterConfig? = null
     ) : SourceConfig() {
         override fun toString(): String = "Kafka(bootstrapServers=$bootstrapServers, topics=$topics, " +
             "groupId=$groupId, idempotencyKeyPath=$idempotencyKeyPath, aggregateIdPath=$aggregateIdPath, " +
@@ -410,7 +439,7 @@ sealed class SourceConfig {
             "autoOffsetReset=$autoOffsetReset, maxPollRecords=$maxPollRecords, " +
             "securityProtocol=$securityProtocol, saslMechanism=$saslMechanism, " +
             "saslUsername=$saslUsername, attributeHeaders=$attributeHeaders, transform=$transform, " +
-            "topic=$topic, consumption=$consumption, rateLimit=$rateLimit)"
+            "topic=$topic, consumption=$consumption, rateLimit=$rateLimit, filter=$filter)"
     }
 
     /**
@@ -451,7 +480,8 @@ sealed class SourceConfig {
         override val transform: TransformConfig? = null,
         override val topic: String = "{{ source }}",
         override val consumption: String = "push",
-        override val rateLimit: RateLimitConfig? = null
+        override val rateLimit: RateLimitConfig? = null,
+        override val filter: HeaderFilterConfig? = null
     ) : SourceConfig() {
         override fun toString(): String = "Nats(servers=${CredentialMasking.maskUrl(servers)}, " +
             "stream=$stream, durable=$durable, filterSubject=$filterSubject, " +
@@ -459,7 +489,7 @@ sealed class SourceConfig {
             "eventTypePath=$eventTypePath, eventTypeFromHeader=$eventTypeFromHeader, " +
             "ackWaitMs=$ackWaitMs, batchSize=$batchSize, username=$username, " +
             "attributeHeaders=$attributeHeaders, transform=$transform, topic=$topic, " +
-            "consumption=$consumption, rateLimit=$rateLimit)"
+            "consumption=$consumption, rateLimit=$rateLimit, filter=$filter)"
     }
 
     @Serializable
@@ -504,7 +534,8 @@ sealed class SourceConfig {
          */
         override val topic: String = "{{ source }}",
         override val consumption: String = "push",
-        override val rateLimit: RateLimitConfig? = null
+        override val rateLimit: RateLimitConfig? = null,
+        override val filter: HeaderFilterConfig? = null
     ) : SourceConfig() {
         /**
          * F-038: an AMQP URI carries the broker password, so the printed form masks it.
@@ -515,7 +546,7 @@ sealed class SourceConfig {
             "eventTypePath=$eventTypePath, eventTypeFromHeader=$eventTypeFromHeader, " +
             "prefetchCount=$prefetchCount, declareQueue=$declareQueue, " +
             "attributeHeaders=$attributeHeaders, transform=$transform, " +
-            "topic=$topic, rateLimit=$rateLimit)"
+            "topic=$topic, rateLimit=$rateLimit, filter=$filter)"
     }
 }
 

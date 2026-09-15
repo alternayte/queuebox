@@ -159,6 +159,13 @@ class MetricsCollector(registry: MeterRegistry) : MetricsCollectorInterface {
     }
 
     /**
+     * Record one inbox message that the header filter of its source dropped.
+     */
+    override fun recordInboxFiltered(source: String) {
+        metrics.recordInboxFiltered(source)
+    }
+
+    /**
      * Record one HTTP publish response under its status class.
      */
     override fun recordHttpStatus(statusCode: Int) {

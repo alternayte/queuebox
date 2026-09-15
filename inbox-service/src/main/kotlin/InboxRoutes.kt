@@ -31,6 +31,7 @@ fun Application.configureInboxRoutes(
 
     val httpSources = sources.filterValues { it is SourceConfig.Http }
         .mapValues { (_, value) -> value as SourceConfig.Http }
+    val filters = httpSources.mapValues { (_, value) -> value.filter?.let(::HeaderFilter) }
 
     // Install one rate limit provider for each source that declares a limit. See F-024.
     val limitedSources = httpSources.filterValues { it.rateLimit != null }
@@ -52,10 +53,14 @@ fun Application.configureInboxRoutes(
             val path = "${config.basePath}${httpConfig.path}"
             if (httpConfig.rateLimit != null) {
                 rateLimit(RateLimitName(sourceName)) {
-                    post(path) { handleInboxPost(config, sourceName, httpConfig, handler, authValidator) }
+                    post(path) {
+                        handleInboxPost(config, sourceName, httpConfig, filters[sourceName], handler, authValidator)
+                    }
                 }
             } else {
-                post(path) { handleInboxPost(config, sourceName, httpConfig, handler, authValidator) }
+                post(path) {
+                    handleInboxPost(config, sourceName, httpConfig, filters[sourceName], handler, authValidator)
+                }
             }
         }
     }
@@ -65,6 +70,7 @@ private suspend fun RoutingContext.handleInboxPost(
     config: InboxConfig,
     sourceName: String,
     httpConfig: SourceConfig.Http,
+    headerFilter: HeaderFilter?,
     handler: InboxHandler,
     authValidator: InboxAuthValidator
 ) {
@@ -90,6 +96,14 @@ private suspend fun RoutingContext.handleInboxPost(
         }
     }
 
+    val headers = storedRequestHeaders(call.request.headers, httpConfig.auth)
+    val failure = headerFilter?.firstFailure(headers)
+    if (failure != null) {
+        handler.recordFiltered(sourceName, failure)
+        call.respond(HttpStatusCode.Accepted, mapOf("status" to "filtered"))
+        return
+    }
+
     // F-047: accept the caller's correlation identifier, or generate one. Every log line of
     // this request, and the stored row, then carry the same value.
     // The value reaches a log line, a database column, and an outbound header, so it is
@@ -113,7 +127,7 @@ private suspend fun RoutingContext.handleInboxPost(
         LogKeys.SOURCE to sourceName,
         LogKeys.CORRELATION_ID to correlationId
     ) {
-        handler.handle(sourceName, httpConfig, payload, correlationId)
+        handler.handle(sourceName, httpConfig, payload, correlationId, headers)
     }
 
     when (result) {
@@ -133,6 +147,28 @@ private suspend fun RoutingContext.handleInboxPost(
         is InboxHandlerResult.StorageFailed ->
             call.respond(HttpStatusCode.InternalServerError, mapOf("error" to "Storage failed"))
     }
+}
+
+/**
+ * The request headers that the inbox stores, one value per name. A repeated name keeps its last
+ * value. The credential headers never reach the table: Authorization, Proxy-Authorization, Cookie,
+ * and the header that the source authentication reads.
+ */
+internal fun storedRequestHeaders(headers: Headers, auth: InboxAuthConfig?): Map<String, String> {
+    val excluded = buildSet {
+        add(HttpHeaders.Authorization.lowercase())
+        add(HttpHeaders.ProxyAuthorization.lowercase())
+        add(HttpHeaders.Cookie.lowercase())
+        when (auth) {
+            is InboxAuthConfig.ApiKey -> add(auth.headerName.lowercase())
+            is InboxAuthConfig.HmacSignature -> add(auth.headerName.lowercase())
+            is InboxAuthConfig.Bearer, null -> Unit
+        }
+    }
+    return headers.names()
+        .filter { it.lowercase() !in excluded }
+        .mapNotNull { name -> headers.getAll(name)?.lastOrNull()?.let { name to it } }
+        .toMap()
 }
 
 /**

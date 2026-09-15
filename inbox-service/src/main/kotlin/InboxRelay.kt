@@ -239,6 +239,10 @@ class InboxRelay(
             key = message.aggregateId,
             payload = message.payload,
             headers = buildMap {
+                // The received headers travel on. The relay headers below replace a received
+                // header of the same name in any letter case, so the relay values stay trustworthy.
+                val relayNames = setOf("x-inbox-id", "x-source", "x-idempotency-key", CORRELATION_ID_HEADER.lowercase())
+                message.headers.forEach { (name, value) -> if (name.lowercase() !in relayNames) put(name, value) }
                 put("x-inbox-id", message.id.toString())
                 put("x-source", message.source)
                 put("x-idempotency-key", message.idempotencyKey)

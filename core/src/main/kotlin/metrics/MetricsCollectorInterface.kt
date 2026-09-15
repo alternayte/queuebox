@@ -136,6 +136,11 @@ interface MetricsCollectorInterface {
     fun recordInboxRejection(reason: InboxRejectionReason) {}
 
     /**
+     * Record an inbox message that the header filter of its source dropped.
+     */
+    fun recordInboxFiltered(source: String) {}
+
+    /**
      * Record one HTTP publish response. The metric carries the status class only.
      */
     fun recordHttpStatus(statusCode: Int) {}

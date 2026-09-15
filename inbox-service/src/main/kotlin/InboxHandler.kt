@@ -32,7 +32,9 @@ class InboxHandler(
         sourceConfig: SourceConfig.Http,
         payload: JsonElement,
         /** The identifier that follows the message across the system. See F-047. */
-        correlationId: String? = null
+        correlationId: String? = null,
+        /** The stored request headers. See [storedRequestHeaders]. */
+        headers: Map<String, String> = emptyMap()
     ): InboxHandlerResult {
         val messageId = UUID.randomUUID()
 
@@ -58,7 +60,8 @@ class InboxHandler(
                 source = source,
                 idempotencyKey = idempotencyKey,
                 eventType = eventType,
-                timestamp = Clock.System.now()
+                timestamp = Clock.System.now(),
+                headers = headers
             )
             when (val result = transformPipeline.transform(payload, sourceConfig.transform, context)) {
                 is InboxTransformResult.Success -> result.payload
@@ -80,7 +83,8 @@ class InboxHandler(
             eventType = eventType,
             payload = transformedPayload,
             correlationId = correlationId,
-            consumption = sourceConfig.consumption
+            consumption = sourceConfig.consumption,
+            headers = headers
         )
 
         // Store with deduplication
@@ -98,6 +102,12 @@ class InboxHandler(
                 InboxHandlerResult.StorageFailed(result.message)
             }
         }
+    }
+
+    /** Counts and logs one request that the header filter of its source dropped. */
+    fun recordFiltered(source: String, rule: String) {
+        metricsCollector?.recordInboxFiltered(source)
+        log.debug("A request of source '{}' was filtered out by rule {}.", source, rule)
     }
 
     private companion object {

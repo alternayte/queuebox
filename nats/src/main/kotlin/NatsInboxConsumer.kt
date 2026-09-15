@@ -46,7 +46,9 @@ data class NatsConsumerConfig(
     val password: Secret? = null,
     val token: Secret? = null,
     /** The header names that carry the three inbox attributes. See F-100. */
-    val attributeHeaders: AttributeHeaders = AttributeHeaders()
+    val attributeHeaders: AttributeHeaders = AttributeHeaders(),
+    /** Optional header filter. A message that does not pass is acknowledged and not stored. */
+    val filter: HeaderFilterConfig? = null
 )
 
 /**
@@ -75,6 +77,7 @@ class NatsInboxConsumer(
     private val connectionFactory: (NatsConsumerConfig) -> Connection = ::createConnection
 ) {
     private val log = logger<NatsInboxConsumer>()
+    private val headerFilter = config.filter?.let(::HeaderFilter)
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
     @Volatile private var connection: Connection? = null
@@ -143,10 +146,19 @@ class NatsInboxConsumer(
 
     private suspend fun handleMessage(natsMessage: Message) {
         try {
+            val headers = messageHeaders(natsMessage)
+            val failure = headerFilter?.firstFailure(headers)
+            if (failure != null) {
+                metricsCollector?.recordInboxFiltered(config.sourceName)
+                log.debug("A message of source '{}' was filtered out by rule {}.", config.sourceName, failure)
+                natsMessage.ack()
+                return
+            }
+
             val body = natsMessage.data ?: ByteArray(0)
             val payload = parsePayload(body)
             if (payload == null) {
-                storeUnreadable(natsMessage, body)
+                storeUnreadable(natsMessage, body, headers)
                 return
             }
 
@@ -158,7 +170,8 @@ class NatsInboxConsumer(
                 aggregateId = extractAggregateId(natsMessage, payload),
                 eventType = extractEventType(natsMessage, payload),
                 payload = payload,
-                correlationId = extractCorrelationId(natsMessage)
+                correlationId = extractCorrelationId(natsMessage),
+                headers = headers
             )
 
             val transformed = applyTransform(message)
@@ -189,7 +202,8 @@ class NatsInboxConsumer(
             source = message.source,
             idempotencyKey = message.idempotencyKey,
             eventType = message.eventType,
-            timestamp = Clock.System.now()
+            timestamp = Clock.System.now(),
+            headers = message.headers
         )
         return when (val result = pipeline.transform(message.payload, transform, context)) {
             is InboxTransformResult.Success -> message.copy(payload = result.payload)
@@ -256,14 +270,15 @@ class NatsInboxConsumer(
      * Nothing downstream can read it, and a message that is never acknowledged returns after
      * every `ackWaitMs` for ever.
      */
-    private suspend fun storeUnreadable(natsMessage: Message, body: ByteArray) {
+    private suspend fun storeUnreadable(natsMessage: Message, body: ByteArray, headers: Map<String, String>) {
         val message = InboxMessage(
             consumption = config.consumption,
             id = UUID.randomUUID(),
             source = config.sourceName,
             idempotencyKey = bodyDigest(body),
             payload = JsonObject(mapOf("raw" to JsonPrimitive(body.decodeToString()))),
-            correlationId = extractCorrelationId(natsMessage)
+            correlationId = extractCorrelationId(natsMessage),
+            headers = headers
         )
         log.warn(
             "A message of source '{}' is not JSON. QueueBox stores it dead and acknowledges it, " +
@@ -287,6 +302,12 @@ class NatsInboxConsumer(
     }
 
     private fun header(natsMessage: Message, name: String): String? = natsMessage.headers?.getFirst(name)
+
+    /** Every message header, one value per key. A key with several values keeps its last value. */
+    private fun messageHeaders(natsMessage: Message): Map<String, String> {
+        val headers = natsMessage.headers ?: return emptyMap()
+        return headers.keySet().mapNotNull { name -> headers.get(name)?.lastOrNull()?.let { name to it } }.toMap()
+    }
 
     private fun extractCorrelationId(natsMessage: Message): String = header(natsMessage, CORRELATION_ID_HEADER)
         ?.filter { !it.isISOControl() }

@@ -44,6 +44,7 @@ object InboxTable : UUIDTable("inbox") {
     val claimToken = javaUUID("claim_token").nullable()
     val leaseExpiresAt = timestamp("lease_expires_at").nullable()
     val correlationId: Column<String?> = varchar("correlation_id", 128).nullable()
+    val headers: Column<JsonElement> = jsonb<JsonElement>("headers", Json.Default).default(JsonObject(emptyMap()))
     val consumption = varchar("consumption", 4).default("push")
     val scheduledAt = timestamp("scheduled_at").clientDefault { kotlin.time.Clock.System.now() }
     val attempt = integer("attempt").default(0)
