@@ -75,6 +75,9 @@ jobs:
           context: .
           platforms: linux/amd64,linux/arm64
           push: true
+          # The build context has no .git, so the version reaches Gradle as a build argument.
+          build-args: |
+            BUILD_VERSION=${{ steps.version.outputs.version }}
           # The exact version, the minor version and `latest`.
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.version }}
@@ -89,6 +92,17 @@ jobs:
           provenance: mode=max
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Confirm that the image reports the tag version
+        # The queuebox_info metric reads this file. 0.2.1 and 0.3.0 shipped 0.0.0-SNAPSHOT.
+        run: |
+          image="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.version }}"
+          reported=$(docker run --rm --entrypoint sh "$image" -c 'unzip -p /app/lib/core*.jar queuebox-build.properties' | sed -n 's/^version=//p')
+          if [ "$reported" != "${{ steps.version.outputs.version }}" ]; then
+            echo "The image reports version '${reported}', not '${{ steps.version.outputs.version }}'." >&2
+            exit 1
+          fi
+          echo "Confirmed: the image reports version ${reported}."
 
       - name: Attest the provenance of the image
         # F-044. The attestation names the workflow that produced the image digest.
