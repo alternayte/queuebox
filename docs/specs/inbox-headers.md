@@ -4,7 +4,7 @@
 Every inbox source stores the headers of each received message in a `headers` column. Each source can have a header filter. A message that does not pass the filter is acknowledged and not stored. Pull clients, inbox transforms and the relay expose the stored headers.
 
 ## Decisions
-- The inbox stores headers as `Map<String, String>` in `headers` (`jsonb` on Postgres, `text` on SQL Server) — the same shape as the outbox, so a relayed message keeps its headers.
+- The inbox stores headers as `Map<String, String>` in `headers` (`JSONB` on Postgres, `NVARCHAR(MAX)` on SQL Server) — the same shape as the outbox, so a relayed message keeps its headers.
 - A repeated key keeps its last value — one value per key keeps the filter rules simple.
 - Kafka values decode as UTF-8. A value that is not valid UTF-8 is stored as `base64:<value>` — no header is lost.
 - RabbitMQ values become strings. Nested tables become JSON text — typed AMQP values fit the string map.
