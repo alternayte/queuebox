@@ -18,7 +18,7 @@ rolls your writes back and reports nothing as done.
 |---|---|
 | Runtime | Node 22 or later, Bun, or Deno |
 | Database | PostgreSQL through `pg`, or SQL Server through `mssql` |
-| QueueBox | 0.1.0 or later, which is the V6 schema |
+| QueueBox | The V10 schema or later, which adds the inbox `headers` column |
 
 The package depends on no driver. It states the small interface it needs and ships an adapter
 for each, so one package serves both dialects and your application brings the driver it has.
@@ -91,6 +91,7 @@ are the second argument, in the order the statement names them.
 | `message.aggregateId` | Nullable |
 | `message.eventType` | Nullable |
 | `message.payload` | The JSON body, parsed |
+| `message.headers` | The stored headers, one string value per key |
 | `message.attempt` | Zero on the first delivery |
 | `message.correlationId` | Nullable, for logs |
 

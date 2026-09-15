@@ -48,17 +48,18 @@ public sealed class SqlServerHarness : IDatabaseHarness, IAsyncLifetime
         string? aggregateId = null,
         string? eventType = null,
         string? correlationId = null,
-        int attempt = 0)
+        int attempt = 0,
+        string headersJson = "{}")
     {
         await using var connection = (SqlConnection)await OpenAsync();
         await using var command = connection.CreateCommand();
 
         command.CommandText = """
             INSERT INTO inbox (source, idempotency_key, aggregate_id, event_type, payload, state,
-                               consumption, scheduled_at, attempt, correlation_id)
+                               consumption, scheduled_at, attempt, correlation_id, headers)
             OUTPUT INSERTED.id
             VALUES (@source, @key, @aggregate, @type, @payload, 'pending',
-                    'pull', SYSUTCDATETIME(), @attempt, @correlation);
+                    'pull', SYSUTCDATETIME(), @attempt, @correlation, @headers);
             """;
 
         command.Parameters.AddWithValue("@source", source);
@@ -68,6 +69,7 @@ public sealed class SqlServerHarness : IDatabaseHarness, IAsyncLifetime
         command.Parameters.AddWithValue("@payload", payloadJson);
         command.Parameters.AddWithValue("@attempt", attempt);
         command.Parameters.AddWithValue("@correlation", (object?)correlationId ?? DBNull.Value);
+        command.Parameters.AddWithValue("@headers", headersJson);
 
         return (Guid)(await command.ExecuteScalarAsync())!;
     }
@@ -133,6 +135,7 @@ public sealed class SqlServerHarness : IDatabaseHarness, IAsyncLifetime
             IdempotencyKey = "dedup_key",
             ClaimToken = "lease_token",
             Attempt = "tries",
+            Headers = "meta",
         };
 
         await ExecuteAsync("IF OBJECT_ID('qb_messages', 'U') IS NOT NULL DROP TABLE qb_messages");
@@ -144,6 +147,7 @@ public sealed class SqlServerHarness : IDatabaseHarness, IAsyncLifetime
                 aggregate_id NVARCHAR(255),
                 event_type NVARCHAR(255),
                 body NVARCHAR(MAX) NOT NULL,
+                meta NVARCHAR(MAX) NOT NULL DEFAULT '{}',
                 row_state NVARCHAR(50) NOT NULL DEFAULT 'pending',
                 created_at DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
                 processed_at DATETIME2,

@@ -18,7 +18,7 @@ rolls your writes back and reports nothing as done.
 |---|---|
 | Go | 1.24 or later |
 | Database | PostgreSQL through `pgx`, or SQL Server through `go-mssqldb` |
-| QueueBox | 0.1.0 or later, which is the V6 schema |
+| QueueBox | The V10 schema or later, which adds the inbox `headers` column |
 
 The library talks to `database/sql`, so it needs no driver of its own. Your application registers
 the driver it already uses.
@@ -129,6 +129,7 @@ Write the placeholder style of your own database: `$1` for PostgreSQL, `@p1` for
 | `message.Payload` | The JSON body. `UnmarshalPayload` parses it |
 | `message.Attempt` | Zero on the first delivery |
 | `message.CorrelationID` | Nullable, for logs |
+| `message.Headers` | The headers the source received, one value per key. An empty map when there are none |
 
 The claim token is absent on purpose. The library owns the token, because a handler that could
 reach it could complete a message out of band.

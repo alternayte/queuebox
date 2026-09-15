@@ -53,7 +53,9 @@ data class RabbitConsumerConfig(
      */
     val declareQueue: Boolean = false,
     /** The header names that carry the three inbox attributes. See F-100. */
-    val attributeHeaders: AttributeHeaders = AttributeHeaders()
+    val attributeHeaders: AttributeHeaders = AttributeHeaders(),
+    /** Optional header filter. A delivery that does not pass is acknowledged and not stored. */
+    val filter: HeaderFilterConfig? = null
 )
 
 private sealed interface AckCommand {
@@ -99,6 +101,7 @@ class RabbitConsumer(
     @Volatile
     private var channel: Channel? = null
     private val json = Json { ignoreUnknownKeys = true }
+    private val headerFilter = config.filter?.let(::HeaderFilter)
 
     /** True while the AMQP channel is open. Used by the tests for F-018. */
     val isChannelOpen: Boolean
@@ -248,7 +251,16 @@ class RabbitConsumer(
 
     private suspend fun processMessage(envelope: Envelope, properties: AMQP.BasicProperties, body: ByteArray) {
         try {
-            val payload = parsePayload(body) ?: return storeUnparsable(envelope, properties, body)
+            val headers = amqpHeaders(properties.headers)
+            val failure = headerFilter?.firstFailure(headers)
+            if (failure != null) {
+                metricsCollector?.recordInboxFiltered(config.sourceName)
+                log.debug("Delivery {} was filtered out by rule {}.", envelope.deliveryTag, failure)
+                sendAck(envelope.deliveryTag)
+                return
+            }
+
+            val payload = parsePayload(body) ?: return storeUnparsable(envelope, properties, body, headers)
             val messageId = UUID.randomUUID()
 
             // Extract idempotency key with fallback chain (from ORIGINAL payload):
@@ -275,7 +287,8 @@ class RabbitConsumer(
                     source = config.sourceName,
                     idempotencyKey = idempotencyKey,
                     eventType = eventType,
-                    timestamp = Clock.System.now()
+                    timestamp = Clock.System.now(),
+                    headers = headers
                 )
                 when (val result = transformPipeline.transform(payload, sourceTransform, context)) {
                     is InboxTransformResult.Success -> result.payload
@@ -290,7 +303,8 @@ class RabbitConsumer(
                             aggregateId = aggregateId,
                             eventType = eventType,
                             payload = payload,
-                            correlationId = correlationId
+                            correlationId = correlationId,
+                            headers = headers
                         )
                         storeRejected(envelope, rejected, result.reason)
                         return
@@ -308,7 +322,8 @@ class RabbitConsumer(
                 aggregateId = aggregateId,
                 eventType = eventType,
                 payload = transformedPayload,
-                correlationId = correlationId
+                correlationId = correlationId,
+                headers = headers
             )
 
             when (val result = storeMessage(message)) {
@@ -477,7 +492,12 @@ class RabbitConsumer(
      * broker speed. The body is preserved as a string inside a JSON object, the row is stored
      * dead, and the delivery is acknowledged. An operator still sees what arrived.
      */
-    private suspend fun storeUnparsable(envelope: Envelope, properties: AMQP.BasicProperties, body: ByteArray) {
+    private suspend fun storeUnparsable(
+        envelope: Envelope,
+        properties: AMQP.BasicProperties,
+        body: ByteArray,
+        headers: Map<String, String>
+    ) {
         val message = InboxMessage(
             consumption = config.consumption,
             id = UUID.randomUUID(),
@@ -486,7 +506,8 @@ class RabbitConsumer(
             payload = JsonObject(
                 mapOf("raw" to JsonPrimitive(body.decodeToString()))
             ),
-            correlationId = extractCorrelationId(properties)
+            correlationId = extractCorrelationId(properties),
+            headers = headers
         )
         storeRejected(envelope, message, "the body is not JSON", InboxRejectionReason.EXTRACTION_FAILED)
     }

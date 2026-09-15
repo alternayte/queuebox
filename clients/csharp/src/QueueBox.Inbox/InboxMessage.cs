@@ -17,7 +17,8 @@ public sealed class InboxMessage
         string? eventType,
         JsonElement payload,
         int attempt,
-        string? correlationId)
+        string? correlationId,
+        IReadOnlyDictionary<string, string> headers)
     {
         Id = id;
         Source = source;
@@ -27,6 +28,7 @@ public sealed class InboxMessage
         Payload = payload;
         Attempt = attempt;
         CorrelationId = correlationId;
+        Headers = headers;
     }
 
     /// <summary>The inbox row identifier.</summary>
@@ -52,4 +54,10 @@ public sealed class InboxMessage
 
     /// <summary>The correlation identifier for logs, or null.</summary>
     public string? CorrelationId { get; }
+
+    /// <summary>
+    /// The headers QueueBox stored with the message, one string value per key.
+    /// Keys keep the case the source sent. The map is empty when the message carried no headers.
+    /// </summary>
+    public IReadOnlyDictionary<string, string> Headers { get; }
 }

@@ -26,7 +26,8 @@ public abstract class InboxWorkerContractTest : IAsyncLifetime
     {
         var id = await Harness.InsertPendingAsync(
             Source, "key-1", """{"id":"order-1","total":42}""",
-            aggregateId: "agg-1", eventType: "OrderPlaced", correlationId: "corr-1", attempt: 2);
+            aggregateId: "agg-1", eventType: "OrderPlaced", correlationId: "corr-1", attempt: 2,
+            headersJson: """{"x-tenant":"acme","Content-Type":"application/json"}""");
 
         InboxMessage? seen = null;
 
@@ -46,6 +47,9 @@ public abstract class InboxWorkerContractTest : IAsyncLifetime
         Assert.Equal(2, seen.Attempt);
         Assert.Equal("order-1", seen.Payload.GetProperty("id").GetString());
         Assert.Equal(42, seen.Payload.GetProperty("total").GetInt32());
+        Assert.Equal(
+            new Dictionary<string, string> { ["x-tenant"] = "acme", ["Content-Type"] = "application/json" },
+            seen.Headers);
     }
 
     // Item 1, the nullable fields.
@@ -67,6 +71,7 @@ public abstract class InboxWorkerContractTest : IAsyncLifetime
         Assert.Null(seen.EventType);
         Assert.Null(seen.CorrelationId);
         Assert.Equal(0, seen.Attempt);
+        Assert.Empty(seen.Headers);
     }
 
     // Item 2. This is the whole point of the pull path.

@@ -82,6 +82,7 @@ function contract(harness: DatabaseHarness): void {
         aggregateId: "agg-1",
         eventType: "OrderPlaced",
         correlationId: "corr-1",
+        headers: '{"x-tenant":"acme","content-type":"application/json"}',
         attempt: 2,
       });
 
@@ -100,6 +101,7 @@ function contract(harness: DatabaseHarness): void {
       assert.equal(seen.correlationId, "corr-1");
       assert.equal(seen.attempt, 2);
       assert.deepEqual(seen.payload, { id: "order-1", total: 42 });
+      assert.deepEqual(seen.headers, { "x-tenant": "acme", "content-type": "application/json" });
     });
 
     // Item 1, the nullable fields.
@@ -117,6 +119,7 @@ function contract(harness: DatabaseHarness): void {
       assert.equal(seen.eventType, null);
       assert.equal(seen.correlationId, null);
       assert.equal(seen.attempt, 0);
+      assert.deepEqual(seen.headers, {});
     });
 
     // Item 2. This is the whole point of the pull path.

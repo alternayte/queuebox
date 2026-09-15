@@ -54,6 +54,7 @@ class SqlServerInboxRepository(
             val stateCol = quoteSqlServerIdentifier(columnMapping.state)
             val createdAtCol = quoteSqlServerIdentifier(columnMapping.createdAt)
             val correlationIdCol = quoteSqlServerIdentifier(columnMapping.correlationId)
+            val headersCol = quoteSqlServerIdentifier(columnMapping.headers)
 
             // Use MERGE for atomic insert-if-not-exists
             // This is the SQL Server equivalent of INSERT ... ON CONFLICT DO NOTHING
@@ -62,14 +63,14 @@ class SqlServerInboxRepository(
                 "$idCol, $sourceCol, $idempotencyKeyCol, $aggregateIdCol, $eventTypeCol, " +
                     "$payloadCol, $stateCol, $createdAtCol, $correlationIdCol, ${quoteSqlServerIdentifier(
                         columnMapping.consumption
-                    )}, ${quoteSqlServerIdentifier(columnMapping.scheduledAt)}"
+                    )}, $headersCol, ${quoteSqlServerIdentifier(columnMapping.scheduledAt)}"
             val sql = """
                 MERGE ${quoteSqlServerIdentifier(tableName)} WITH (HOLDLOCK) AS target
                 USING (SELECT ? AS source, ? AS idempotency_key) AS src
                 ON target.$sourceCol = src.source AND target.$idempotencyKeyCol = src.idempotency_key
                 WHEN NOT MATCHED THEN
                     INSERT ($insertColumns)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, SYSUTCDATETIME());
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, SYSUTCDATETIME());
             """.trimIndent()
 
             val conn = TransactionManager.current().connection.connection as java.sql.Connection
@@ -91,6 +92,7 @@ class SqlServerInboxRepository(
                 stmt.setTimestamp(++index, nowTimestamp)
                 nextString(message.correlationId)
                 nextString(message.consumption)
+                nextString(HeaderJson.encode(message.headers))
                 stmt.executeUpdate()
             }
 
@@ -388,7 +390,8 @@ class SqlServerInboxRepository(
         correlationId = this[table.correlationId],
         claimToken = this[table.claimToken],
         leaseExpiresAt = this[table.leaseExpiresAt],
-        claimedAt = this[table.claimedAt]
+        claimedAt = this[table.claimedAt],
+        headers = HeaderJson.decode(this[table.headers])
     )
 
     private fun stringToMessageState(state: String): MessageState = when (state) {

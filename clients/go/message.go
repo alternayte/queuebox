@@ -24,6 +24,8 @@ type Message struct {
 	Attempt int
 	// CorrelationID is nullable, and it is for logs.
 	CorrelationID *string
+	// Headers holds the headers the source received, one value per key. It is never nil.
+	Headers map[string]string
 }
 
 // UnmarshalPayload parses the JSON body into the value that target points at.

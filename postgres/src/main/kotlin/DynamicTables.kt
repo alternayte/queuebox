@@ -60,6 +60,7 @@ class DynamicInboxTable(private val mapping: InboxColumnMapping, tableName: Stri
     val claimToken = javaUUID(mapping.claimToken).nullable()
     val leaseExpiresAt = timestamp(mapping.leaseExpiresAt).nullable()
     val correlationId: Column<String?> = varchar(mapping.correlationId, 128).nullable()
+    val headers: Column<JsonElement> = jsonb<JsonElement>(mapping.headers, Json.Default).default(JsonObject(emptyMap()))
     val consumption = varchar(mapping.consumption, 4).default("push")
     val scheduledAt = timestamp(mapping.scheduledAt).clientDefault { kotlin.time.Clock.System.now() }
     val attempt = integer(mapping.attempt).default(0)

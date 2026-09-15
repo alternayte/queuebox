@@ -82,6 +82,10 @@ Three identifiers travel with a forwarded message. Each answers a different ques
 | `x-inbox-id` | An outbox header | The inbox row |
 | `X-Message-Id` | An outbox header and the outbox `id` | One outbox row, every delivery attempt |
 
+The relay copies the inbox `headers` onto the outbox row. Then it sets `x-inbox-id`, `x-source`,
+`x-idempotency-key` and `X-Correlation-Id`. Each of these four replaces a received header of the
+same name in any letter case. A sender therefore cannot set the relay identifiers.
+
 The replay identity is `(source, idempotency_key)`, and it is source-qualified on
 purpose. Two sources can send the same event ID and mean different events, so the source
 is part of the identity.

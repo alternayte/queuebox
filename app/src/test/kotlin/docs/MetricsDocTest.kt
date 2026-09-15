@@ -59,6 +59,7 @@ class MetricsDocTest {
         collector.recordInboxForwarded()
         collector.recordInboxRelayError()
         collector.recordInboxRejection(InboxRejectionReason.EXTRACTION_FAILED)
+        collector.recordInboxFiltered("stripe")
         collector.recordCleanupRun("outbox", 1, 1_000_000)
         collector.recordClaimLost("outbox")
     }

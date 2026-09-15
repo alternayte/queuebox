@@ -62,6 +62,7 @@ class SqlServerDynamicInboxTable(val mapping: InboxColumnMapping, tableName: Str
     val claimToken = javaUUID(mapping.claimToken).nullable()
     val leaseExpiresAt = timestamp(mapping.leaseExpiresAt).nullable()
     val correlationId: Column<String?> = varchar(mapping.correlationId, 128).nullable()
+    val headers: Column<String> = text(mapping.headers).default("{}") // JSON stored as NVARCHAR(MAX)
     val consumption = varchar(mapping.consumption, 4).default("push")
     val scheduledAt = timestamp(mapping.scheduledAt).clientDefault { kotlin.time.Clock.System.now() }
     val attempt = integer(mapping.attempt).default(0)

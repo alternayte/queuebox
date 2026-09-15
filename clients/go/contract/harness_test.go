@@ -52,6 +52,16 @@ type pendingRow struct {
 	eventType      *string
 	correlationID  *string
 	attempt        int
+	// headers is JSON text. Empty means the column default.
+	headers string
+}
+
+func (r pendingRow) headersJSON() string {
+	if r.headers == "" {
+		return "{}"
+	}
+
+	return r.headers
 }
 
 // migrations reads the QueueBox migrations from the repository. The tests apply the real schema,
@@ -140,6 +150,7 @@ func mappedSchema() queuebox.Schema {
 	schema.IdempotencyKey = "dedup_key"
 	schema.ClaimToken = "lease_token"
 	schema.Attempt = "tries"
+	schema.Headers = "meta"
 
 	return schema
 }
@@ -207,10 +218,11 @@ func (h *postgresHarness) insertPending(t *testing.T, row pendingRow) string {
 
 	err := h.pool.QueryRow(`
 		INSERT INTO inbox (source, idempotency_key, aggregate_id, event_type, payload, state,
-		                   consumption, scheduled_at, attempt, correlation_id)
-		VALUES ($1, $2, $3, $4, $5::jsonb, 'pending', 'pull', CURRENT_TIMESTAMP, $6, $7)
+		                   consumption, scheduled_at, attempt, correlation_id, headers)
+		VALUES ($1, $2, $3, $4, $5::jsonb, 'pending', 'pull', CURRENT_TIMESTAMP, $6, $7, $8::jsonb)
 		RETURNING id`,
 		row.source, row.idempotencyKey, row.aggregateID, row.eventType, row.payload, row.attempt, row.correlationID,
+		row.headersJSON(),
 	).Scan(&id)
 	if err != nil {
 		t.Fatalf("the row did not store: %v", err)
@@ -282,7 +294,8 @@ func (h *postgresHarness) createMappedSchema(t *testing.T) queuebox.Schema {
 			consumption VARCHAR(4) NOT NULL DEFAULT 'push',
 			scheduled_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
 			tries INT NOT NULL DEFAULT 0,
-			last_error TEXT
+			last_error TEXT,
+			meta JSONB NOT NULL DEFAULT '{}'
 		)`)
 
 	return mappedSchema()
@@ -372,10 +385,11 @@ func (h *sqlServerHarness) insertPending(t *testing.T, row pendingRow) string {
 
 	err := h.pool.QueryRow(`
 		INSERT INTO inbox (source, idempotency_key, aggregate_id, event_type, payload, state,
-		                   consumption, scheduled_at, attempt, correlation_id)
+		                   consumption, scheduled_at, attempt, correlation_id, headers)
 		OUTPUT INSERTED.id
-		VALUES (@p1, @p2, @p3, @p4, @p5, 'pending', 'pull', SYSUTCDATETIME(), @p6, @p7)`,
+		VALUES (@p1, @p2, @p3, @p4, @p5, 'pending', 'pull', SYSUTCDATETIME(), @p6, @p7, @p8)`,
 		row.source, row.idempotencyKey, row.aggregateID, row.eventType, row.payload, row.attempt, row.correlationID,
+		row.headersJSON(),
 	).Scan(&id)
 	if err != nil {
 		t.Fatalf("the row did not store: %v", err)
@@ -446,7 +460,8 @@ func (h *sqlServerHarness) createMappedSchema(t *testing.T) queuebox.Schema {
 			consumption NVARCHAR(4) NOT NULL DEFAULT 'push',
 			scheduled_at DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
 			tries INT NOT NULL DEFAULT 0,
-			last_error NVARCHAR(MAX)
+			last_error NVARCHAR(MAX),
+			meta NVARCHAR(MAX) NOT NULL DEFAULT '{}'
 		)`)
 
 	return mappedSchema()

@@ -28,7 +28,8 @@ public interface IDatabaseHarness
         string? aggregateId = null,
         string? eventType = null,
         string? correlationId = null,
-        int attempt = 0);
+        int attempt = 0,
+        string headersJson = "{}");
 
     /// <summary>Read the state, the attempt and the last error of one row.</summary>
     Task<(string State, int Attempt, string? LastError)> ReadRowAsync(Guid id);

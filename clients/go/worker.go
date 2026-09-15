@@ -1,6 +1,7 @@
 package queuebox
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -353,6 +354,11 @@ func (w *InboxWorker) toMessage(row map[string]any) (claimedMessage, error) {
 		return claimedMessage{}, err
 	}
 
+	headers, err := asHeaders(row[w.schema.Headers])
+	if err != nil {
+		return claimedMessage{}, err
+	}
+
 	return claimedMessage{
 		message: Message{
 			ID:             asUUID(row[w.schema.ID]),
@@ -363,6 +369,7 @@ func (w *InboxWorker) toMessage(row map[string]any) (claimedMessage, error) {
 			Payload:        payload,
 			Attempt:        attempt,
 			CorrelationID:  asNullableString(row[w.schema.CorrelationID]),
+			Headers:        headers,
 		},
 		token: asUUID(row[w.schema.ClaimToken]),
 	}, nil
@@ -527,4 +534,37 @@ func asJSON(value any) (json.RawMessage, error) {
 	default:
 		return nil, fmt.Errorf("the payload column holds %T, which is not JSON", value)
 	}
+}
+
+// asHeaders decodes the headers column into a map. A NULL or empty value gives an empty map,
+// because QueueBox stores '{}' for a message without headers. Text that is not a JSON object of
+// strings is an error, exactly as a payload of the wrong type is.
+func asHeaders(value any) (map[string]string, error) {
+	var raw []byte
+
+	switch typed := value.(type) {
+	case nil:
+		return map[string]string{}, nil
+	case []byte:
+		raw = typed
+	case string:
+		raw = []byte(typed)
+	default:
+		return nil, fmt.Errorf("the headers column holds %T, which is not JSON", value)
+	}
+
+	if len(bytes.TrimSpace(raw)) == 0 {
+		return map[string]string{}, nil
+	}
+
+	var headers map[string]string
+	if err := json.Unmarshal(raw, &headers); err != nil {
+		return nil, fmt.Errorf("the headers column is not a JSON object of strings: %w", err)
+	}
+
+	if headers == nil {
+		headers = map[string]string{}
+	}
+
+	return headers, nil
 }

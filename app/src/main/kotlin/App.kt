@@ -154,6 +154,10 @@ internal fun runApp(env: () -> Map<String, String> = { System.getenv() }) {
         }
     }
 
+    startupStep("check the inbox table") {
+        requireInboxHeadersColumn(dataSource, config.database, dbType)
+    }
+
     val outboxRepository = repositoryFactory.createOutboxRepository()
     val inboxRepository = repositoryFactory.createInboxRepository()
     val transactionRunner = repositoryFactory.createTransactionRunner()
@@ -516,7 +520,8 @@ internal fun rabbitConsumerConfig(sourceName: String, source: SourceConfig.Rabbi
         aggregateIdPath = source.aggregateIdPath,
         eventTypePath = source.eventTypePath,
         declareQueue = source.declareQueue,
-        attributeHeaders = source.attributeHeaders
+        attributeHeaders = source.attributeHeaders,
+        filter = source.filter
     )
 
 /**
@@ -651,7 +656,8 @@ internal fun kafkaConsumerConfig(sourceName: String, source: SourceConfig.Kafka)
         saslMechanism = source.saslMechanism,
         saslUsername = source.saslUsername,
         saslPassword = source.saslPassword,
-        attributeHeaders = source.attributeHeaders
+        attributeHeaders = source.attributeHeaders,
+        filter = source.filter
     )
 
 /** Maps one configured destination to its domain type. Extracted from `main` for its size. */
@@ -721,7 +727,8 @@ internal fun natsConsumerConfig(sourceName: String, source: SourceConfig.Nats): 
     username = source.username,
     password = source.password,
     token = source.token,
-    attributeHeaders = source.attributeHeaders
+    attributeHeaders = source.attributeHeaders,
+    filter = source.filter
 )
 
 /** Builds one NATS consumer per NATS source. Extracted from `main` for the same reason. */

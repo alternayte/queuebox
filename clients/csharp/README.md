@@ -21,7 +21,7 @@ rolls your writes back and reports nothing as done.
 |---|---|
 | Framework | .NET 8.0 or later |
 | Database | PostgreSQL, through `Npgsql`, or SQL Server, through `Microsoft.Data.SqlClient` |
-| QueueBox | 0.1.0 or later, which is the V6 schema |
+| QueueBox | The V10 schema or later, which adds the inbox `headers` column |
 
 The package itself depends on no database driver. It talks to `System.Data.Common`, so one
 package serves both dialects, and your application brings the driver it already has.
@@ -95,6 +95,7 @@ resets, and every later claim on that source stalls behind it.
 | `message.Payload` | The JSON body, as a `JsonElement` |
 | `message.Attempt` | Zero on the first delivery |
 | `message.CorrelationId` | Nullable, for logs |
+| `message.Headers` | The stored broker or webhook headers, as `IReadOnlyDictionary<string, string>`. Empty when there are none |
 
 The claim token is absent on purpose. The library owns the token, because a handler that could
 reach it could complete a message out of band.

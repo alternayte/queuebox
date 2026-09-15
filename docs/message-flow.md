@@ -62,7 +62,7 @@ deliver.
 | `topic` | The rendered `sources.<name>.topic` template |
 | `key` | The inbox `aggregate_id` |
 | `payload` | The stored inbox payload |
-| `headers` | `x-inbox-id`, `x-source`, `x-idempotency-key`, and `X-Correlation-Id` when the message carries one |
+| `headers` | The inbox `headers`, then `x-inbox-id`, `x-source`, `x-idempotency-key`, and `X-Correlation-Id` when the message carries one. These four replace a received header of the same name in any letter case. |
 
 The topic template supports `{{ source }}` and `{{ eventType }}`. The default of an HTTP source is
 `{{ eventType }}`. The default of an AMQP source is `{{ source }}`, because an AMQP message carries
@@ -219,5 +219,6 @@ created_at      TIMESTAMP
 processed_at    TIMESTAMP
 claimed_at      TIMESTAMP           -- When the relay claimed the row (V3)
 correlation_id  VARCHAR(128)        -- Identifier that follows the message (V5)
+headers         JSONB               -- Received headers, one string value per key (V10)
 ```
 

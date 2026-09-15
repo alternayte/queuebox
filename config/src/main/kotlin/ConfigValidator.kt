@@ -182,6 +182,14 @@ object ConfigValidator {
             if (source is SourceConfig.Http) {
                 validateInboxAuth(source.auth, "Source '$name'", "sources.$name.auth")
             }
+            source.filter?.let { filter ->
+                filter.require.forEachIndexed { i, rule ->
+                    HeaderFilterValidator.validateRule(rule, "sources.$name.filter.require.$i")
+                }
+                filter.exclude.forEachIndexed { i, rule ->
+                    HeaderFilterValidator.validateRule(rule, "sources.$name.filter.exclude.$i")
+                }
+            }
         }
 
         // Validate destination auth and destination URL
@@ -476,7 +484,8 @@ object ConfigValidator {
                 "scheduledAt" to mapping.inbox.scheduledAt,
                 "attempt" to mapping.inbox.attempt,
                 "lastError" to mapping.inbox.lastError,
-                "correlationId" to mapping.inbox.correlationId
+                "correlationId" to mapping.inbox.correlationId,
+                "headers" to mapping.inbox.headers
             )
         )
     }

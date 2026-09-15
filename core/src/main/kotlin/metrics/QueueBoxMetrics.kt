@@ -90,6 +90,9 @@ class QueueBoxMetrics(private val registry: MeterRegistry) {
     // F-052: one counter per inbox rejection reason. The reason is a fixed enumeration.
     private val inboxRejectionCounters = mutableMapOf<String, Counter>()
 
+    // One counter per source that has a header filter. The source names come from configuration.
+    private val inboxFilteredCounters = mutableMapOf<String, Counter>()
+
     // F-052: one counter per HTTP status class. A raw status code is never a label.
     private val httpStatusCounters = mutableMapOf<String, Counter>()
 
@@ -298,6 +301,19 @@ class QueueBoxMetrics(private val registry: MeterRegistry) {
             Counter.builder("queuebox_inbox_rejections_total")
                 .description("Total inbox messages that QueueBox rejected, by reason")
                 .tag("reason", reason.label)
+                .register(registry)
+        }.increment()
+    }
+
+    /**
+     * Record one inbox message that the header filter of its source dropped.
+     */
+    @Synchronized
+    fun recordInboxFiltered(source: String) {
+        inboxFilteredCounters.getOrPut(source) {
+            Counter.builder("queuebox_inbox_filtered_total")
+                .description("Total inbox messages that the header filter of a source dropped")
+                .tag("source", source)
                 .register(registry)
         }.increment()
     }

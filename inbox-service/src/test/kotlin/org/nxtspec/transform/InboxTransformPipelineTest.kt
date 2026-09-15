@@ -305,4 +305,19 @@ class InboxTransformPipelineTest {
 
         assertEquals("", transformContext.topic)
     }
+
+    @Test
+    fun `an inbox transform reads the received headers`() = runTest {
+        val payload = buildJsonObject { put("id", "123") }
+        val context = createContext().copy(headers = mapOf("x-tenant" to "acme"))
+
+        val result = pipeline.transform(
+            payload,
+            TransformConfig(expression = """{ "tenant": ${'$'}headers.`x-tenant` }"""),
+            context
+        )
+
+        assertIs<InboxTransformResult.Success>(result)
+        assertEquals(buildJsonObject { put("tenant", "acme") }, result.payload)
+    }
 }

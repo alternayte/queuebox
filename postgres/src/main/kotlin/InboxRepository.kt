@@ -53,6 +53,7 @@ class InboxRepository(
                 it[state] = initialState
                 it[createdAt] = now
                 it[correlationId] = message.correlationId
+                it[headers] = HeaderJson.toElement(message.headers)
                 it[consumption] = message.consumption
                 it[scheduledAt] = databaseNow
             }
@@ -115,7 +116,8 @@ class InboxRepository(
             columnMapping.correlationId
         )}, target.${q(
             columnMapping.claimedAt
-        )}, target.${q(columnMapping.claimToken)}, target.${q(columnMapping.leaseExpiresAt)}
+        )}, target.${q(columnMapping.claimToken)}, target.${q(columnMapping.leaseExpiresAt)},
+                      target.${q(columnMapping.headers)}
         """.trimIndent()
 
         val now = Clock.System.now()
@@ -280,7 +282,8 @@ class InboxRepository(
         },
         claimedAt = getTimestamp(columnMapping.claimedAt)?.toInstant()?.let {
             kotlin.time.Instant.fromEpochSeconds(it.epochSecond, it.nano)
-        }
+        },
+        headers = HeaderJson.decode(getString(columnMapping.headers))
     )
 
     private fun stringToMessageState(state: String): MessageState = when (state) {

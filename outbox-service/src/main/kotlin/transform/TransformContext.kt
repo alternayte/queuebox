@@ -25,5 +25,7 @@ data class TransformContext(
     val topic: String,
     val attempt: Int,
     val timestamp: Instant,
-    val source: String? = null
+    val source: String? = null,
+    /** Bound as `$headers` when set. Only an inbox transform sets it. */
+    val headers: Map<String, String>? = null
 )

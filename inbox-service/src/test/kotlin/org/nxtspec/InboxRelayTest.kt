@@ -272,4 +272,28 @@ class InboxRelayTest {
         // The poll interval is 20 ms, so about 25 cycles ran inside one gauge interval.
         assertEquals(1, inbox.oldestPendingAgeCalls)
     }
+
+    @Test
+    fun `copies the received headers and keeps the relay headers over a received header of the same name`() =
+        runBlocking {
+            val message = inboxMessage().copy(
+                headers = mapOf(
+                    "x-tenant" to "acme",
+                    "X-Inbox-Id" to "forged",
+                    "x-source" to "forged",
+                    "x-correlation-id" to "forged"
+                )
+            )
+            val inbox = FakeInboxRepository(mutableListOf(message))
+            val outbox = FakeOutboxRepository()
+
+            relay(inbox, outbox).relayBatch()
+
+            val headers = outbox.inserted.single().headers
+            assertEquals("acme", headers["x-tenant"])
+            assertEquals(message.id.toString(), headers["x-inbox-id"])
+            assertEquals("stripe", headers["x-source"])
+            assertEquals(null, headers["X-Inbox-Id"])
+            assertEquals(null, headers["x-correlation-id"])
+        }
 }

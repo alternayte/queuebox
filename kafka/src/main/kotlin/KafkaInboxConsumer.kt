@@ -49,7 +49,9 @@ data class KafkaConsumerConfig(
     val saslUsername: String? = null,
     val saslPassword: Secret? = null,
     /** The header names that carry the three inbox attributes. See F-100. */
-    val attributeHeaders: AttributeHeaders = AttributeHeaders()
+    val attributeHeaders: AttributeHeaders = AttributeHeaders(),
+    /** Optional header filter. A record that does not pass is committed and not stored. */
+    val filter: HeaderFilterConfig? = null
 )
 
 /**
@@ -84,6 +86,7 @@ class KafkaInboxConsumer(
     private val consumerFactory: (KafkaConsumerConfig) -> Consumer<String, ByteArray> = ::createConsumer
 ) {
     private val log = logger<KafkaInboxConsumer>()
+    private val headerFilter = config.filter?.let(::HeaderFilter)
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
     @Volatile private var consumer: Consumer<String, ByteArray>? = null
@@ -167,8 +170,21 @@ class KafkaInboxConsumer(
     /** Returns true when the record is done and its offset may be committed. */
     private suspend fun handleRecord(record: ConsumerRecord<String, ByteArray>): Boolean {
         return try {
+            val headers = recordHeaders(record)
+            val failure = headerFilter?.firstFailure(headers)
+            if (failure != null) {
+                metricsCollector?.recordInboxFiltered(config.sourceName)
+                log.debug(
+                    "The record at offset {} of '{}' was filtered out by rule {}.",
+                    record.offset(),
+                    record.topic(),
+                    failure
+                )
+                return true
+            }
+
             val body = record.value() ?: ByteArray(0)
-            val payload = parsePayload(body) ?: return storeUnparsable(record, body)
+            val payload = parsePayload(body) ?: return storeUnparsable(record, body, headers)
 
             val correlationId = extractCorrelationId(record)
             val message = InboxMessage(
@@ -179,7 +195,8 @@ class KafkaInboxConsumer(
                 aggregateId = extractAggregateId(record, payload),
                 eventType = extractEventType(record, payload),
                 payload = payload,
-                correlationId = correlationId
+                correlationId = correlationId,
+                headers = headers
             )
 
             val transformed = applyTransform(message) ?: return true
@@ -210,7 +227,8 @@ class KafkaInboxConsumer(
             source = message.source,
             idempotencyKey = message.idempotencyKey,
             eventType = message.eventType,
-            timestamp = Clock.System.now()
+            timestamp = Clock.System.now(),
+            headers = message.headers
         )
         return when (val result = pipeline.transform(message.payload, transform, context)) {
             is InboxTransformResult.Success -> message.copy(payload = result.payload)
@@ -280,14 +298,19 @@ class KafkaInboxConsumer(
      * partition for ever. The body is preserved as a string inside a JSON object and the row is
      * stored dead, so an operator can still see what arrived.
      */
-    private suspend fun storeUnparsable(record: ConsumerRecord<String, ByteArray>, body: ByteArray): Boolean {
+    private suspend fun storeUnparsable(
+        record: ConsumerRecord<String, ByteArray>,
+        body: ByteArray,
+        headers: Map<String, String>
+    ): Boolean {
         val message = InboxMessage(
             consumption = config.consumption,
             id = UUID.randomUUID(),
             source = config.sourceName,
             idempotencyKey = bodyDigest(body),
             payload = JsonObject(mapOf("raw" to JsonPrimitive(body.decodeToString()))),
-            correlationId = extractCorrelationId(record)
+            correlationId = extractCorrelationId(record),
+            headers = headers
         )
         log.warn(
             "The record at offset {} of '{}' is not JSON. QueueBox stores it dead and moves the " +
@@ -308,6 +331,10 @@ class KafkaInboxConsumer(
     } catch (e: Exception) {
         null
     }
+
+    /** Every record header, one value per key. A repeated key keeps its last value. */
+    private fun recordHeaders(record: ConsumerRecord<String, ByteArray>): Map<String, String> =
+        record.headers().associate { it.key() to headerValueFromBytes(it.value() ?: ByteArray(0)) }
 
     private fun header(record: ConsumerRecord<String, ByteArray>, name: String): String? =
         record.headers().lastHeader(name)?.value()?.decodeToString()

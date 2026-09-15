@@ -404,6 +404,83 @@ sources:
       requestsPerMinute: 60               # The 61st request in a minute gets 429
 ```
 
+### Header Filter
+
+Each source can have a `filter` block. The filter reads the headers of a received message. It
+applies to every source type: `http`, `rabbitmq`, `kafka` and `nats`.
+
+| Field | Default | Description |
+|-------|---------|-------------|
+| `sources.<name>.filter.require` | empty | A list of rules. A message must match every rule. |
+| `sources.<name>.filter.exclude` | empty | A list of rules. A message must match no rule. |
+
+A message passes when it matches every `require` rule and no `exclude` rule. A source without a
+`filter` block stores every message.
+
+Each rule has these fields:
+
+| Field | Description |
+|-------|-------------|
+| `header` | The header name. Required. The name matches in any letter case. |
+| `equals` | The header value must be equal to this string. |
+| `in` | The header value must be equal to one string of this list. The list must not be empty. |
+| `matches` | The header value must match this topic glob. `*` matches one dot-separated segment. `**` matches anything. The pattern must not be blank. |
+| `exists` | `true` means the header must be present. |
+
+A rule sets exactly one of `equals`, `in`, `matches` or `exists`. QueueBox refuses to start when a
+rule sets none of them or more than one. QueueBox also refuses `exists: false`. To reject a message
+that carries a header, put an `exists: true` rule under `exclude`.
+
+A value matches exactly, in the same letter case. A rule with `equals`, `in` or `matches` does not
+match a message that lacks the header. So a `require` rule stops such a message, and an `exclude`
+rule lets it pass.
+
+```yaml
+sources:
+  orders:
+    type: rabbitmq
+    queueName: incoming-orders
+    connectionUrl: amqp://localhost:5672
+    idempotencyKeyPath: $.messageId
+    filter:
+      require:
+        - header: x-tenant
+          equals: acme
+        - header: x-region
+          in: [eu, uk]
+        - header: x-event
+          matches: "order.**"
+      exclude:
+        - header: x-test
+          exists: true
+```
+
+The same filter as `QUEUEBOX_` variables. A single `_` becomes a `.` in the path. A digit segment
+is a list index.
+
+```bash
+QUEUEBOX_SOURCES_ORDERS_FILTER_REQUIRE_0_HEADER=x-tenant
+QUEUEBOX_SOURCES_ORDERS_FILTER_REQUIRE_0_EQUALS=acme
+QUEUEBOX_SOURCES_ORDERS_FILTER_REQUIRE_1_HEADER=x-region
+QUEUEBOX_SOURCES_ORDERS_FILTER_REQUIRE_1_IN_0=eu
+QUEUEBOX_SOURCES_ORDERS_FILTER_REQUIRE_1_IN_1=uk
+QUEUEBOX_SOURCES_ORDERS_FILTER_REQUIRE_2_HEADER=x-event
+QUEUEBOX_SOURCES_ORDERS_FILTER_REQUIRE_2_MATCHES=order.**
+QUEUEBOX_SOURCES_ORDERS_FILTER_EXCLUDE_0_HEADER=x-test
+QUEUEBOX_SOURCES_ORDERS_FILTER_EXCLUDE_0_EXISTS=true
+```
+
+The filter runs before the idempotency key extraction and before the source transform. When a
+message does not pass, QueueBox does these things:
+
+- A RabbitMQ or NATS source acknowledges the message. A Kafka source commits the offset.
+- An HTTP source answers `202 Accepted` with the body `{"status":"filtered"}`. The sender does not
+  retry.
+- QueueBox stores no row, not even a dead row.
+- The counter `queuebox_inbox_filtered_total{source}` increases by one.
+- QueueBox writes one debug log line. The line names the first rule that failed, for example
+  `require[0] (x-tenant equals)`. It never contains a header value.
+
 ### Outbound HTTP Limits
 
 QueueBox bounds the error text of a failed publish and can refuse a destination on a private
@@ -769,4 +846,16 @@ Each table below is the complete set. A key that you omit keeps the default name
 | `processedAt` | processed_at | Processing timestamp |
 | `claimedAt` | claimed_at | Time of the claim. The reclaim step reads it. |
 | `correlationId` | correlation_id | Identifier that follows the message through every log line |
+| `headers` | headers | Received message headers. Required. See the note below. |
+
+**The inbox table must have a headers column.** At startup QueueBox reads the columns of the inbox
+table. When the column that `columnMapping.inbox.headers` names is absent, QueueBox stops. The error
+names the table and the column, and it contains the `ALTER TABLE` statement for your database:
+
+```sql
+-- PostgreSQL
+ALTER TABLE "my_inbox_table" ADD COLUMN "headers" JSONB NOT NULL DEFAULT '{}';
+-- SQL Server
+ALTER TABLE [my_inbox_table] ADD [headers] NVARCHAR(MAX) NOT NULL DEFAULT '{}';
+```
 

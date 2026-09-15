@@ -106,6 +106,7 @@ class TransformEngine(private val maxCacheSize: Int = 1000) {
         frame.bind("attempt", context.attempt)
         frame.bind("timestamp", context.timestamp.toString())
         context.source?.let { frame.bind("source", it) }
+        context.headers?.let { frame.bind("headers", it) }
     }
 
     /**

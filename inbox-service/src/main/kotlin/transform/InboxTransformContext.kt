@@ -12,19 +12,22 @@ import kotlin.time.Instant
  * - $idempotencyKey - The extracted idempotency key (may be null if extraction failed)
  * - $eventType - The extracted event type (may be null if not configured)
  * - $timestamp - ISO-8601 formatted timestamp of when the message was received
+ * - $headers - The headers that the broker or the webhook request carried
  *
  * @property messageId A unique identifier generated for this inbox message
  * @property source The configured source name
  * @property idempotencyKey The idempotency key extracted from the original payload
  * @property eventType The event type extracted from the original payload (if configured)
  * @property timestamp The timestamp when the message was received
+ * @property headers The received headers, one value per key
  */
 data class InboxTransformContext(
     val messageId: UUID,
     val source: String,
     val idempotencyKey: String?,
     val eventType: String?,
-    val timestamp: Instant
+    val timestamp: Instant,
+    val headers: Map<String, String> = emptyMap()
 ) {
     /**
      * Converts to the outbox [TransformContext] for reusing [TransformEngine].
@@ -35,12 +38,14 @@ data class InboxTransformContext(
      * - 0 -> attempt (always 0 for a source transform, which runs once)
      * - timestamp -> timestamp
      * - source -> source
+     * - headers -> headers
      */
     fun toTransformContext(): TransformContext = TransformContext(
         messageId = messageId,
         topic = eventType ?: "",
         attempt = 0,
         timestamp = timestamp,
-        source = source
+        source = source,
+        headers = headers
     )
 }
