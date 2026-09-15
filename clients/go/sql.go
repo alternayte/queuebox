@@ -37,9 +37,10 @@ type Schema struct {
 	EventType      string
 	Payload        string
 	CorrelationID  string
+	Headers        string
 }
 
-// DefaultSchema returns the QueueBox V6 names.
+// DefaultSchema returns the QueueBox V10 names.
 func DefaultSchema() Schema {
 	return Schema{
 		Table:          "inbox",
@@ -60,6 +61,7 @@ func DefaultSchema() Schema {
 		EventType:      "event_type",
 		Payload:        "payload",
 		CorrelationID:  "correlation_id",
+		Headers:        "headers",
 	}
 }
 

@@ -129,6 +129,7 @@ Write the placeholder style of your own database: `$1` for PostgreSQL, `@p1` for
 | `message.Payload` | The JSON body. `UnmarshalPayload` parses it |
 | `message.Attempt` | Zero on the first delivery |
 | `message.CorrelationID` | Nullable, for logs |
+| `message.Headers` | The headers the source received, one value per key. An empty map when there are none |
 
 The claim token is absent on purpose. The library owns the token, because a handler that could
 reach it could complete a message out of band.

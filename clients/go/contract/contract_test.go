@@ -123,6 +123,7 @@ func runContract(t *testing.T, h harness) {
 		id := h.insertPending(t, pendingRow{
 			source: source, idempotencyKey: "key-1", payload: `{"id":"order-1","total":42}`,
 			aggregateID: &aggregate, eventType: &event, correlationID: &correlation, attempt: 2,
+			headers: `{"x-tenant":"acme","content-type":"application/json"}`,
 		})
 
 		var seen queuebox.Message
@@ -150,6 +151,10 @@ func runContract(t *testing.T, h harness) {
 
 		if seen.CorrelationID == nil || *seen.CorrelationID != correlation {
 			t.Error("the correlation identifier is wrong")
+		}
+
+		if len(seen.Headers) != 2 || seen.Headers["x-tenant"] != "acme" || seen.Headers["content-type"] != "application/json" {
+			t.Errorf("the headers are %v", seen.Headers)
 		}
 
 		var payload struct {
@@ -180,6 +185,10 @@ func runContract(t *testing.T, h harness) {
 
 		if seen.AggregateID != nil || seen.EventType != nil || seen.CorrelationID != nil || seen.Attempt != 0 {
 			t.Errorf("a nullable field is not nil: %+v", seen)
+		}
+
+		if seen.Headers == nil || len(seen.Headers) != 0 {
+			t.Errorf("the default headers are %v and they must be an empty map", seen.Headers)
 		}
 	})
 
