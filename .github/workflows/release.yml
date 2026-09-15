@@ -77,7 +77,7 @@ jobs:
           push: true
           # The build context has no .git, so the version reaches Gradle as a build argument.
           build-args: |
-            QUEUEBOX_VERSION=${{ steps.version.outputs.version }}
+            BUILD_VERSION=${{ steps.version.outputs.version }}
           # The exact version, the minor version and `latest`.
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.version }}
