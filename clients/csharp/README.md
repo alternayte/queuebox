@@ -95,6 +95,7 @@ resets, and every later claim on that source stalls behind it.
 | `message.Payload` | The JSON body, as a `JsonElement` |
 | `message.Attempt` | Zero on the first delivery |
 | `message.CorrelationId` | Nullable, for logs |
+| `message.Headers` | The stored broker or webhook headers, as `IReadOnlyDictionary<string, string>`. Empty when there are none |
 
 The claim token is absent on purpose. The library owns the token, because a handler that could
 reach it could complete a message out of band.

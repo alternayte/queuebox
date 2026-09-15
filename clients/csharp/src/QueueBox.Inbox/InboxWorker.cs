@@ -292,9 +292,36 @@ public sealed class InboxWorker
             reader.GetNullableString(schema.EventType),
             document.RootElement.Clone(),
             reader.GetFieldValue<int>(reader.GetOrdinal(schema.Attempt)),
-            reader.GetNullableString(schema.CorrelationId));
+            reader.GetNullableString(schema.CorrelationId),
+            ReadHeaders(reader.GetNullableString(schema.Headers)));
 
         return new ClaimedMessage(message, reader.GetFieldValue<Guid>(reader.GetOrdinal(schema.ClaimToken)));
+    }
+
+    // A headers value that is not a JSON object of strings throws JsonException, as a bad payload
+    // does. QueueBox always writes a flat string map, so any other shape means a corrupt row.
+    internal static IReadOnlyDictionary<string, string> ReadHeaders(string? text)
+    {
+        using var document = JsonDocument.Parse(text ?? "{}");
+
+        if (document.RootElement.ValueKind != JsonValueKind.Object)
+        {
+            throw new JsonException($"The headers column holds a JSON {document.RootElement.ValueKind}, not an object.");
+        }
+
+        var headers = new Dictionary<string, string>(StringComparer.Ordinal);
+
+        foreach (var property in document.RootElement.EnumerateObject())
+        {
+            if (property.Value.ValueKind != JsonValueKind.String)
+            {
+                throw new JsonException($"The header '{property.Name}' holds a JSON {property.Value.ValueKind}, not a string.");
+            }
+
+            headers[property.Name] = property.Value.GetString()!;
+        }
+
+        return headers;
     }
 
     /// <summary>Waits, and reports whether the wait finished rather than the worker stopping.</summary>

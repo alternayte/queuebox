@@ -69,6 +69,9 @@ public sealed record InboxSchema
     /// <summary>The correlation identifier, which can be null.</summary>
     public string CorrelationId { get; init; } = "correlation_id";
 
+    /// <summary>The stored headers, a JSON object with one string value per key.</summary>
+    public string Headers { get; init; } = "headers";
+
     /// <summary>Reject a name that is not a plain SQL identifier.</summary>
     /// <exception cref="ArgumentException">A name contains a character that is not allowed.</exception>
     public void Validate()
@@ -102,5 +105,6 @@ public sealed record InboxSchema
         yield return (nameof(EventType), EventType);
         yield return (nameof(Payload), Payload);
         yield return (nameof(CorrelationId), CorrelationId);
+        yield return (nameof(Headers), Headers);
     }
 }

@@ -53,16 +53,17 @@ public sealed class PostgreSqlHarness : IDatabaseHarness, IAsyncLifetime
         string? aggregateId = null,
         string? eventType = null,
         string? correlationId = null,
-        int attempt = 0)
+        int attempt = 0,
+        string headersJson = "{}")
     {
         await using var connection = await DataSource.OpenConnectionAsync();
         await using var command = connection.CreateCommand();
 
         command.CommandText = """
             INSERT INTO inbox (source, idempotency_key, aggregate_id, event_type, payload, state,
-                               consumption, scheduled_at, attempt, correlation_id)
+                               consumption, scheduled_at, attempt, correlation_id, headers)
             VALUES (@source, @key, @aggregate, @type, @payload::jsonb, 'pending',
-                    'pull', CURRENT_TIMESTAMP, @attempt, @correlation)
+                    'pull', CURRENT_TIMESTAMP, @attempt, @correlation, @headers::jsonb)
             RETURNING id;
             """;
 
@@ -73,6 +74,7 @@ public sealed class PostgreSqlHarness : IDatabaseHarness, IAsyncLifetime
         command.Parameters.AddWithValue("@payload", payloadJson);
         command.Parameters.AddWithValue("@attempt", attempt);
         command.Parameters.AddWithValue("@correlation", (object?)correlationId ?? DBNull.Value);
+        command.Parameters.AddWithValue("@headers", headersJson);
 
         return (Guid)(await command.ExecuteScalarAsync())!;
     }
@@ -138,6 +140,7 @@ public sealed class PostgreSqlHarness : IDatabaseHarness, IAsyncLifetime
             IdempotencyKey = "dedup_key",
             ClaimToken = "lease_token",
             Attempt = "tries",
+            Headers = "meta",
         };
 
         await ExecuteAsync("DROP TABLE IF EXISTS qb_messages");
@@ -149,6 +152,7 @@ public sealed class PostgreSqlHarness : IDatabaseHarness, IAsyncLifetime
                 aggregate_id VARCHAR(255),
                 event_type VARCHAR(255),
                 body JSONB NOT NULL,
+                meta JSONB NOT NULL DEFAULT '{}',
                 row_state VARCHAR(50) NOT NULL DEFAULT 'pending',
                 created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 processed_at TIMESTAMPTZ,

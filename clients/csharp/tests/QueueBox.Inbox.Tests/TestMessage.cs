@@ -15,5 +15,6 @@ internal static class TestMessage
         eventType: null,
         EmptyPayload,
         attempt,
-        correlationId: null);
+        correlationId: null,
+        headers: new Dictionary<string, string>());
 }
