@@ -43,11 +43,11 @@ export class PostgresHarness implements DatabaseHarness {
   async insertPending(row: PendingRow): Promise<string> {
     const result = await this.#requirePool().query(
       `INSERT INTO inbox (source, idempotency_key, aggregate_id, event_type, payload, state,
-                          consumption, scheduled_at, attempt, correlation_id)
-       VALUES ($1, $2, $3, $4, $5::jsonb, 'pending', 'pull', CURRENT_TIMESTAMP, $6, $7)
+                          consumption, scheduled_at, attempt, correlation_id, headers)
+       VALUES ($1, $2, $3, $4, $5::jsonb, 'pending', 'pull', CURRENT_TIMESTAMP, $6, $7, $8::jsonb)
        RETURNING id`,
       [row.source, row.idempotencyKey, row.aggregateId ?? null, row.eventType ?? null,
-        row.payload, row.attempt ?? 0, row.correlationId ?? null],
+        row.payload, row.attempt ?? 0, row.correlationId ?? null, row.headers ?? "{}"],
     );
 
     return String(result.rows[0].id);
@@ -92,6 +92,7 @@ export class PostgresHarness implements DatabaseHarness {
         aggregate_id VARCHAR(255),
         event_type VARCHAR(255),
         body JSONB NOT NULL,
+        meta JSONB NOT NULL DEFAULT '{}',
         row_state VARCHAR(50) NOT NULL DEFAULT 'pending',
         created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
         processed_at TIMESTAMPTZ,

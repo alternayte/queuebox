@@ -17,6 +17,8 @@ export interface InboxMessage {
   readonly eventType: string | null;
   /** The JSON body, parsed. */
   readonly payload: unknown;
+  /** The headers the broker message or the webhook request carried, one value per key. */
+  readonly headers: Readonly<Record<string, string>>;
   /** The delivery counter. It is zero on the first delivery. */
   readonly attempt: number;
   /** The correlation identifier for logs, or null. */

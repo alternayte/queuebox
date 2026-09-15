@@ -64,11 +64,12 @@ export class SqlServerHarness implements DatabaseHarness {
       .input("payload", row.payload)
       .input("attempt", row.attempt ?? 0)
       .input("correlation", row.correlationId ?? null)
+      .input("headers", row.headers ?? "{}")
       .query(`INSERT INTO inbox (source, idempotency_key, aggregate_id, event_type, payload, state,
-                                 consumption, scheduled_at, attempt, correlation_id)
+                                 consumption, scheduled_at, attempt, correlation_id, headers)
               OUTPUT INSERTED.id
               VALUES (@source, @key, @aggregate, @type, @payload, 'pending', 'pull',
-                      SYSUTCDATETIME(), @attempt, @correlation)`);
+                      SYSUTCDATETIME(), @attempt, @correlation, @headers)`);
 
     return String(result.recordset[0].id);
   }
@@ -115,6 +116,7 @@ export class SqlServerHarness implements DatabaseHarness {
         aggregate_id NVARCHAR(255),
         event_type NVARCHAR(255),
         body NVARCHAR(MAX) NOT NULL,
+        meta NVARCHAR(MAX) NOT NULL DEFAULT '{}',
         row_state NVARCHAR(50) NOT NULL DEFAULT 'pending',
         created_at DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
         processed_at DATETIME2,

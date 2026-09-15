@@ -23,6 +23,7 @@ export interface InboxSchema {
   readonly aggregateId: string;
   readonly eventType: string;
   readonly payload: string;
+  readonly headers: string;
   readonly correlationId: string;
 }
 
@@ -45,6 +46,7 @@ export const defaultSchema: InboxSchema = Object.freeze({
   aggregateId: "aggregate_id",
   eventType: "event_type",
   payload: "payload",
+  headers: "headers",
   correlationId: "correlation_id",
 });
 

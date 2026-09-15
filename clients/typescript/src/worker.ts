@@ -273,6 +273,7 @@ export class InboxWorker {
     const s = this.#schema;
     const text = (value: unknown): string | null => (value === null || value === undefined ? null : String(value));
     const raw = row[s.payload];
+    const headers = row[s.headers];
 
     return {
       message: {
@@ -283,6 +284,7 @@ export class InboxWorker {
         eventType: text(row[s.eventType]),
         // PostgreSQL returns jsonb already parsed. SQL Server returns the text of an nvarchar.
         payload: typeof raw === "string" ? JSON.parse(raw) : raw,
+        headers: typeof headers === "string" ? JSON.parse(headers) : headers,
         attempt: Number(row[s.attempt]),
         correlationId: text(row[s.correlationId]),
       },

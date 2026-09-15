@@ -13,6 +13,7 @@ function message(attempt: number): InboxMessage {
     eventType: null,
     payload: {},
     attempt,
+    headers: {},
     correlationId: null,
   };
 }

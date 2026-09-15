@@ -91,6 +91,7 @@ are the second argument, in the order the statement names them.
 | `message.aggregateId` | Nullable |
 | `message.eventType` | Nullable |
 | `message.payload` | The JSON body, parsed |
+| `message.headers` | The stored headers, one string value per key |
 | `message.attempt` | Zero on the first delivery |
 | `message.correlationId` | Nullable, for logs |
 

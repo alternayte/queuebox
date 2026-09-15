@@ -33,6 +33,8 @@ export interface PendingRow {
   readonly aggregateId?: string | null;
   readonly eventType?: string | null;
   readonly correlationId?: string | null;
+  /** The headers as JSON text. The column default applies when this is absent. */
+  readonly headers?: string;
   readonly attempt?: number;
 }
 
@@ -66,6 +68,7 @@ export function mappedSchema(base: InboxSchema): InboxSchema {
     state: "row_state",
     source: "channel",
     payload: "body",
+    headers: "meta",
     idempotencyKey: "dedup_key",
     claimToken: "lease_token",
     attempt: "tries",
