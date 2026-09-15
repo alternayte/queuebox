@@ -3,7 +3,7 @@
 
 # Build stage
 # The tag stays next to the digest, so Dependabot bumps the digest within the same tag.
-FROM gradle:8.13-jdk21@sha256:67b8c4bfd2b064e58a7307e2da1fc3881bc03ecc7a57cf61d8b570a02ebfaea2 AS builder
+FROM gradle:9.7-jdk21@sha256:42476a6a7f47c351b67769e87fcf897a97b07d3859b8a893fb44e8bc8431b02a AS builder
 WORKDIR /app
 COPY . .
 # .dockerignore excludes .git, so Gradle cannot derive the version from the tag. The release passes it.
