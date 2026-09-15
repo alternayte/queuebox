@@ -7,7 +7,7 @@ dependencies {
     implementation(libs.slf4j.api)
     implementation(libs.postgresql)
     implementation(libs.mssql.jdbc)
-    val debeziumVersion = "3.4.3.Final"
+    val debeziumVersion = "3.6.2.Final"
     implementation("io.debezium:debezium-api:$debeziumVersion")
     implementation("io.debezium:debezium-embedded:$debeziumVersion")
     implementation("io.debezium:debezium-connector-postgres:$debeziumVersion")
