@@ -31,3 +31,11 @@ updates:
     schedule:
       interval: weekly
       day: monday
+    # A major version of the build image is a Gradle major, and the wrapper decides the Gradle
+    # version. A major version of the runtime image is a Java major, and F-042 keeps Java 21.
+    # Both move on purpose, with the wrapper or the toolchain, and never as a digest bump.
+    ignore:
+      - dependency-name: gradle
+        update-types: ["version-update:semver-major"]
+      - dependency-name: eclipse-temurin
+        update-types: ["version-update:semver-major"]
