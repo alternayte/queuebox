@@ -188,7 +188,7 @@ class PullLeaseTest : PostgresTestBase() {
     }
 
     @Test fun `retention rejects active work`() = runBlocking {
-        val now = kotlinx.datetime.Clock.System.now()
+        val now = kotlin.time.Clock.System.now()
         assertFailsWith<IllegalArgumentException> { repository.deleteOlderThan("pending", now, 10) }
         assertFailsWith<IllegalArgumentException> { outbox.deleteExceptMostRecent("processing", 0, 10) }
         Unit

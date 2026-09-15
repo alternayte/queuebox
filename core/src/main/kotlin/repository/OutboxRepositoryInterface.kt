@@ -1,9 +1,9 @@
 package org.nxtspec.repository
 
-import kotlinx.datetime.Instant
 import org.nxtspec.OutboxMessage
 import java.util.UUID
 import kotlin.time.Duration
+import kotlin.time.Instant
 
 /**
  * Interface for outbox repository operations.

@@ -1,17 +1,15 @@
 package org.nxtspec
 
 import com.zaxxer.hikari.HikariDataSource
-import kotlinx.datetime.Clock
-import kotlinx.datetime.Instant
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
-import org.jetbrains.exposed.sql.SchemaUtils
-import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
-import org.jetbrains.exposed.sql.deleteAll
-import org.jetbrains.exposed.sql.insert
-import org.jetbrains.exposed.sql.selectAll
-import org.jetbrains.exposed.sql.transactions.transaction
-import org.jetbrains.exposed.sql.update
+import org.jetbrains.exposed.v1.core.eq
+import org.jetbrains.exposed.v1.jdbc.SchemaUtils
+import org.jetbrains.exposed.v1.jdbc.deleteAll
+import org.jetbrains.exposed.v1.jdbc.insert
+import org.jetbrains.exposed.v1.jdbc.selectAll
+import org.jetbrains.exposed.v1.jdbc.transactions.transaction
+import org.jetbrains.exposed.v1.jdbc.update
 import org.junit.jupiter.api.AfterAll
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeAll
@@ -20,6 +18,8 @@ import org.testcontainers.containers.MSSQLServerContainer
 import org.testcontainers.containers.wait.strategy.Wait
 import java.time.Duration
 import java.util.UUID
+import kotlin.time.Clock
+import kotlin.time.Instant
 
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 abstract class SqlServerTestBase {
@@ -233,8 +233,8 @@ abstract class SqlServerTestBase {
         transaction {
             SqlServerOutboxTable.update({ SqlServerOutboxTable.id eq id }) {
                 it[SqlServerOutboxTable.claimedAt] = claimedAt
-                it[SqlServerOutboxTable.leaseExpiresAt] = object : org.jetbrains.exposed.sql.Expression<Instant>() {
-                    override fun toQueryBuilder(queryBuilder: org.jetbrains.exposed.sql.QueryBuilder) {
+                it[SqlServerOutboxTable.leaseExpiresAt] = object : org.jetbrains.exposed.v1.core.Expression<Instant>() {
+                    override fun toQueryBuilder(queryBuilder: org.jetbrains.exposed.v1.core.QueryBuilder) {
                         val remaining = (
                             claimedAt + kotlin.time.Duration.parse(
                                 "5m"
@@ -251,8 +251,8 @@ abstract class SqlServerTestBase {
         transaction {
             SqlServerInboxTable.update({ SqlServerInboxTable.id eq id }) {
                 it[SqlServerInboxTable.claimedAt] = claimedAt
-                it[SqlServerInboxTable.leaseExpiresAt] = object : org.jetbrains.exposed.sql.Expression<Instant>() {
-                    override fun toQueryBuilder(queryBuilder: org.jetbrains.exposed.sql.QueryBuilder) {
+                it[SqlServerInboxTable.leaseExpiresAt] = object : org.jetbrains.exposed.v1.core.Expression<Instant>() {
+                    override fun toQueryBuilder(queryBuilder: org.jetbrains.exposed.v1.core.QueryBuilder) {
                         val remaining = (
                             claimedAt + kotlin.time.Duration.parse(
                                 "5m"

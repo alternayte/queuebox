@@ -1,10 +1,10 @@
 package org.nxtspec.repository
 
-import kotlinx.datetime.Instant
 import org.nxtspec.InboxMessage
 import org.nxtspec.InboxResult
 import java.util.UUID
 import kotlin.time.Duration
+import kotlin.time.Instant
 
 /**
  * Interface for inbox repository operations.

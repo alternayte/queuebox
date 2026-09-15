@@ -9,21 +9,19 @@ import io.ktor.server.request.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
 import kotlinx.coroutines.runBlocking
-import kotlinx.datetime.Clock
-import kotlinx.datetime.Instant
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonObject
-import org.jetbrains.exposed.sql.Database
-import org.jetbrains.exposed.sql.SchemaUtils
-import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
-import org.jetbrains.exposed.sql.and
-import org.jetbrains.exposed.sql.deleteAll
-import org.jetbrains.exposed.sql.insert
-import org.jetbrains.exposed.sql.selectAll
-import org.jetbrains.exposed.sql.transactions.TransactionManager
-import org.jetbrains.exposed.sql.transactions.transaction
-import org.jetbrains.exposed.sql.update
+import org.jetbrains.exposed.v1.core.and
+import org.jetbrains.exposed.v1.core.eq
+import org.jetbrains.exposed.v1.jdbc.Database
+import org.jetbrains.exposed.v1.jdbc.SchemaUtils
+import org.jetbrains.exposed.v1.jdbc.deleteAll
+import org.jetbrains.exposed.v1.jdbc.insert
+import org.jetbrains.exposed.v1.jdbc.selectAll
+import org.jetbrains.exposed.v1.jdbc.transactions.TransactionManager
+import org.jetbrains.exposed.v1.jdbc.transactions.transaction
+import org.jetbrains.exposed.v1.jdbc.update
 import org.junit.jupiter.api.AfterAll
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeAll
@@ -55,6 +53,8 @@ import java.net.ServerSocket
 import java.time.Duration
 import java.util.UUID
 import java.util.concurrent.CopyOnWriteArrayList
+import kotlin.time.Clock
+import kotlin.time.Instant
 
 /**
  * Base class for E2E tests providing shared TestContainers infrastructure.
@@ -144,8 +144,8 @@ abstract class E2ETestBase {
      * `scheduledAt` in production. Evaluating "now" on the database, rather than in the JVM,
      * removes the clock the two could otherwise disagree on.
      */
-    private val databaseNow = object : org.jetbrains.exposed.sql.Expression<Instant>() {
-        override fun toQueryBuilder(queryBuilder: org.jetbrains.exposed.sql.QueryBuilder) {
+    private val databaseNow = object : org.jetbrains.exposed.v1.core.Expression<Instant>() {
+        override fun toQueryBuilder(queryBuilder: org.jetbrains.exposed.v1.core.QueryBuilder) {
             queryBuilder.append("clock_timestamp()")
         }
     }
@@ -502,7 +502,7 @@ abstract class E2ETestBase {
      */
     protected fun forwardedIdempotencyKeysInOrder(): List<String> = transaction {
         OutboxTable.selectAll()
-            .orderBy(OutboxTable.createdAt to org.jetbrains.exposed.sql.SortOrder.ASC)
+            .orderBy(OutboxTable.createdAt to org.jetbrains.exposed.v1.core.SortOrder.ASC)
             .mapNotNull { row ->
                 (row[OutboxTable.headers] as? JsonObject)
                     ?.get("x-idempotency-key")

@@ -12,7 +12,6 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
-import kotlinx.datetime.Clock
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
@@ -29,6 +28,7 @@ import org.nxtspec.transform.InboxTransformContext
 import org.nxtspec.transform.InboxTransformPipeline
 import org.nxtspec.transform.InboxTransformResult
 import java.util.UUID
+import kotlin.time.Clock
 
 data class RabbitConsumerConfig(
     val consumption: String = "push",

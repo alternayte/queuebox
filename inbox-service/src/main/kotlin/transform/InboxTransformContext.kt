@@ -1,7 +1,7 @@
 package org.nxtspec.transform
 
-import kotlinx.datetime.Instant
 import java.util.UUID
+import kotlin.time.Instant
 
 /**
  * Context variables that are injected into inbox transform expressions.

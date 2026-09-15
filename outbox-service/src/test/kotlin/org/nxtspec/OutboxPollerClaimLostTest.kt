@@ -7,13 +7,13 @@ import io.mockk.mockk
 import io.mockk.verify
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
-import kotlinx.datetime.Clock
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import org.nxtspec.metrics.MetricsCollectorInterface
 import org.nxtspec.repository.OutboxRepositoryInterface
 import java.util.UUID
 import kotlin.test.Test
+import kotlin.time.Clock
 
 /**
  * Seventh review gate. The poller must observe a lost claim on every terminal write.

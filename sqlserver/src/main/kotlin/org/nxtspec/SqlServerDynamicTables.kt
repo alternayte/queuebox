@@ -1,8 +1,9 @@
 package org.nxtspec
 
-import org.jetbrains.exposed.dao.id.UUIDTable
-import org.jetbrains.exposed.sql.Column
-import org.jetbrains.exposed.sql.kotlin.datetime.timestamp
+import org.jetbrains.exposed.v1.core.Column
+import org.jetbrains.exposed.v1.core.dao.id.java.UUIDTable
+import org.jetbrains.exposed.v1.core.java.javaUUID
+import org.jetbrains.exposed.v1.datetime.timestamp
 
 /**
  * Dynamic SQL Server outbox table definition that uses configurable column names.
@@ -28,7 +29,7 @@ class SqlServerDynamicOutboxTable(val mapping: OutboxColumnMapping, tableName: S
     val createdAt = timestamp(mapping.createdAt)
     val updatedAt = timestamp(mapping.updatedAt)
     val claimedAt = timestamp(mapping.claimedAt).nullable()
-    val claimToken = uuid(mapping.claimToken).nullable()
+    val claimToken = javaUUID(mapping.claimToken).nullable()
     val leaseExpiresAt = timestamp(mapping.leaseExpiresAt).nullable()
     val lastError: Column<String?> = text(mapping.lastError).nullable()
 
@@ -58,11 +59,11 @@ class SqlServerDynamicInboxTable(val mapping: InboxColumnMapping, tableName: Str
     val createdAt = timestamp(mapping.createdAt)
     val processedAt = timestamp(mapping.processedAt).nullable()
     val claimedAt = timestamp(mapping.claimedAt).nullable()
-    val claimToken = uuid(mapping.claimToken).nullable()
+    val claimToken = javaUUID(mapping.claimToken).nullable()
     val leaseExpiresAt = timestamp(mapping.leaseExpiresAt).nullable()
     val correlationId: Column<String?> = varchar(mapping.correlationId, 128).nullable()
     val consumption = varchar(mapping.consumption, 4).default("push")
-    val scheduledAt = timestamp(mapping.scheduledAt).clientDefault { kotlinx.datetime.Clock.System.now() }
+    val scheduledAt = timestamp(mapping.scheduledAt).clientDefault { kotlin.time.Clock.System.now() }
     val attempt = integer(mapping.attempt).default(0)
     val lastError = text(mapping.lastError).nullable()
 

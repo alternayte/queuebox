@@ -449,7 +449,7 @@ class E2EMetricsFlowTest : E2ETestBase() {
         insertOutboxMessage(
             topic = "orders.created",
             payload = JsonObject(emptyMap()),
-            scheduledAt = kotlinx.datetime.Clock.System.now() + kotlin.time.Duration.parse("1h")
+            scheduledAt = kotlin.time.Clock.System.now() + kotlin.time.Duration.parse("1h")
         )
 
         // The poller refreshes the gauge on its tick, so wait for the value rather than assume it.

@@ -1,6 +1,5 @@
 package org.nxtspec
 
-import kotlinx.datetime.Clock
 import org.junit.jupiter.api.Assertions.assertTimeoutPreemptively
 import org.junit.jupiter.api.Test
 import org.nxtspec.transform.TransformContext
@@ -14,6 +13,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
+import kotlin.time.Clock
 
 /**
  * Concurrency test for the bounded expression cache in TransformEngine.
