@@ -6,7 +6,9 @@
 FROM gradle:8.13-jdk21@sha256:67b8c4bfd2b064e58a7307e2da1fc3881bc03ecc7a57cf61d8b570a02ebfaea2 AS builder
 WORKDIR /app
 COPY . .
-RUN gradle :app:installDist --no-daemon
+# .dockerignore excludes .git, so Gradle cannot derive the version from the tag. The release passes it.
+ARG QUEUEBOX_VERSION=0.0.0-SNAPSHOT
+RUN gradle :app:installDist --no-daemon -PqueueboxVersion=${QUEUEBOX_VERSION}
 
 # Runtime stage
 FROM eclipse-temurin:21-jre-alpine@sha256:974b08960c5d96694c780e65b2d5705268ab1e1ca1a0dd0caf4ba6c3fe34d699
