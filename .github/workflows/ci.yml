@@ -584,6 +584,13 @@ jobs:
           sudo mkdir -p /etc/queuebox
           sudo cp examples/queuebox.yml /etc/queuebox/queuebox.yml
 
+      - name: Build before the run, so the readiness budget covers the start alone
+        # `./gradlew run` downloads the Gradle distribution and builds on a cold runner. That work
+        # took almost the whole readiness budget of the next step, and the instance answered one
+        # second after the budget expired. The build belongs outside the budget, because the step
+        # measures the start of the instance and not the speed of the build.
+        run: ./gradlew classes --quiet
+
       - name: Step 3 and step 4, set the variables and run
         run: |
           export QUEUEBOX_DATABASE_URL=jdbc:postgresql://localhost:5432/queuebox
