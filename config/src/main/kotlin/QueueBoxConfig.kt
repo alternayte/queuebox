@@ -296,6 +296,11 @@ sealed class DestinationConfig {
          * [org.nxtspec.Destination.Companion.PERMITTED_ADDRESS_FROM_COLUMNS].
          */
         val exchangeFrom: String? = null,
+        /**
+         * The AMQP delivery mode: `persistent` or `transient`. A persistent message in a durable
+         * queue survives a broker restart. A transient message does not.
+         */
+        val deliveryMode: String = "persistent",
         override val transform: TransformConfig? = null
     ) : DestinationConfig() {
         /**
@@ -303,7 +308,8 @@ sealed class DestinationConfig {
          */
         override fun toString(): String = "RabbitMQ(url=${CredentialMasking.maskUrl(url)}, exchange=$exchange, " +
             "exchangeType=$exchangeType, routingKeyTemplate=$routingKeyTemplate, " +
-            "headers=${CredentialMasking.maskHeaders(headers)}, exchangeFrom=$exchangeFrom, transform=$transform)"
+            "headers=${CredentialMasking.maskHeaders(headers)}, exchangeFrom=$exchangeFrom, " +
+            "deliveryMode=$deliveryMode, transform=$transform)"
     }
 }
 

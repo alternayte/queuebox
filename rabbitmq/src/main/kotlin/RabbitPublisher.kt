@@ -10,6 +10,12 @@ import org.nxtspec.metrics.MetricsCollectorInterface
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
 
+/** AMQP delivery mode 2: a durable queue writes the message to disk. */
+private const val PERSISTENT_DELIVERY_MODE = 2
+
+/** AMQP delivery mode 1: the broker keeps the message in memory only. */
+private const val TRANSIENT_DELIVERY_MODE = 1
+
 class RabbitPublisher(
     private val connections: ConcurrentHashMap<String, RabbitConnection> = ConcurrentHashMap(),
     private val metricsCollector: MetricsCollectorInterface? = null
@@ -97,6 +103,7 @@ class RabbitPublisher(
                     val props = AMQP.BasicProperties.Builder()
                         .messageId(messageId)
                         .contentType("application/json")
+                        .deliveryMode(if (dest.persistent) PERSISTENT_DELIVERY_MODE else TRANSIENT_DELIVERY_MODE)
                         .headers(mergedHeaders)
                         .build()
 

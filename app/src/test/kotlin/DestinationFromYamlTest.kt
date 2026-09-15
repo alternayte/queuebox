@@ -54,6 +54,32 @@ class DestinationFromYamlTest {
     }
 
     @Test
+    fun `a RabbitMQ destination is persistent unless deliveryMode says transient`() {
+        val destinations = loadDestinations(
+            """
+            database:
+              url: jdbc:postgresql://localhost:5432/queuebox
+              username: postgres
+              password: secret
+
+            destinations:
+              durable:
+                type: rabbitmq
+                url: amqp://guest:guest@localhost:5672
+                exchange: events
+              volatile:
+                type: rabbitmq
+                url: amqp://guest:guest@localhost:5672
+                exchange: events
+                deliveryMode: transient
+            """.trimIndent()
+        )
+
+        assertEquals(true, assertIs<Destination.RabbitMQ>(destinations.getValue("durable")).persistent)
+        assertEquals(false, assertIs<Destination.RabbitMQ>(destinations.getValue("volatile")).persistent)
+    }
+
+    @Test
     fun `a Kafka topicFrom arrives on the domain destination`() {
         val destinations = loadDestinations(
             """
