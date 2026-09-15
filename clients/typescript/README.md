@@ -18,7 +18,7 @@ rolls your writes back and reports nothing as done.
 |---|---|
 | Runtime | Node 22 or later, Bun, or Deno |
 | Database | PostgreSQL through `pg`, or SQL Server through `mssql` |
-| QueueBox | 0.1.0 or later, which is the V6 schema |
+| QueueBox | The V10 schema or later, which adds the inbox `headers` column |
 
 The package depends on no driver. It states the small interface it needs and ships an adapter
 for each, so one package serves both dialects and your application brings the driver it has.
