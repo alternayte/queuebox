@@ -183,8 +183,12 @@ object ConfigValidator {
                 validateInboxAuth(source.auth, "Source '$name'", "sources.$name.auth")
             }
             source.filter?.let { filter ->
-                filter.require.forEachIndexed { i, rule -> validateHeaderRule(rule, "sources.$name.filter.require.$i") }
-                filter.exclude.forEachIndexed { i, rule -> validateHeaderRule(rule, "sources.$name.filter.exclude.$i") }
+                filter.require.forEachIndexed { i, rule ->
+                    HeaderFilterValidator.validateRule(rule, "sources.$name.filter.require.$i")
+                }
+                filter.exclude.forEachIndexed { i, rule ->
+                    HeaderFilterValidator.validateRule(rule, "sources.$name.filter.exclude.$i")
+                }
             }
         }
 
@@ -484,33 +488,6 @@ object ConfigValidator {
                 "headers" to mapping.inbox.headers
             )
         )
-    }
-
-    private fun validateHeaderRule(rule: HeaderRule, yamlPath: String) {
-        require(rule.header.isNotBlank()) {
-            "Header filter rule '$yamlPath' needs a header name. " + setVia("$yamlPath.header")
-        }
-        val tests = listOfNotNull(
-            rule.equals?.let { "equals" },
-            rule.`in`?.let { "in" },
-            rule.matches?.let { "matches" },
-            rule.exists?.let { "exists" }
-        )
-        require(tests.size == 1) {
-            "Header filter rule '$yamlPath' must set exactly one of equals, in, matches or exists, " +
-                "but it sets ${if (tests.isEmpty()) "none" else tests.joinToString(", ")}. " +
-                setVia("$yamlPath.equals")
-        }
-        require(rule.exists != false) {
-            "Header filter rule '$yamlPath' sets exists to false. Put an 'exists: true' rule under " +
-                "'exclude' instead. " + setVia("$yamlPath.exists")
-        }
-        require(rule.`in` == null || rule.`in`.isNotEmpty()) {
-            "Header filter rule '$yamlPath' has an empty 'in' list. " + setVia("$yamlPath.in")
-        }
-        require(rule.matches == null || rule.matches.isNotBlank()) {
-            "Header filter rule '$yamlPath' has a blank 'matches' pattern. " + setVia("$yamlPath.matches")
-        }
     }
 
     private fun validateMappedColumns(kind: String, yamlPath: String, columns: List<Pair<String, String>>) {
