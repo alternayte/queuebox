@@ -18,7 +18,7 @@ rolls your writes back and reports nothing as done.
 |---|---|
 | Go | 1.24 or later |
 | Database | PostgreSQL through `pgx`, or SQL Server through `go-mssqldb` |
-| QueueBox | 0.1.0 or later, which is the V6 schema |
+| QueueBox | The V10 schema or later, which adds the inbox `headers` column |
 
 The library talks to `database/sql`, so it needs no driver of its own. Your application registers
 the driver it already uses.
