@@ -2,15 +2,14 @@
 # F-044: every base image is pinned by digest, so a build is reproducible.
 
 # Build stage
-FROM gradle@sha256:67b8c4bfd2b064e58a7307e2da1fc3881bc03ecc7a57cf61d8b570a02ebfaea2 AS builder
-# gradle:8.13-jdk21
+# The tag stays next to the digest, so Dependabot bumps the digest within the same tag.
+FROM gradle:8.13-jdk21@sha256:67b8c4bfd2b064e58a7307e2da1fc3881bc03ecc7a57cf61d8b570a02ebfaea2 AS builder
 WORKDIR /app
 COPY . .
 RUN gradle :app:installDist --no-daemon
 
 # Runtime stage
-FROM eclipse-temurin@sha256:974b08960c5d96694c780e65b2d5705268ab1e1ca1a0dd0caf4ba6c3fe34d699
-# eclipse-temurin:21-jre-alpine
+FROM eclipse-temurin:21-jre-alpine@sha256:974b08960c5d96694c780e65b2d5705268ab1e1ca1a0dd0caf4ba6c3fe34d699
 WORKDIR /app
 
 # The base image lags the Alpine security branch, and a released image must not carry a known
