@@ -21,6 +21,10 @@ Transforms have access to context variables:
 | `$attempt` | The number of failed deliveries so far. It is `0` on the first delivery. The retry raises it. |
 | `$timestamp` | Current ISO timestamp |
 | `$source` | Source name (inbox only) |
+| `$headers` | The received message headers, one string value per key (inbox only). An HTTP source omits the credential headers. See [integration.md](integration.md). |
+
+A header name with a hyphen needs quotes: `$headers."x-tenant"`. A header name matches exactly in
+a transform, so use the letter case that the stored row shows.
 
 The count matches the `attempt` column of the outbox row, and it matches the `X-Attempt`
 header that the HTTP publisher sends. [integration.md](integration.md) documents the column.

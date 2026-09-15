@@ -43,6 +43,7 @@ bounded.
 | `queuebox_inbox_messages_total` | counter | `status` = `new`, `forwarded` or `duplicate` | The inbox messages per status. |
 | `queuebox_inbox_relay_errors_total` | counter | none | The errors of the inbox relay. |
 | `queuebox_inbox_rejections_total` | counter | `reason` = `extraction_failed`, `transform_failed` or `storage_failed` | The inbox messages that QueueBox rejected, per reason. |
+| `queuebox_inbox_filtered_total` | counter | `source` | The inbox messages that the header filter of a source dropped. QueueBox stores no row for them. The counter appears after the first drop of a source. |
 | `queuebox_inbox_oldest_pending_age_seconds` | gauge | none | The age in seconds of the oldest inbox row in state `pending`. The value is zero when no row is pending. A count of pending rows cannot separate a busy relay from a dead one, so this is the metric to alert on. The value refreshes on the relay poll cycle, at most once per `inbox.relay.pendingGaugeIntervalMs`, so it can lag reality by up to that interval. The gauge does not run a query on each scrape. |
 | `queuebox_cleanup_messages_deleted_total` | counter | `table` | The rows that the retention cleanup deleted, per table. |
 | `queuebox_cleanup_duration_seconds` | summary | `table` | The time of one cleanup run, per table. |

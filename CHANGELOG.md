@@ -9,6 +9,39 @@ the configuration schema and for the database schema.
 
 ## [Unreleased]
 
+### Breaking
+
+- **A custom inbox table needs a `headers` column.** QueueBox stops at startup when the inbox table
+  has no column for `database.columnMapping.inbox.headers`. The error gives the `ALTER TABLE`
+  statement. A schema that the bundled migrations manage gets the column from
+  `V10__add_inbox_headers.sql` and needs no action. A deployment with `database.migrate: false`
+  must add the column before it upgrades:
+
+  ```sql
+  -- PostgreSQL
+  ALTER TABLE inbox ADD COLUMN headers JSONB NOT NULL DEFAULT '{}';
+  -- SQL Server
+  ALTER TABLE inbox ADD headers NVARCHAR(MAX) NOT NULL DEFAULT '{}';
+  ```
+
+  Replace `inbox` and `headers` with your own table and column names.
+
+### Added
+
+- **The inbox stores the headers of each received message.** The new `headers` column holds one
+  string value per key. RabbitMQ, Kafka, NATS and HTTP sources fill it. An HTTP source omits
+  `Authorization`, `Proxy-Authorization`, `Cookie` and the header of the source authentication.
+  `docs/integration.md` describes how each source converts its values.
+- **Each source can filter messages on their headers.** `sources.<name>.filter.require` and
+  `sources.<name>.filter.exclude` hold rules with `equals`, `in`, `matches` or `exists`. A broker
+  acknowledges a filtered message, and an HTTP source answers `202` with
+  `{"status":"filtered"}`. QueueBox stores no row. The new counter
+  `queuebox_inbox_filtered_total{source}` counts the drops. See `docs/configuration.md`.
+- **An inbox transform can read `$headers`.**
+- **The relay carries the inbox headers onto the outbox row.** `x-inbox-id`, `x-source`,
+  `x-idempotency-key` and `X-Correlation-Id` replace a received header of the same name in any
+  letter case.
+
 ## [0.2.1] — 2026-09-11
 
 This release ships the server image alone, as `v0.2.1`. No client library changed, so

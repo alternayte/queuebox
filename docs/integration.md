@@ -309,8 +309,22 @@ deduplicates on `(source, idempotency_key)`.
 | `processed_at` | `TIMESTAMP WITH TIME ZONE` | `DATETIME2` | yes | none |
 | `claimed_at` | `TIMESTAMP WITH TIME ZONE` | `DATETIME2` | yes | none |
 | `correlation_id` | `VARCHAR(128)` | `NVARCHAR(128)` | yes | none |
+| `headers` | `JSONB` | `NVARCHAR(MAX)` | no | `'{}'` |
 
 The pair `(source, idempotency_key)` carries a unique constraint, which is the deduplication.
+
+`headers` holds one JSON object. Each key is a header name and each value is a string. A repeated
+key keeps its last value. Each source fills the column as follows:
+
+| Source | Content of `headers` |
+|--------|----------------------|
+| `rabbitmq` | The AMQP message headers. A number, a boolean or a timestamp becomes its string form. A nested table or array becomes JSON text. A byte array is decoded as UTF-8. A byte array that is not valid UTF-8 is stored as `base64:` followed by its Base64 text. |
+| `kafka` | The record headers. A value is decoded as UTF-8. A value that is not valid UTF-8 is stored as `base64:` followed by its Base64 text. |
+| `nats` | The message headers. A key with several values keeps its last value. |
+| `http` | The request headers, except `Authorization`, `Proxy-Authorization`, `Cookie` and the header that the source authentication reads (`auth.headerName` of an API key or HMAC source). |
+
+QueueBox stops at startup when the inbox table has no `headers` column. See the column mapping in
+[configuration.md](configuration.md#custom-table-and-column-names).
 
 ### QueueBox forwards the inbox rows itself
 

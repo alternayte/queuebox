@@ -23,6 +23,7 @@ Each version number describes the same logical change on both databases.
 | `V7__capture_state.sql` | Create `queuebox_capture_state`, so QueueBox can detect a lost durable volume and a changed capture configuration. |
 | `V8__add_pull_claim_indexes.sql` | Add the two indexes that the pull claim statement needs, one for a pending row of a source and one for a busy aggregate of a source. |
 | `V9__add_aggregate_type.sql` | Add the nullable `aggregate_type` column to the outbox, so a destination can render its exchange from the row. See F-090. |
+| `V10__add_inbox_headers.sql` | Add the `headers` column to the inbox (`JSONB` on PostgreSQL, `NVARCHAR(MAX)` on SQL Server, `NOT NULL`, default `'{}'`), so the inbox keeps the received message headers. A custom inbox table must add the column by hand, because QueueBox stops at startup without it. |
 
 ## Policy
 
