@@ -16,6 +16,9 @@ the form `MAJOR.MINOR.PATCH`.
 | MINOR | A release adds a capability and every existing deployment still works. |
 | PATCH | A release only corrects a defect. |
 
+Below 1.0.0, a breaking change increments MINOR, not MAJOR, as Semantic Versioning permits. The
+changelog entry of that release names the change under `Breaking` and states the migration step.
+
 The root build file derives the version from the Git tag. An untagged build carries
 `0.0.0-SNAPSHOT`. The tag `v0.1.0` therefore produces the version `0.1.0`.
 
