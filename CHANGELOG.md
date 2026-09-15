@@ -9,6 +9,16 @@ the configuration schema and for the database schema.
 
 ## [Unreleased]
 
+## [0.3.0] — 2026-09-15
+
+Four tags publish together at this release: `v0.3.0`, which ships the server image, and
+`csharp-v0.3.0`, `typescript-v0.3.0` and `clients/go/v0.3.0`, which each ship one pull client
+library.
+
+The release is a MINOR release that carries a breaking change, which Semantic Versioning permits
+below 1.0.0. The change affects a deployment with a custom inbox table or with
+`database.migrate: false`. A deployment that the bundled migrations manage needs no action.
+
 ### Breaking
 
 - **A custom inbox table needs a `headers` column.** QueueBox stops at startup when the inbox table
@@ -41,6 +51,18 @@ the configuration schema and for the database schema.
 - **The relay carries the inbox headers onto the outbox row.** `x-inbox-id`, `x-source`,
   `x-idempotency-key` and `X-Correlation-Id` replace a received header of the same name in any
   letter case.
+- **The pull clients expose the stored headers** (`csharp-v0.3.0`, `typescript-v0.3.0`,
+  `clients/go/v0.3.0`). `InboxMessage.Headers` in C#, `message.headers` in TypeScript and
+  `Message.Headers` in Go carry the `headers` column. Each client maps the column name through its
+  schema options. A client at this version needs the V10 schema.
+
+### Changed
+
+- **The server runs on Kotlin 2.4.20 and Exposed 1.5.0** (`v0.3.0`). Ktor, kotlinx, Micrometer,
+  Logback, HikariCP, json-path, jsonata and the PostgreSQL driver also moved to their current
+  versions. The dependency verification metadata carries the checksums of every new artifact.
+- **The image pins each base image by tag and digest** (`v0.3.0`). The build image stays on
+  `gradle:8.13-jdk21` and the runtime image stays on `eclipse-temurin:21-jre-alpine`.
 
 ## [0.2.1] — 2026-09-11
 
@@ -397,6 +419,8 @@ release exists.
   cannot push a credential into a log.
 - The admin surface is off by default.
 
-[Unreleased]: https://github.com/AlterNayte/queuebox/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/AlterNayte/queuebox/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/AlterNayte/queuebox/compare/v0.2.1...v0.3.0
+[0.2.1]: https://github.com/AlterNayte/queuebox/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/AlterNayte/queuebox/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/AlterNayte/queuebox/releases/tag/v0.1.0
