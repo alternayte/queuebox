@@ -90,7 +90,7 @@ jobs:
       - name: Upload the coverage report
         # The report helps a reviewer even when the checks fail.
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: coverage
           path: build/reports/jacoco/aggregated
@@ -98,7 +98,7 @@ jobs:
 
       - name: Upload the test results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: test-results
           path: "**/build/reports/tests/test"
@@ -159,7 +159,7 @@ jobs:
 
       - name: Upload the test results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: test-results-${{ matrix.database }}-${{ matrix.version }}
           path: "${{ matrix.module }}/build/reports/tests/test"
@@ -217,7 +217,7 @@ jobs:
 
       - name: Upload the package
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: queuebox-inbox-nupkg
           path: clients/csharp/artifacts/*.nupkg
@@ -384,7 +384,7 @@ jobs:
 
       - name: Upload the lint reports
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: lint-reports
           path: "**/build/reports/detekt"
