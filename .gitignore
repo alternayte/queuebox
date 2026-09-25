@@ -98,3 +98,8 @@ obj/
 
 # Subagent-driven development scratch. Not part of the product.
 .superpowers/
+
+### Docs site ###
+site/node_modules/
+site/dist/
+site/.astro/
