@@ -1,7 +1,7 @@
 # The packaged QueueBox configuration.
 #
 # QueueBox reads this file ONLY when no external file exists AND no QUEUEBOX_ variable is set.
-# See docs/configuration.md. A deployment writes /etc/queuebox/queuebox.yml instead, or names
+# See https://queuebox-docs.pages.dev/reference/configuration/. A deployment writes /etc/queuebox/queuebox.yml instead, or names
 # another path with QUEUEBOX_CONFIG_FILE, or configures QueueBox with the QUEUEBOX_ variables.
 #
 # Every value below is a plain default for a local run, and the sources, destinations and routes

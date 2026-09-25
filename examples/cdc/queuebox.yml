@@ -1,7 +1,7 @@
 # Embedded change data capture on PostgreSQL.
 #
 # Capture only wakes delivery. SQL stays the truth, so delivery continues when capture
-# is down. See docs/capture.md.
+# is down. See https://queuebox-docs.pages.dev/concepts/capture/.
 database:
   type: postgresql
   url: jdbc:postgresql://postgres:5432/queuebox

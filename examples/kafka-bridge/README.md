@@ -19,5 +19,5 @@ What the example demonstrates:
 - **The publish waits for the broker.** The outbox marks a row sent only after every in-sync
   replica holds the record.
 
-See [docs/delivery-semantics.md](../../docs/delivery-semantics.md) for the full contract and
-[docs/configuration.md](../../docs/configuration.md) for every setting.
+See [delivery semantics](https://queuebox-docs.pages.dev/concepts/delivery-semantics/) for the full contract and
+[the configuration reference](https://queuebox-docs.pages.dev/reference/configuration/) for every setting.

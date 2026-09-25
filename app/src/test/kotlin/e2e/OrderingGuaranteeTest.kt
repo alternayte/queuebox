@@ -17,7 +17,7 @@ import kotlin.time.Clock
 import kotlin.time.Instant
 
 /**
- * One test per sentence of the ordering section of `docs/delivery-semantics.md`.
+ * One test per sentence of `site/src/content/docs/concepts/ordering.mdx`.
  *
  * A guarantee without a test is a wish. The name of each test repeats the sentence it proves, so
  * a reader of the document can find the proof.

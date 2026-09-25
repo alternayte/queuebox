@@ -49,5 +49,4 @@ makes a webhook sender able to count real deliveries without a body parse.
 The test `the route enumerates every response code that it can return` in
 `inbox-service/src/test/kotlin/org/nxtspec/InboxRoutesTest.kt` drives the route to each code above
 and asserts the whole set. A new code, or a lost code, fails that test. The response table of
-[getting-started.md](../getting-started.md) must equal that set. The table moved there when
-finding F-072 reduced the README to an entry point.
+[the HTTP API reference](https://queuebox-docs.pages.dev/reference/http-api/) must equal that set.

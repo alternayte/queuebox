@@ -103,7 +103,7 @@ docker buildx build \
 ## Run the application without a container
 
 The application reads the `QUEUEBOX_` variables. It reads no `DB_URL`, `DB_USER` or `DB_PASSWORD`
-variable. [../configuration.md](../configuration.md) holds the naming rule.
+variable. [The environment variables reference](https://queuebox-docs.pages.dev/reference/environment-variables/) holds the naming rule.
 
 ```bash
 export QUEUEBOX_DATABASE_URL=jdbc:postgresql://localhost:5432/queuebox

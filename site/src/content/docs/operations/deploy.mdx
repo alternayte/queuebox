@@ -136,6 +136,45 @@ RELEASE_IMAGE=ghcr.io/alternayte/queuebox:1.2.3 \
 Use this stack to learn and to test.
 For production, run the image against a database that you back up and monitor.
 
+## Run without a container
+
+This section runs QueueBox from the source against a PostgreSQL database on the same host. It needs a Java Development Kit, version 21. CI runs these steps on every push to `main`.
+
+1. Create the database:
+
+   ```sql
+   CREATE DATABASE queuebox;
+   ```
+
+   QueueBox creates its tables at startup with the bundled migrations.
+
+2. Copy the example configuration. Do not edit `config/src/main/resources/queuebox.yml`, because the image packages that file.
+
+   ```bash
+   sudo mkdir -p /etc/queuebox
+   sudo cp examples/queuebox.yml /etc/queuebox/queuebox.yml
+   ```
+
+3. Set the database variables. An environment variable wins over every file.
+
+   ```bash
+   export QUEUEBOX_DATABASE_URL=jdbc:postgresql://localhost:5432/queuebox
+   export QUEUEBOX_DATABASE_USERNAME=postgres
+   export QUEUEBOX_DATABASE_PASSWORD=secret
+   ```
+
+4. Build and run:
+
+   ```bash
+   ./gradlew run
+   ```
+
+5. Confirm that the instance is ready. `GET /health` answers `200` when every component is up.
+
+   ```bash
+   curl http://localhost:8080/health
+   ```
+
 ## Health probes
 
 | Endpoint | Use | Answer |

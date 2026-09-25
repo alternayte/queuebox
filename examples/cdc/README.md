@@ -1,7 +1,7 @@
 # Change data capture
 
 This stack runs QueueBox with the embedded PostgreSQL logical capture connector. Capture
-only wakes delivery; SQL remains the truth. Read [docs/capture.md](../../docs/capture.md)
+only wakes delivery; SQL remains the truth. Read [capture](https://queuebox-docs.pages.dev/concepts/capture/)
 for the full contract.
 
 Run it:

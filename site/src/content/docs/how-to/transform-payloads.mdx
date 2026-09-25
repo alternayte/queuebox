@@ -101,19 +101,19 @@ sources:
 
 Remove secret fields:
 
-```jsonata
+```text
 $ ~> |$|{}, ['password', 'secret', 'token']|
 ```
 
 Choose an action from a field:
 
-```jsonata
+```text
 status = 'paid' ? { "action": "fulfill", "orderId": id } : { "action": "remind", "orderId": id }
 ```
 
 Add the time of the delivery:
 
-```jsonata
+```text
 $merge([$, { "deliveredAt": $timestamp }])
 ```
 

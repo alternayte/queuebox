@@ -102,7 +102,7 @@ Confirm three points.
 
 1. The image starts and `/health/ready` answers 200 with every dependency up.
 2. The `queuebox` metric, which `queuebox_info` becomes in a scrape, carries the version of the
-   tag. See [../operations/metrics.md](../operations/metrics.md).
+   tag. See [the metrics reference](https://queuebox-docs.pages.dev/reference/metrics/).
 3. Both architectures exist. `docker manifest inspect ghcr.io/alternayte/queuebox:0.1.0` lists
    `linux/amd64` and `linux/arm64`.
 

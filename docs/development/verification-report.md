@@ -175,7 +175,7 @@ files are committed beside this report.
 - **The CDC example smoke test was not executed here.** Its assertions are written and CI
   runs them; this session did not.
 - **No failover or reconfiguration measurement.** Both are manual by design, and the
-  procedure in `docs/capture.md` has not been rehearsed against a production-sized volume.
+  procedure in the capture how-to of the docs site has not been rehearsed against a production-sized volume.
 - **No replay or disconnect test for capture.** A dropped connection is handled by a
   monitor in `OutboxCapture` that no test exercises directly.
 - **The non-polling proofs of scheduling, retry, dead-lettering, replay, retention and
