@@ -2,6 +2,7 @@ package org.nxtspec.transform
 
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -319,5 +320,45 @@ class InboxTransformPipelineTest {
 
         assertIs<InboxTransformResult.Success>(result)
         assertEquals(buildJsonObject { put("tenant", "acme") }, result.payload)
+    }
+
+    @Test
+    fun `an inbox transform reads the idempotency key and the event type`() = runTest {
+        val payload = buildJsonObject { put("id", "123") }
+
+        val result = pipeline.transform(
+            payload,
+            TransformConfig(expression = """{ "k": ${'$'}idempotencyKey, "t": ${'$'}eventType }"""),
+            createContext(idempotencyKey = "idem-1", eventType = "order.created")
+        )
+
+        assertIs<InboxTransformResult.Success>(result)
+        assertEquals(
+            buildJsonObject {
+                put("k", "idem-1")
+                put("t", "order.created")
+            },
+            result.payload
+        )
+    }
+
+    @Test
+    fun `an inbox transform reads a missing idempotency key and event type as null`() = runTest {
+        val payload = buildJsonObject { put("id", "123") }
+
+        val result = pipeline.transform(
+            payload,
+            TransformConfig(expression = """{ "k": ${'$'}idempotencyKey, "t": ${'$'}eventType }"""),
+            createContext(idempotencyKey = null, eventType = null)
+        )
+
+        assertIs<InboxTransformResult.Success>(result)
+        assertEquals(
+            buildJsonObject {
+                put("k", JsonNull)
+                put("t", JsonNull)
+            },
+            result.payload
+        )
     }
 }

@@ -33,6 +33,7 @@ class TransformEngine(private val maxCacheSize: Int = 1000) {
      *
      * Context variables are accessible in the expression using the $ prefix:
      * - $messageId, $topic, $attempt, $timestamp, $source
+     * - $headers and every entry of [TransformContext.variables], when set
      *
      * @param expression The JSONata expression to evaluate
      * @param payload The JSON payload to transform
@@ -107,6 +108,7 @@ class TransformEngine(private val maxCacheSize: Int = 1000) {
         frame.bind("timestamp", context.timestamp.toString())
         context.source?.let { frame.bind("source", it) }
         context.headers?.let { frame.bind("headers", it) }
+        context.variables.forEach { (name, value) -> frame.bind(name, value ?: Jsonata.NULL_VALUE) }
     }
 
     /**
