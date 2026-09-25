@@ -158,6 +158,10 @@ internal fun runApp(env: () -> Map<String, String> = { System.getenv() }) {
         requireInboxHeadersColumn(dataSource, config.database, dbType)
     }
 
+    startupStep("check the outbox table") {
+        requireOutboxSequenceColumn(dataSource, config.database, dbType)
+    }
+
     val outboxRepository = repositoryFactory.createOutboxRepository()
     val inboxRepository = repositoryFactory.createInboxRepository()
     val transactionRunner = repositoryFactory.createTransactionRunner()
@@ -479,7 +483,8 @@ internal fun columnMappingData(database: DatabaseConfig): ColumnMappingData = Co
         claimedAt = database.columnMapping.outbox.claimedAt,
         claimToken = database.columnMapping.outbox.claimToken,
         leaseExpiresAt = database.columnMapping.outbox.leaseExpiresAt,
-        lastError = database.columnMapping.outbox.lastError
+        lastError = database.columnMapping.outbox.lastError,
+        sequence = database.columnMapping.outbox.sequence
     ),
     inbox = InboxColumnMappingData(
         id = database.columnMapping.inbox.id,

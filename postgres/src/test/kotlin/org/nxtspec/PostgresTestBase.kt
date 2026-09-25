@@ -133,6 +133,13 @@ abstract class PostgresTestBase {
         return id
     }
 
+    /** Inserts a pending outbox row with [key]. The database fills its sequence. */
+    protected fun insertKeyedOutboxMessage(key: String?, createdAt: Instant = Clock.System.now()): UUID {
+        val id = insertOutboxMessage("pending", createdAt = createdAt)
+        transaction { OutboxTable.update({ OutboxTable.id eq id }) { it[OutboxTable.key] = key } }
+        return id
+    }
+
     protected fun insertInboxMessage(
         source: String,
         idempotencyKey: String,

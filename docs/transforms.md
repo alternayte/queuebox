@@ -108,10 +108,11 @@ The test
 `outbox-service/src/test/kotlin/org/nxtspec/RoutingKeyTemplateContractTest.kt` is the source of
 truth for the supported placeholder forms.
 
-**Ordering under concurrency.** The poller claims a batch in order, oldest first, and then
-publishes up to `outbox.concurrency` messages at the same time. Two messages of one batch can
-therefore arrive at the destination out of order. Set `outbox.concurrency: 1` when a destination
-needs strict order.
+**Ordering under concurrency.** The poller publishes up to `outbox.concurrency` messages at the
+same time, but a claim never returns two rows of one non-empty `key`. The rows of one key
+therefore arrive in insert order at any concurrency. Rows of different keys, and rows with an
+empty `key`, can arrive in any order. See
+[delivery semantics](delivery-semantics.md#order-and-the-key).
 
 A RabbitMQ destination is the exception. It holds one confirmed channel, and one publish at a
 time uses it, so `outbox.concurrency` raises throughput only across different destinations. An

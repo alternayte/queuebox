@@ -835,6 +835,7 @@ Each table below is the complete set. A key that you omit keeps the default name
 | `updatedAt` | updated_at | Last update timestamp |
 | `claimedAt` | claimed_at | Time of the claim. The reclaim step reads it. |
 | `lastError` | last_error | Reason of the last failed delivery |
+| `sequence` | sequence | Insert order. The database fills it on insert. The claim orders the rows of one key by it. Required. |
 
 | Inbox Column | Default | Description |
 |--------------|---------|-------------|

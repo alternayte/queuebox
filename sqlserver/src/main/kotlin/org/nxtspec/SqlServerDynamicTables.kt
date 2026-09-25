@@ -33,9 +33,13 @@ class SqlServerDynamicOutboxTable(val mapping: OutboxColumnMapping, tableName: S
     val leaseExpiresAt = timestamp(mapping.leaseExpiresAt).nullable()
     val lastError: Column<String?> = text(mapping.lastError).nullable()
 
+    // The database fills the sequence on insert. The claim orders the rows of one key by it.
+    val sequence: Column<Long> = long(mapping.sequence).autoIncrement()
+
     init {
         // Supports the claim seek: state = 'pending' AND scheduled_at <= now().
         index(false, state, scheduledAt)
+        index(false, key, sequence)
     }
 }
 

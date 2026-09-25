@@ -27,7 +27,7 @@ class GuaranteesTest {
 
     @Test
     fun `the ordering guarantee names tests that exist`() {
-        assertProofOf("Ordering holds for one aggregate")
+        assertProofOf("Ordering holds for one key")
     }
 
     @Test

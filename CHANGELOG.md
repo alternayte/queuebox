@@ -9,6 +9,24 @@ the configuration schema and for the database schema.
 
 ## [Unreleased]
 
+### Fixed
+
+- **The outbox delivers the rows of one key in insert order.** The poller published the rows of one
+  `key` in parallel, rows that one transaction wrote shared `created_at` and had no fixed order, and
+  a retry let the later rows of its key pass it. The claim now takes a row of a non-empty key only
+  when no earlier row of that key is `pending` or `processing`, and it orders one key by the new
+  `sequence` column. A dead row releases its key. Rows with an empty `key` keep parallel delivery.
+  See [delivery semantics](docs/delivery-semantics.md#order-and-the-key). Fixes #58.
+
+### Changed
+
+- **Breaking: the outbox table needs a `sequence` column.** Migration V11 adds it to the default
+  schema on PostgreSQL and SQL Server and numbers the existing rows in `created_at` order. Stop
+  every replica of the old version before V11 runs, because the old claim ignores the key rule. A
+  custom outbox table must add a `BIGINT` column that the database fills on insert and map it as
+  `database.columnMapping.outbox.sequence`. QueueBox stops at startup without it and prints the
+  `ALTER TABLE` statement.
+
 ## [0.3.2] — 2026-09-15
 
 This release ships the server image alone, as `v0.3.2`. No client library changed, so all four

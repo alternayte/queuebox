@@ -26,8 +26,12 @@ object OutboxTable : UUIDTable("outbox") {
     val leaseExpiresAt = timestamp("lease_expires_at").nullable()
     val lastError: Column<String?> = text("last_error").nullable()
 
+    // The database fills the sequence on insert. The claim orders the rows of one key by it.
+    val sequence: Column<Long> = long("sequence").autoIncrement()
+
     init {
         index(false, state, scheduledAt)
+        index(false, key, sequence)
     }
 }
 

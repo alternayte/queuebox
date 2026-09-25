@@ -41,7 +41,8 @@ data class OutboxColumnMappingData(
     val claimedAt: String = "claimed_at",
     val claimToken: String = "claim_token",
     val leaseExpiresAt: String = "lease_expires_at",
-    val lastError: String = "last_error"
+    val lastError: String = "last_error",
+    val sequence: String = "sequence"
 )
 
 /**

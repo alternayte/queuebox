@@ -34,7 +34,8 @@ class SqlServerRepositoryFactory(
         claimedAt = columnMapping.outbox.claimedAt,
         claimToken = columnMapping.outbox.claimToken,
         leaseExpiresAt = columnMapping.outbox.leaseExpiresAt,
-        lastError = columnMapping.outbox.lastError
+        lastError = columnMapping.outbox.lastError,
+        sequence = columnMapping.outbox.sequence
     )
 
     private val inboxColumnMapping = InboxColumnMapping(

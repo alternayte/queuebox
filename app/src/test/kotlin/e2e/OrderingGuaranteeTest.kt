@@ -2,14 +2,19 @@ package org.nxtspec.e2e
 
 import io.ktor.http.HttpStatusCode
 import kotlinx.coroutines.runBlocking
+import org.jetbrains.exposed.v1.jdbc.insert
+import org.jetbrains.exposed.v1.jdbc.transactions.transaction
 import org.junit.jupiter.api.Test
 import org.nxtspec.InboxRepository
+import org.nxtspec.OutboxTable
 import java.nio.file.Files
 import java.nio.file.Path
 import java.sql.Connection
 import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
+import kotlin.time.Clock
+import kotlin.time.Instant
 
 /**
  * One test per sentence of the ordering section of `docs/delivery-semantics.md`.
@@ -175,6 +180,56 @@ class OrderingGuaranteeTest : E2ETestBase() {
 
         // The later commit arrived first. Commit order is not claim order.
         assertEquals(listOf("fast", "slow"), server.receivedBodies.map { bodyName(it) })
+    }
+
+    @Test
+    fun `the outbox delivers the rows of one key in insert order at any concurrency`() = runBlocking {
+        // One transaction writes the rows, so they share created_at. Only the sequence orders them.
+        val now = Clock.System.now()
+        transaction {
+            listOf("v1", "v2", "v3").forEach { insertKeyed(it, "stream-1", now) }
+        }
+        val server = startMockHttpServer()
+        startPoller(concurrency = 8)
+
+        assertTrue(awaitUntil { server.requestCount >= 3 })
+        assertEquals(listOf("v1", "v2", "v3"), server.receivedBodies.map { bodyName(it) })
+    }
+
+    @Test
+    fun `a row of a key that waits for a retry holds back the later rows of its key`() = runBlocking {
+        val first = transaction { insertKeyed("v1", "stream-1") }
+        transaction { insertKeyed("v2", "stream-1") }
+        val server = startMockHttpServer(responseCode = HttpStatusCode.InternalServerError)
+        startPoller(concurrency = 8)
+
+        assertTrue(awaitUntil { getOutboxMessageState(first) == "pending" && server.requestCount >= 1 })
+        server.setResponse(HttpStatusCode.OK)
+        assertTrue(awaitUntil { server.receivedBodies.count { bodyName(it) == "v2" } == 1 })
+
+        // Every attempt of v1, the failed one and the retry, reaches the destination before v2.
+        assertEquals(listOf("v1", "v1", "v2"), server.receivedBodies.map { bodyName(it) })
+    }
+
+    @Test
+    fun `a row with an empty key takes part in no outbox ordering`() = runBlocking {
+        val ids = (1..3).map { n -> transaction { insertKeyed("v$n", "") } }
+        val claimed = org.nxtspec.OutboxRepository().claimBatch(10)
+        assertEquals(ids.toSet(), claimed.map { it.id }.toSet())
+    }
+
+    private fun insertKeyed(name: String, key: String, now: Instant = Clock.System.now()): UUID {
+        val id = UUID.randomUUID()
+        OutboxTable.insert {
+            it[OutboxTable.id] = id
+            it[OutboxTable.topic] = "t"
+            it[OutboxTable.key] = key
+            it[OutboxTable.payload] = bodyPayload(name)
+            it[OutboxTable.scheduledAt] = now
+            it[OutboxTable.createdAt] = now
+            it[OutboxTable.updatedAt] = now
+        }
+        return id
     }
 
     private fun bodyPayload(name: String) = kotlinx.serialization.json.Json.parseToJsonElement("""{"n":"$name"}""")

@@ -144,6 +144,18 @@ abstract class SqlServerTestBase {
         }
     }
 
+    /** Inserts a pending outbox row with [key]. The database fills its sequence. */
+    protected fun insertKeyedOutboxMessage(key: String?): UUID {
+        val id = insertOutboxMessage("pending")
+        transaction {
+            SqlServerOutboxTable.update({ SqlServerOutboxTable.id eq id }) {
+                it[SqlServerOutboxTable.key] =
+                    key
+            }
+        }
+        return id
+    }
+
     protected fun insertInboxMessage(
         source: String,
         idempotencyKey: String,

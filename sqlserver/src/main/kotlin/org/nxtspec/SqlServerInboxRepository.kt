@@ -123,8 +123,7 @@ class SqlServerInboxRepository(
         // Hold the aggregate exclusion lock through the full claim-and-filter operation.
         // Exposed can run this repository with JDBC auto-commit enabled, so a transaction-owned
         // application lock is not available reliably on every connection.
-        acquireClaimLock(conn)
-        try {
+        withClaimLock(conn, claimLockResource) {
             // The aggregate exclusion runs as its own statement. Inside the claim statement the
             // subquery reads the same table without the locking hints, and SQL Server then returns
             // no rows to a second concurrent claimer. The set of aggregates in state 'processing'
@@ -195,39 +194,6 @@ class SqlServerInboxRepository(
 
                 kept
             }
-        } finally {
-            releaseClaimLock(conn)
-        }
-    }
-
-    private fun acquireClaimLock(conn: java.sql.Connection) {
-        val sql = """
-            DECLARE @result int;
-            EXEC @result = sp_getapplock
-                @Resource = ?,
-                @LockMode = 'Exclusive',
-                @LockOwner = 'Session',
-                @LockTimeout = ?;
-            SELECT @result AS lock_result;
-        """.trimIndent()
-
-        conn.prepareStatement(sql).use { stmt ->
-            stmt.setString(1, claimLockResource)
-            stmt.setInt(2, CLAIM_LOCK_TIMEOUT_MS)
-            stmt.executeQuery().use { rs ->
-                check(rs.next()) { "sp_getapplock returned no result" }
-                val result = rs.getInt("lock_result")
-                check(result >= 0) {
-                    "Could not take the inbox claim lock. sp_getapplock returned $result"
-                }
-            }
-        }
-    }
-
-    private fun releaseClaimLock(conn: java.sql.Connection) {
-        conn.prepareStatement("EXEC sp_releaseapplock @Resource=?, @LockOwner='Session';").use { stmt ->
-            stmt.setString(1, claimLockResource)
-            stmt.execute()
         }
     }
 
@@ -406,8 +372,4 @@ class SqlServerInboxRepository(
     }
 
     private val claimLockResource: String = "queuebox_inbox_claim_$tableName"
-
-    companion object {
-        private const val CLAIM_LOCK_TIMEOUT_MS = 10000
-    }
 }
