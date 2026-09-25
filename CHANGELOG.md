@@ -9,6 +9,12 @@ the configuration schema and for the database schema.
 
 ## [Unreleased]
 
+## [0.4.1] — 2026-09-26
+
+This release ships the server image as `v0.4.1`, and the three client libraries as 0.3.1:
+`QueueBox.Inbox` and `QueueBox.Inbox.DependencyInjection` on NuGet, `@alternayte/queuebox-inbox`
+on npm, and the Go module `clients/go`. The client libraries change only their license metadata.
+
 ### Fixed
 
 - **HMAC authentication works on the admin routes.** The admin routes checked a signature before
@@ -498,7 +504,8 @@ release exists.
   cannot push a credential into a log.
 - The admin surface is off by default.
 
-[Unreleased]: https://github.com/AlterNayte/queuebox/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/AlterNayte/queuebox/compare/v0.4.1...HEAD
+[0.4.1]: https://github.com/AlterNayte/queuebox/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/AlterNayte/queuebox/compare/v0.3.2...v0.4.0
 [0.3.2]: https://github.com/AlterNayte/queuebox/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/AlterNayte/queuebox/compare/v0.3.0...v0.3.1
