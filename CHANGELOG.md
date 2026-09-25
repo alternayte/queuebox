@@ -9,6 +9,21 @@ the configuration schema and for the database schema.
 
 ## [Unreleased]
 
+## [0.4.0] — 2026-09-25
+
+This release ships the server image alone, as `v0.4.0`. No client library changed, so all four
+client packages stay at 0.3.0. It is a minor release because a custom outbox table needs a new
+column; see Breaking.
+
+### Breaking
+
+- **The outbox table needs a `sequence` column.** Migration V11 adds it to the default
+  schema on PostgreSQL and SQL Server and numbers the existing rows in `created_at` order. Stop
+  every replica of the old version before V11 runs, because the old claim ignores the key rule. A
+  custom outbox table must add a `BIGINT` column that the database fills on insert and map it as
+  `database.columnMapping.outbox.sequence`. QueueBox stops at startup without it and prints the
+  `ALTER TABLE` statement.
+
 ### Fixed
 
 - **The outbox delivers the rows of one key in insert order.** The poller published the rows of one
@@ -18,14 +33,14 @@ the configuration schema and for the database schema.
   `sequence` column. A dead row releases its key. Rows with an empty `key` keep parallel delivery.
   See [delivery semantics](docs/delivery-semantics.md#order-and-the-key). Fixes #58.
 
-### Changed
+### Security
 
-- **Breaking: the outbox table needs a `sequence` column.** Migration V11 adds it to the default
-  schema on PostgreSQL and SQL Server and numbers the existing rows in `created_at` order. Stop
-  every replica of the old version before V11 runs, because the old claim ignores the key rule. A
-  custom outbox table must add a `BIGINT` column that the database fills on insert and map it as
-  `database.columnMapping.outbox.sequence`. QueueBox stops at startup without it and prints the
-  `ALTER TABLE` statement.
+- **Dependencies and the image carry no known HIGH or CRITICAL advisory.** `io.nats:jnats` moves to
+  2.26.3, which brings `org.bouncycastle:bcprov-lts8on` 2.73.12.1 and fixes CVE-2026-8763
+  (critical) and CVE-2026-13506. `com.rabbitmq:amqp-client` moves to 5.35.0 and fixes
+  CVE-2026-75516. The image upgrades Alpine `libexpat` to 2.8.5-r0, which fixes CVE-2026-66046,
+  CVE-2026-76641, CVE-2026-93990, CVE-2026-76956 and CVE-2026-76957; the last two were suppressed
+  in `.trivyignore` and are no longer.
 
 ## [0.3.2] — 2026-09-15
 
@@ -465,7 +480,8 @@ release exists.
   cannot push a credential into a log.
 - The admin surface is off by default.
 
-[Unreleased]: https://github.com/AlterNayte/queuebox/compare/v0.3.2...HEAD
+[Unreleased]: https://github.com/AlterNayte/queuebox/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/AlterNayte/queuebox/compare/v0.3.2...v0.4.0
 [0.3.2]: https://github.com/AlterNayte/queuebox/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/AlterNayte/queuebox/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/AlterNayte/queuebox/compare/v0.2.1...v0.3.0
