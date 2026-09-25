@@ -1,0 +1,201 @@
+---
+title: Capture changes
+description: Turn on PostgreSQL logical capture or SQL Server change data capture, so QueueBox delivers a new outbox row without waiting for the next poll.
+sidebar:
+  order: 5
+---
+
+import { Tabs, TabItem, Aside } from "@astrojs/starlight/components";
+
+This guide shows how to turn on change data capture for the outbox, and how to recover when capture stops. Capture reads the database log and wakes delivery when a new outbox row commits. Delivery still claims and publishes each row through SQL. [Capture](/concepts/capture/) explains the design.
+
+Capture is off by default. `outbox.capture.mode` is `polling`, and delivery polls every `outbox.pollIntervalMs`. An upgrade changes nothing until you turn capture on.
+
+| `outbox.capture.mode` | Database | Behaviour |
+|-----------------------|----------|-----------|
+| `polling` | any | The default. Delivery polls. |
+| `postgres-logical` | PostgreSQL | Delivery wakes on the logical replication stream. |
+| `sqlserver-cdc` | SQL Server | Delivery wakes on the change data capture tables. |
+
+The connector runs inside the QueueBox process. You run no Kafka, no Kafka Connect and no Debezium Server.
+
+## Prepare the database
+
+<Tabs syncKey="dialect">
+<TabItem label="PostgreSQL">
+
+1. Start the server with `wal_level = logical`.
+2. Give the capture account the `REPLICATION` attribute and `SELECT` on the outbox table.
+3. Create the publication for the outbox table:
+
+```sql
+CREATE PUBLICATION queuebox_outbox FOR TABLE outbox;
+```
+
+QueueBox never creates or drops the publication. It refuses to start capture when the publication is absent, because an automatic publication can capture the wrong tables.
+
+The connector creates the replication slot on the first start. QueueBox never drops the slot. A slot holds write-ahead log until capture reads it, so watch `pg_replication_slots`. Drop the slot by hand when you retire a capture identity.
+
+</TabItem>
+<TabItem label="SQL Server">
+
+1. Run the SQL Server Agent. Change data capture needs it.
+2. Turn on change data capture for the database and for the outbox table:
+
+```sql
+EXEC sys.sp_cdc_enable_db;
+EXEC sys.sp_cdc_enable_table
+    @source_schema = N'dbo',
+    @source_name   = N'outbox',
+    @role_name     = NULL,
+    @supports_net_changes = 0;
+```
+
+QueueBox checks both before it starts the connector. It reports a clear error instead of a connector that fails in a loop.
+
+</TabItem>
+</Tabs>
+
+## Prepare the state directory
+
+Capture records its log position in `stateDirectory`. The directory must survive a restart, so mount a durable volume there. A container without a volume loses the position on every restart.
+
+| File | Content |
+|------|---------|
+| `offsets.dat` | The log position that capture has handled. |
+| `history.dat` | The schema history. SQL Server only. |
+| `identity` | The identifier that ties the files to the row in `queuebox_capture_state`. |
+
+The image runs as the non-root user `queuebox`, and it ships `/var/lib/queuebox/capture` owned by that user. An empty Docker named volume mounted there takes that owner, and it needs no more work. A bind mount keeps the owner of the host directory. Change the owner of that directory to the user of the container before the first start.
+
+## Turn capture on
+
+Set the mode and point `stateDirectory` at the volume. Set `enabled: true` on one replica only.
+
+<Tabs syncKey="dialect">
+<TabItem label="PostgreSQL">
+
+```yaml
+database:
+  type: postgresql
+  url: jdbc:postgresql://db.internal:5432/queuebox
+  username: queuebox
+  password: ${DB_PASSWORD}
+
+outbox:
+  capture:
+    mode: postgres-logical
+    enabled: true
+    identity: queuebox
+    stateDirectory: /var/lib/queuebox/capture
+    publication: queuebox_outbox
+    slot: queuebox_outbox
+    reconciliationIntervalMs: 1000
+```
+
+</TabItem>
+<TabItem label="SQL Server">
+
+```yaml
+database:
+  type: sqlserver
+  url: jdbc:sqlserver://db.internal:1433;databaseName=queuebox
+  username: queuebox
+  password: ${DB_PASSWORD}
+
+outbox:
+  capture:
+    mode: sqlserver-cdc
+    enabled: true
+    identity: queuebox
+    stateDirectory: /var/lib/queuebox/capture
+    reconciliationIntervalMs: 1000
+    connection:
+      encrypt: true
+      trustServerCertificate: false
+```
+
+</TabItem>
+</Tabs>
+
+| Setting | Default | Meaning |
+|---------|---------|---------|
+| `mode` | `polling` | `polling`, `postgres-logical` or `sqlserver-cdc`. |
+| `enabled` | `false` | `true` on the one replica that owns capture. |
+| `identity` | `queuebox` | The name of the capture owner. |
+| `stateDirectory` | empty | The durable directory. Required when capture is on. |
+| `schema` | `public` or `dbo` | The schema of the outbox table. |
+| `publication` | `queuebox_outbox` | PostgreSQL only. The publication that you created. |
+| `slot` | `queuebox_outbox` | PostgreSQL only. The replication slot. |
+| `reconciliationIntervalMs` | `1000` | The longest wait between two delivery passes when no deadline is nearer. |
+
+The reconciliation timer keeps delivery running when capture is down or slow. A lost capture event costs time, not a message.
+
+Capture reacts to inserts and snapshot records only. It ignores updates and deletes, so the state changes that QueueBox writes create no new work.
+
+### Use a separate connection
+
+Capture reads the host, the port and the database name from `database.url`. Each field under `capture.connection` replaces one of those values, for capture only. Delivery keeps `database.url`.
+
+```yaml
+# fragment
+outbox:
+  capture:
+    connection:
+      hostname: replica.db.internal
+      port: 5433
+      database: queuebox
+      username: capture_user
+      password: ${CAPTURE_PASSWORD}
+```
+
+Use the overrides for a separate capture account, for a read replica, or for one host when `database.url` names several. QueueBox refuses a URL with more than one host unless `capture.connection.hostname` names one. `encrypt` and `trustServerCertificate` apply to SQL Server only.
+
+## Run one owner
+
+One process at a time owns a capture identity. The owner holds a database session lock for its whole run. A second process with the same identity fails to get the lock. It reports that the identity has an owner, and it keeps delivering through SQL.
+
+Set `enabled: false` on every other replica. To move capture to another host, stop the current owner, move or recreate the state directory, and start the new owner with the same identity. QueueBox does not choose a new owner by itself.
+
+## Check capture health
+
+`/health/ready` reports the component `outbox-capture`. The component is advisory: a capture fault never makes the instance unready, because delivery goes on through SQL.
+
+When the connector fails, QueueBox marks capture unhealthy and retries with a backoff from one second to thirty seconds. It wakes delivery on every attempt.
+
+A fault that needs a decision stops capture. QueueBox reports the reason and keeps delivering at the reconciliation interval. The `queuebox_capture_state` table detects these faults:
+
+- The state volume is missing or empty, but the database says that capture ran before.
+- The state files belong to a different instance.
+- The settings changed. A new slot, publication, schema, table, host or database makes the recorded position meaningless.
+- On PostgreSQL, the replication slot is gone while the state files remain.
+
+## Recover capture
+
+Recovery is your decision, because an automatic answer can replay or drop log events. Use these steps after QueueBox reports that capture needs recovery:
+
+1. Read the reason in the report. It names the fault.
+2. Stop the QueueBox process that owns the capture identity.
+3. If the state files are only unavailable, restore the volume and go to step 7. Capture continues from the recorded position.
+4. If the state is lost, or you changed the capture settings on purpose, reset the identity:
+
+```sql
+DELETE FROM queuebox_capture_state WHERE identity_name = 'queuebox';
+```
+
+5. On PostgreSQL, drop the slot, so the next start creates a clean one:
+
+```sql
+SELECT pg_drop_replication_slot('queuebox_outbox');
+```
+
+6. Delete the files in `stateDirectory`.
+7. Start QueueBox. After a reset, capture takes a fresh snapshot of the outbox table.
+
+A fresh snapshot only wakes delivery for rows that are still in the table. It delivers no message twice, because delivery claims each row through SQL.
+
+Change the slot, the publication, the schema or the table only together with these steps.
+
+<Aside>
+`examples/cdc` in the repository runs PostgreSQL logical capture end to end. Its smoke test shows that capture wakes delivery, that the position survives a restart, and that a second owner is refused.
+</Aside>

@@ -1,0 +1,155 @@
+---
+title: Ordering
+description: The order QueueBox keeps within one inbox aggregate and one outbox key, and the order it does not keep.
+sidebar:
+  order: 3
+---
+
+import { Aside } from "@astrojs/starlight/components";
+
+This page states which messages QueueBox delivers in order and which it does not.
+The inbox orders by `aggregate_id`.
+The outbox orders by `key`.
+Nothing orders two different aggregates or two different keys.
+
+## Order and the aggregate
+
+The inbox `aggregate_id` column is the unit of order on the inbox side.
+Both consumption modes hold one message of an aggregate in flight at a time.
+The two modes scope that reservation differently, so do not treat them as the same rule.
+
+- In push mode, the relay reserves one in-flight message per `aggregate_id` across every source together.
+  The relay is one process that reads every push row, so its claim has no source term.
+- The relay forwards the messages of one aggregate in the order of `created_at`.
+- In pull mode, the claim reserves one in-flight message per `(source, aggregate_id)`, because a pull worker binds to one source.
+  The claim never returns a message whose aggregate already holds a message in state `processing` under a live lease on that source.
+  The rule holds across every worker instance of that source, because it lives in the claim statement.
+- A pull claim on one source never blocks a pull claim of the same aggregate on a different source.
+  A message of aggregate `A` on source `orders` and a message of aggregate `A` on source `payments` can run at the same time.
+- QueueBox does not serialize the claim of two different aggregates.
+- A row with no `aggregate_id` takes part in no ordering.
+
+Set the aggregate identifier with `aggregateIdPath` on the source.
+A broker source can also read it from the `x-aggregate-id` header.
+
+```yaml
+# fragment
+sources:
+  orders:
+    type: http
+    path: /orders
+    idempotencyKeyPath: $.eventId
+    eventTypePath: $.type
+    aggregateIdPath: $.orderId
+```
+
+### How the relay keeps the aggregate order
+
+- The claim excludes an aggregate that already has a message in state `processing`.
+- The relay claims and forwards one message at a time.
+  The outbox poller publishes with the configured concurrency, so parallel work happens at delivery, not at forwarding.
+- A database lock serializes the relay claim across every replica.
+  See [Claims and leases](/concepts/claims-and-leases/#the-claim-locks).
+- The claim fence stops a replica that lost its claim from forwarding a second copy.
+  Two replicas therefore never write one aggregate into the outbox twice.
+
+**Guarantee.** At most one message per aggregate is in state `processing` at any time, across every replica.
+The relay forwards the messages of one aggregate in creation order.
+
+The relay writes the `aggregate_id` into the outbox `key`.
+The outbox then delivers the rows of one key in insert order.
+The order of one aggregate therefore holds from the inbox to the destination.
+
+## Order and the key
+
+The outbox `key` column is the unit of order on the outbox side.
+It is the inbox aggregate rule, applied to the delivery to a destination.
+
+- The outbox delivers the rows of one key in insert order, at any `outbox.concurrency` and with any number of replicas.
+- The database fills the `sequence` column on insert.
+  The claim orders the rows of one key by `sequence`, not by `created_at`, so rows that one transaction writes keep their insert order.
+- The claim takes a row of a key only when no earlier row of that key is `pending` or `processing`.
+  One row of a key is in flight at a time.
+- A row of a key that waits for a retry holds back the later rows of its key until the row is sent or dead.
+- A dead row releases its key, and the poller delivers the next row of the key.
+  One poison row does not stall a stream.
+- A replay of a dead row delivers it after the rows that passed it.
+- A row with a null or empty `key` takes part in no ordering.
+  The poller publishes it in parallel with other rows.
+- QueueBox does not order two different keys.
+
+```sql
+BEGIN;
+INSERT INTO outbox (topic, key, payload) VALUES ('order.created', 'order-42', '{"step":1}');
+INSERT INTO outbox (topic, key, payload) VALUES ('order.paid',    'order-42', '{"step":2}');
+INSERT INTO outbox (topic, key, payload) VALUES ('order.shipped', 'order-42', '{"step":3}');
+COMMIT;
+```
+
+The three rows above reach the destination in the order 1, 2, 3.
+
+### One writer per key
+
+The rule holds for rows that one writer inserts per key.
+Two transactions that insert rows of the same key at the same time can commit out of `sequence` order.
+A row that commits late can then arrive after a row with a higher `sequence`.
+An event store that checks the stream version on append has one writer per stream, so the rule holds for it.
+
+### Throughput of one key
+
+One row of a key in flight limits the throughput of that key to one publish round trip per row.
+Spread a busy stream over more keys only when the consumer does not need order across them.
+
+## Claim order, not commit order
+
+A poller delivers in claim order, not in commit order.
+This is a difference from a capture tool that reads the database log.
+A row can take its identifier or its `sequence` before another row and still commit after it.
+A reader that needs commit order must not derive it from the identifier.
+
+Order inside one aggregate or one key is the guarantee that QueueBox gives.
+It is enough for the outbox pattern, because one aggregate has one writer.
+
+## The SQL Server pull claim serializes per source
+
+On SQL Server, the pull claim takes an exclusive application lock on the source name.
+Every claim on one source therefore runs one at a time.
+The per-aggregate reservation still works under this lock.
+
+- Two handlers overlap only when a handler takes longer than the claim round trip.
+  A short handler can look fully serialized.
+- Measurement gives a ceiling near 110 to 140 claims per second per source.
+  More workers on one source do not raise that ceiling.
+- Scale a busy SQL Server source with more source names, not with more workers on one source.
+
+PostgreSQL does not have this limit.
+Its claim uses `SKIP LOCKED`, which never blocks a concurrent claim, so workers on one source divide the work.
+Size worker counts per database.
+A PostgreSQL sizing plan does not carry over to SQL Server, and the reverse is also true.
+
+### The claim transaction on SQL Server
+
+The SQL Server claim statement opens its own transaction and commits it.
+It rolls back on the lock-failure path.
+Keep the claim alone in that transaction:
+
+- Put no other application work in the claim transaction.
+- Commit the claim before any handler runs.
+
+A caller that breaks these rules leaves the claim uncommitted until its wider transaction commits.
+It loses the whole wider transaction on a lock failure.
+It also holds the per-source lock for the rest of that wider transaction.
+The C#, Go and TypeScript client libraries follow these rules.
+
+### The driver timeout on SQL Server
+
+Set the driver request or command timeout to at least 30 seconds.
+The application lock of the claim times out at 10 seconds and raises Msg 51000.
+A shorter driver timeout aborts the call before the server raises Msg 51000.
+The abandoned transaction then holds the per-source lock until the connection resets, and every claim on that source stalls.
+
+<Aside>
+Treat Msg 51000 as transient.
+Back off before the retry, and never retry the call at once.
+The client libraries do this.
+</Aside>

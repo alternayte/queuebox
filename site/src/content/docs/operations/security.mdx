@@ -1,0 +1,259 @@
+---
+title: Security
+description: Terminate TLS in front of QueueBox, keep secrets in files, restrict outbound calls, and lock down the admin routes.
+sidebar:
+  order: 3
+---
+
+import { Aside } from "@astrojs/starlight/components";
+
+This page covers the transport, the secrets, the outbound calls and the exposed endpoints.
+Read it before you put QueueBox on a network that you do not control.
+
+## Transport security
+
+QueueBox listens on plain HTTP.
+It does not terminate TLS.
+Put a reverse proxy or an ingress in front of it, and terminate TLS there.
+Certificate rotation then stays out of the application.
+
+Never expose the QueueBox port directly to the internet.
+Publish only the inbox path.
+`/metrics`, `/health` and `/admin` stay inside your network.
+Set `server.managementPort` to move them to a separate port, so that an ingress rule on the data port cannot publish them by mistake.
+
+### Kubernetes ingress example
+
+The example terminates TLS at the ingress and sends plain HTTP to the service inside the cluster.
+It limits the request body to the same value as `inbox.maxBodyBytes`.
+
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: queuebox
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    nginx.ingress.kubernetes.io/proxy-body-size: 1m
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - webhooks.example.com
+      secretName: queuebox-tls
+  rules:
+    - host: webhooks.example.com
+      http:
+        paths:
+          - path: /inbox
+            pathType: Prefix
+            backend:
+              service:
+                name: queuebox
+                port:
+                  number: 8080
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: queuebox
+spec:
+  selector:
+    app: queuebox
+  ports:
+    - port: 8080
+      targetPort: 8080
+```
+
+### Nginx example
+
+```nginx
+server {
+    listen 443 ssl http2;
+    server_name webhooks.example.com;
+
+    ssl_certificate     /etc/ssl/certs/queuebox.crt;
+    ssl_certificate_key /etc/ssl/private/queuebox.key;
+    ssl_protocols       TLSv1.2 TLSv1.3;
+
+    client_max_body_size 1m;
+
+    location /inbox/ {
+        proxy_pass http://queuebox:8080;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+```
+
+## Inbound authentication
+
+An HTTP source can require a bearer token, an API key or an HMAC signature.
+A request that fails the check gets 401, and QueueBox stores nothing.
+See [Authenticate requests](/how-to/authenticate-requests/).
+
+Authenticate every source that the internet can reach.
+A source without `auth` accepts any caller that reaches the path.
+
+## Outbound calls
+
+QueueBox calls an HTTP destination with the scheme that `destinations.<name>.baseUrl` names.
+Use `https://` for every destination that leaves your network.
+QueueBox refuses a base URL that is not an absolute HTTP or HTTPS URL.
+
+QueueBox also refuses:
+
+- a destination URL that carries a user name or a password,
+- a destination path that carries a `.` or a `..` segment.
+
+QueueBox never follows a redirect for a destination.
+A 3xx answer fails the publish, and the retry or the dead-letter path runs.
+Without this rule, a public destination could redirect QueueBox to a metadata address with the destination credentials attached.
+
+### Block private addresses
+
+Set `http.blockPrivateAddresses: true` when the destination configuration comes from a layer that you trust less.
+QueueBox then refuses a destination that resolves to a loopback address, a link-local address or a private range.
+The same check covers the OAuth2 `tokenUrl`, which carries the client secret in its request body.
+
+```yaml
+# fragment
+http:
+  blockPrivateAddresses: true
+```
+
+<Aside type="caution">
+The address check runs once, at start.
+The publisher resolves the host again on every request.
+A DNS name whose record changes to a private address after the start still passes.
+Where the destination configuration is not trusted, add an egress policy at the network.
+Only the network can enforce the rule at the time of each request.
+</Aside>
+
+## Secrets
+
+Every credential field accepts a `file:` reference.
+QueueBox reads the file once, at start, and removes the trailing newline.
+
+```yaml
+# fragment
+database:
+  password: file:/run/secrets/queuebox-db-password
+
+sources:
+  stripe:
+    type: http
+    path: /stripe
+    idempotencyKeyPath: $.id
+    eventTypePath: $.type
+    auth:
+      type: hmac
+      secret: file:/run/secrets/stripe-webhook-secret
+```
+
+A `file:` reference works only on a field that is a credential and nothing else.
+`database.url`, the RabbitMQ destination `url` and the RabbitMQ source `connectionUrl` carry a password inside a URL.
+Supply those through an environment variable, for example `QUEUEBOX_DATABASE_URL`.
+On one of those fields, QueueBox reads a `file:` string literally, and `database.url` then fails validation at start.
+
+### The Kubernetes secret pattern
+
+Mount the secret as a file, not as an environment variable.
+Another process cannot read a file from `/proc/<pid>/environ`.
+You can also rotate a file without a change to the pod template.
+
+```yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: queuebox-secrets
+type: Opaque
+stringData:
+  db-password: the-real-password
+  stripe-webhook-secret: whsec_the_real_secret
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: queuebox
+spec:
+  selector:
+    matchLabels:
+      app: queuebox
+  template:
+    metadata:
+      labels:
+        app: queuebox
+    spec:
+      containers:
+        - name: queuebox
+          image: ghcr.io/alternayte/queuebox:1.2.3
+          env:
+            - name: QUEUEBOX_DATABASE_PASSWORD
+              value: file:/run/secrets/db-password
+          volumeMounts:
+            - name: secrets
+              mountPath: /run/secrets
+              readOnly: true
+      volumes:
+        - name: secrets
+          secret:
+            secretName: queuebox-secrets
+```
+
+An external secret manager works the same way.
+Have it write a file, and point the configuration at the path.
+
+### Secrets in logs
+
+A credential field prints as a mask.
+A log line, an exception message or a crash dump that prints a configuration object therefore shows no secret.
+
+- A value that is not empty prints as `Secret(***)`.
+- An empty value prints as `Secret(empty)`, which tells an operator that the credential is absent.
+- A JDBC URL or an AMQP URI prints with its password masked.
+
+The publisher also redacts the reason for a failed delivery before it stores it in `last_error`.
+It masks the value of every known secret-bearing key and truncates the text.
+
+## The admin routes
+
+The admin routes change data and run code that the caller supplies:
+
+- `POST /admin/transform/test` evaluates a JSONata expression on the host that processes your messages.
+- `POST /admin/replay` sends delivered and dead outbox rows again.
+  See [Replay dead letters](/how-to/replay-dead-letters/).
+
+QueueBox protects them as follows:
+
+- The routes do not exist until you set `admin.enabled: true`.
+- They need authentication.
+  QueueBox refuses to start with `admin.enabled: true` and no `admin.auth`, unless you set `admin.insecure: true`.
+  Never set `admin.insecure` in production.
+- QueueBox clamps the caller's transform timeout to `admin.maxTransformTimeoutMs` (default 1000 ms).
+- QueueBox rejects a request body larger than `admin.maxPayloadBytes` (default 65536 bytes) with 413.
+
+```yaml
+# fragment
+admin:
+  enabled: true
+  auth:
+    type: bearer
+    token: file:/run/secrets/queuebox-admin-token
+```
+
+Never publish `/admin` through the ingress.
+
+## Request limits
+
+| Setting | Default | Purpose |
+| --- | --- | --- |
+| `inbox.maxBodyBytes` | 1048576 | The largest accepted request body. A larger body gets 413. |
+| `sources.<name>.rateLimit.requestsPerMinute` | Not set | The request rate that one source accepts. A caller over the limit gets 429 with `Retry-After`. |
+| `http.maxErrorBodyBytes` | 2048 | The largest error body that a failed delivery keeps. |
+
+The rate limit uses one bucket per source.
+It protects the database from one busy source.
+It does not separate one caller from another, so keep the per-client limit at the ingress.

@@ -1,0 +1,111 @@
+---
+title: Use QueueBox with coding agents
+description: Give a coding agent the QueueBox docs as Markdown and install the QueueBox skill in Claude Code, Cursor or another agent.
+---
+
+import { Tabs, TabItem, LinkCard, CardGrid } from "@astrojs/starlight/components";
+
+This guide shows you how to set up a coding agent, such as Claude Code or Cursor, to write application code for QueueBox. The agent gets two sources of facts: the docs as plain Markdown, and the QueueBox skill.
+
+| Part | What the agent gets |
+|---|---|
+| llms.txt and the `.md` pages | The full docs as plain Markdown. |
+| The QueueBox skill | A short file of rules for outbox rows, `queuebox.yml`, pull clients and idempotent consumers. |
+
+## Give the agent the docs
+
+The docs site publishes its pages as plain text for language models:
+
+| URL | Content |
+|---|---|
+| [/llms.txt](https://queuebox-docs.pages.dev/llms.txt) | The index. It lists each page with the URL of its Markdown copy. |
+| [/llms-full.txt](https://queuebox-docs.pages.dev/llms-full.txt) | All pages in one Markdown file. |
+| [/llms-small.txt](https://queuebox-docs.pages.dev/llms-small.txt) | All pages in a compact form, for a small context window. |
+
+Each page also has a Markdown copy. Add `.md` to the path of the page. For example, [/reference/configuration.md](https://queuebox-docs.pages.dev/reference/configuration.md) is the Markdown copy of [the configuration reference](/reference/configuration/).
+
+The **Copy page** menu at the top of each page has four entries:
+
+| Entry | Effect |
+|---|---|
+| **Copy as Markdown** | Puts the Markdown of the page on the clipboard. Paste it into a chat or an agent prompt. |
+| **View as Markdown** | Opens the `.md` copy of the page. |
+| **Open in Claude** | Opens a Claude chat that reads the page. |
+| **Open in ChatGPT** | Opens a ChatGPT chat that reads the page. |
+
+## Install the skill
+
+The skill is one file: [`skills/queuebox/SKILL.md`](https://github.com/alternayte/queuebox/blob/main/skills/queuebox/SKILL.md). Its `description` tells the agent when to load it: when code writes outbox rows, consumes the inbox, receives a delivery, or changes `queuebox.yml`. The skill links to `llms-full.txt` for the detail.
+
+<Tabs>
+  <TabItem label="Claude Code plugin">
+    The QueueBox repository is a Claude Code plugin marketplace with one plugin, `queuebox`. Run these two commands in a Claude Code session:
+
+    ```text
+    /plugin marketplace add alternayte/queuebox
+    /plugin install queuebox@queuebox
+    ```
+
+    The plugin ships the skill. To get a newer version of the skill, run `claude plugin marketplace update queuebox` in a shell.
+  </TabItem>
+  <TabItem label="npx skills">
+    The `skills` CLI reads the `skills/` directory of the repository and installs the skill for the agents that it detects:
+
+    ```sh
+    npx skills add alternayte/queuebox
+    ```
+
+    Add `--list` to see the skills in the repository without an install. Run `npx skills update` to get a newer version.
+  </TabItem>
+  <TabItem label="Manual copy">
+    Copy the file into the skills directory of your repository. Claude Code finds a skill in `.claude/skills/<name>/SKILL.md`:
+
+    ```sh
+    mkdir -p .claude/skills/queuebox
+    curl -fsSL https://raw.githubusercontent.com/alternayte/queuebox/main/skills/queuebox/SKILL.md \
+      -o .claude/skills/queuebox/SKILL.md
+    ```
+
+    Commit the file, so that each person on the team gets the same rules. Copy the file again to get a newer version.
+  </TabItem>
+  <TabItem label="Cursor">
+    Cursor reads rules from `.cursor/rules/`. Copy the skill into a rule file:
+
+    ```sh
+    mkdir -p .cursor/rules
+    curl -fsSL https://raw.githubusercontent.com/alternayte/queuebox/main/skills/queuebox/SKILL.md \
+      -o .cursor/rules/queuebox.mdc
+    ```
+
+    Cursor reads the `description` in the front matter of the file. It attaches the rule when a request matches the description.
+  </TabItem>
+  <TabItem label="Other agents">
+    Many agents read `AGENTS.md` in the root of the repository. Add a line to it that points to the skill:
+
+    ```md
+    For code that uses QueueBox, read skills/queuebox/SKILL.md first.
+    ```
+
+    Put the file at that path with one of the other methods. For an agent without `AGENTS.md` support, add the content of `SKILL.md` to its instructions file.
+  </TabItem>
+</Tabs>
+
+## What the skill covers
+
+The skill holds the rules that an agent needs most often. The docs hold the full detail.
+
+| Section | Content |
+|---|---|
+| Write an outbox row | The required columns `topic` and `payload`, the optional columns, the order per `key`, `headers`, `scheduled_at` and `max_attempts`. It has an insert for Postgres and for SQL Server, with `[key]` in brackets on SQL Server. |
+| queuebox.yml | `database`, `sources`, `destinations`, `routes` and `transforms`, with a complete example that the QueueBox loader accepts. |
+| Consume the inbox | Push through the relay or pull with a client. It names the Go, TypeScript and C# packages, their core calls and the handler rules. |
+| Idempotent consumers | Deduplication on `X-Message-Id` for direct outbox traffic and on `x-idempotency-key` for relay traffic. |
+| Do not | The mistakes to avoid. For example, a write to a column that QueueBox owns, an insert outside the business transaction, or a dependency on order across keys. |
+
+## Next steps
+
+<CardGrid>
+  <LinkCard title="Write outbox rows" href="/how-to/write-outbox-rows/" description="Insert a message in the transaction of the business write." />
+  <LinkCard title="Consume the inbox" href="/how-to/consume-the-inbox/" description="Read inbox messages with a pull client in Go, TypeScript or C#." />
+  <LinkCard title="Configuration" href="/reference/configuration/" description="Every key of queuebox.yml and its environment variable." />
+</CardGrid>

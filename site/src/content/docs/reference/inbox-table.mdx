@@ -1,0 +1,181 @@
+---
+title: Inbox table
+description: Every column of the inbox table on PostgreSQL and SQL Server, with its type, nullability, default and writer.
+sidebar:
+  order: 4
+---
+
+import { Tabs, TabItem } from "@astrojs/starlight/components";
+
+This page describes every column of the `inbox` table that the bundled migrations create, on PostgreSQL and on SQL Server.
+QueueBox writes one row for each accepted message of a source. The application reads the table only through a [pull client](/reference/pull-clients/), or for an operational question.
+`database.inboxTableName` and `database.columnMapping.inbox` rename the table and its columns. See the [configuration](/reference/configuration/#databasecolumnmappinginbox) page.
+
+## Columns
+
+| Column | PostgreSQL type | SQL Server type | Null | Default | Written by |
+| --- | --- | --- | --- | --- | --- |
+| `id` | `UUID` | `UNIQUEIDENTIFIER` | no | `gen_random_uuid()` / `NEWID()` | QueueBox, at receipt |
+| `source` | `VARCHAR(255)` | `NVARCHAR(255)` | no | none | QueueBox, at receipt |
+| `idempotency_key` | `VARCHAR(255)` | `NVARCHAR(255)` | no | none | QueueBox, at receipt |
+| `aggregate_id` | `VARCHAR(255)` | `NVARCHAR(255)` | yes | none | QueueBox, at receipt |
+| `event_type` | `VARCHAR(255)` | `NVARCHAR(255)` | yes | none | QueueBox, at receipt |
+| `payload` | `JSONB` | `NVARCHAR(MAX)` | no | none | QueueBox, at receipt |
+| `headers` | `JSONB` | `NVARCHAR(MAX)` | no | `'{}'` | QueueBox, at receipt |
+| `correlation_id` | `VARCHAR(128)` | `NVARCHAR(128)` | yes | none | QueueBox, at receipt |
+| `consumption` | `VARCHAR(4)` | `VARCHAR(4)` | no | `'push'` | QueueBox, at receipt |
+| `state` | `VARCHAR(50)` | `NVARCHAR(50)` | no | `'pending'` | QueueBox, the relay or a pull client |
+| `created_at` | `TIMESTAMP WITH TIME ZONE` | `DATETIME2` | no | `CURRENT_TIMESTAMP` / `GETUTCDATE()` | The default |
+| `processed_at` | `TIMESTAMP WITH TIME ZONE` | `DATETIME2` | yes | none | The relay or a pull client |
+| `scheduled_at` | `TIMESTAMPTZ` | `DATETIME2` | no | `CURRENT_TIMESTAMP` / `SYSUTCDATETIME()` | The default, then a pull client on a retry |
+| `attempt` | `INT` | `INT` | no | `0` | A pull client on a retry |
+| `last_error` | `TEXT` | `NVARCHAR(MAX)` | yes | none | A pull client on a retry or a dead letter |
+| `claimed_at` | `TIMESTAMP WITH TIME ZONE` | `DATETIME2` | yes | none | The relay or a pull client |
+| `claim_token` | `UUID` | `UNIQUEIDENTIFIER` | yes | none | The relay or a pull client |
+| `lease_expires_at` | `TIMESTAMPTZ` | `DATETIME2` | yes | none | The relay or a pull client |
+
+The pair `(source, idempotency_key)` carries the unique constraint `uq_inbox_source_idempotency`. The constraint is the deduplication.
+
+## Columns set at receipt
+
+### id
+
+The row identifier. The relay sends it on the outbox row as the `x-inbox-id` header.
+
+### source
+
+The name of the source in `queuebox.yml`, for example `stripe`. It is the key of the `sources` map, not the path of the HTTP route.
+
+### idempotency_key
+
+The deduplication key inside one source. A second message with the same source and key is a duplicate, and QueueBox stores no second row.
+Two sources can hold the same key, because the source is part of the identity.
+The [headers](/reference/headers/#headers-that-queuebox-reads) page gives the order in which each kind of source finds the key.
+When a broker source finds no key, it writes `sha256:` and the hexadecimal SHA-256 digest of the body.
+
+### aggregate_id
+
+The unit of order of the inbox. It comes from `aggregateIdPath`, or from a header or the record key on a broker source.
+At most one row of an aggregate is in flight at a time. The relay copies the value into the outbox `key`.
+[Ordering](/concepts/ordering/) states the rules for push and pull rows.
+
+### event_type
+
+The event type from `eventTypePath`, or from the event type header of a broker source. The topic template reads it as `{{ eventType }}`.
+
+### payload
+
+The message body as JSON, after the source transform. A broker message whose body is not JSON becomes a dead row with the payload `{"raw": "<body text>"}`.
+
+### headers
+
+A JSON object of the received headers, one string value per name. A repeated name keeps its last value.
+
+| Source kind | Content |
+| --- | --- |
+| `http` | The request headers, except `Authorization`, `Proxy-Authorization`, `Cookie` and the header that the source `auth` block reads. |
+| `rabbitmq` | The AMQP headers. A number, a boolean or a timestamp becomes its string form. A nested table or array becomes JSON text. A byte array becomes UTF-8 text, or `base64:` and its Base64 text when it is not valid UTF-8. |
+| `kafka` | The record headers as UTF-8 text, or `base64:` and the Base64 text when a value is not valid UTF-8. |
+| `nats` | The message headers. A name with several values keeps its last value. |
+
+QueueBox stops at start when the table has no headers column. The error holds the `ALTER TABLE` statement that adds it.
+
+### correlation_id
+
+The identifier that follows the message through every log line. It comes from the `X-Correlation-Id` header, or QueueBox generates a UUID.
+QueueBox removes control characters and keeps at most 128 characters.
+
+### consumption
+
+`push` or `pull`, from the `consumption` key of the source at receipt. A check constraint allows only these two values.
+A later change of the configuration does not change a stored row. The relay claims push rows only.
+
+## Columns of the claim
+
+### state
+
+The position of the row in its life cycle. The meaning of a processed row depends on `consumption`.
+For a push row, it means that the relay copied the row into the outbox. For a pull row, it means that the application finished its work.
+[How QueueBox works](/concepts/how-queuebox-works/) lists the states and the transitions between them.
+
+### created_at and processed_at
+
+`created_at` is the receipt time. The retention age policy of the inbox measures from it.
+`processed_at` is the time of completion. The inbox has no `updated_at` column.
+
+### scheduled_at and attempt
+
+A pull claim takes a row only when `scheduled_at` has passed. A pull retry moves `scheduled_at` forward and raises `attempt` by one.
+The relay does not use these two columns.
+
+### last_error
+
+The reason that a pull client gives on a retry or a dead letter. The pull clients remove secret values from the text before they write it.
+
+### claimed_at, claim_token and lease_expires_at
+
+A claim sets all three: the claim time, a new random token and the end of the lease.
+Every completion, retry, renewal and dead letter matches the token and a lease that has not passed.
+An update that matches no row means that the claim was lost.
+A pull completion, retry or dead letter clears `claim_token` and `lease_expires_at`.
+[Claims and leases](/concepts/claims-and-leases/) explains the model.
+
+## Indexes
+
+<Tabs>
+  <TabItem label="PostgreSQL">
+
+| Index | Columns | Filter |
+| --- | --- | --- |
+| Primary key | `id` | none |
+| `uq_inbox_source_idempotency` | `source`, `idempotency_key` | unique |
+| `idx_inbox_pending` | `state` | pending rows |
+| `idx_inbox_source` | `source` | none |
+| `idx_inbox_aggregate_state` | `aggregate_id`, `state` | none |
+| `idx_inbox_processing_claimed` | `claimed_at` | processing rows |
+| `idx_inbox_state_created` | `state`, `created_at` | none |
+| `idx_inbox_consumption_pending` | `consumption`, `state`, `scheduled_at` | none |
+| `idx_inbox_pull_pending` | `source`, `scheduled_at`, `created_at`, `id` | pending pull rows |
+| `idx_inbox_pull_busy` | `source`, `aggregate_id`, `lease_expires_at` | processing pull rows |
+
+  </TabItem>
+  <TabItem label="SQL Server">
+
+| Index | Columns | Filter |
+| --- | --- | --- |
+| Primary key | `id` | none |
+| `uq_inbox_source_idempotency` | `source`, `idempotency_key` | unique |
+| `idx_inbox_state` | `state` | none |
+| `idx_inbox_state_created` | `state`, `created_at` | none |
+| `idx_inbox_aggregate_state` | `aggregate_id`, `state` | none |
+| `idx_inbox_processing_claimed` | `claimed_at` | processing rows |
+| `idx_inbox_consumption_pending` | `consumption`, `state`, `scheduled_at` | none |
+| `idx_inbox_pull_pending` | `source`, `scheduled_at`, `created_at`, `id` | pending pull rows |
+| `idx_inbox_pull_busy` | `source`, `aggregate_id`, `lease_expires_at` | processing pull rows |
+
+  </TabItem>
+</Tabs>
+
+## Example query
+
+Read the table for an operational question, for example to check that a webhook arrived.
+
+<Tabs>
+  <TabItem label="PostgreSQL">
+```sql
+SELECT id, source, idempotency_key, event_type, state, created_at, processed_at
+FROM inbox
+WHERE source = 'stripe'
+ORDER BY created_at DESC
+LIMIT 20;
+```
+  </TabItem>
+  <TabItem label="SQL Server">
+```sql
+SELECT TOP 20 id, source, idempotency_key, event_type, state, created_at, processed_at
+FROM inbox
+WHERE source = N'stripe'
+ORDER BY created_at DESC;
+```
+  </TabItem>
+</Tabs>

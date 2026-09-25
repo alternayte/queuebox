@@ -1,0 +1,187 @@
+---
+title: Fan out over HTTP
+description: Deliver outbox rows to HTTP endpoints, route them on topic patterns, and send one event to several destinations.
+sidebar:
+  order: 4
+---
+
+import { Aside } from "@astrojs/starlight/components";
+
+This guide shows how to deliver outbox rows to HTTP endpoints. It covers the HTTP destination, the routes that choose a destination by topic, and the way to send one event to several endpoints. `examples/http-fanout` in the repository runs the full setup.
+
+## Declare an HTTP destination
+
+An HTTP destination is one endpoint. QueueBox sends each row to it as a `POST` to `baseUrl` followed by `path`.
+
+```yaml
+destinations:
+  analytics:
+    type: http
+    baseUrl: https://analytics.internal
+    path: /events
+    timeoutMs: 5000
+    headers:
+      X-Source: queuebox
+
+routes:
+  - topicPattern: "analytics.**"
+    destination: analytics
+```
+
+| Field | Default | Meaning |
+|-------|---------|---------|
+| `baseUrl` | none, required | An absolute `http` or `https` URL with a host. QueueBox checks it at startup. |
+| `path` | `/` | The path after `baseUrl`. |
+| `timeoutMs` | `30000` | The request timeout. The connect timeout is half of it. |
+| `headers` | none | Static headers on every request. |
+| `auth` | none | OAuth2, basic or header credentials. See [Authenticate requests](/how-to/authenticate-requests/#authenticate-to-a-destination). |
+| `transform` | none | A JSONata expression that reshapes the payload. See [Transform payloads](/how-to/transform-payloads/). |
+
+## What the endpoint receives
+
+The body is the payload of the row, with `Content-Type: application/json`. QueueBox adds these headers:
+
+| Header | Value |
+|--------|-------|
+| `X-Message-Id` | The `id` of the outbox row. It stays the same across retries. |
+| `X-Topic` | The `topic` of the row. |
+| `X-Attempt` | The number of failed deliveries so far. It is `0` on the first delivery. |
+| `X-Message-Key` | The `key` of the row. It is absent when the row has no key. |
+
+The row `headers` travel as HTTP headers as well. A row header wins over a static destination header and over an authentication header of the same name. A row that the inbox relay forwards also carries `x-inbox-id`, `x-source`, `x-idempotency-key` and `X-Correlation-Id`. [Headers](/reference/headers/) lists them all.
+
+## What the endpoint answers
+
+- Any `2xx` completes the delivery. QueueBox marks the row `sent` and never sends it again.
+- Any other status fails the delivery, and so does a timeout or a connection error. QueueBox does not follow a redirect, so a `3xx` also fails.
+
+A failed delivery goes back to `pending` with a delay. The delay is `outbox.retryBaseDelayMs` times two to the power of `attempt`, plus up to 25 percent of random jitter. It never exceeds 60 seconds. When `attempt` reaches the `max_attempts` of the row, the row goes to `dead`. See [Dead letters](/operations/dead-letters/).
+
+Answer `202 Accepted` only when the message is durable at the endpoint. QueueBox treats `202` like `200` and keeps no copy to retry. An endpoint that cannot store the message yet must answer with a status outside `2xx`.
+
+Delivery is at least once. A lost response or a slow publish sends the same `X-Message-Id` again. Make the endpoint idempotent, as [Consume the inbox](/how-to/consume-the-inbox/#at-a-push-destination) shows. Set `outbox.claimTimeoutMs` above the slowest publish, or another replica takes over a row that is still in flight.
+
+## Match topics with patterns
+
+Each route pairs a `topicPattern` with one destination. QueueBox tries the routes in configuration order, and the first route that matches wins. A row that matches no route goes to `dead`.
+
+- The pattern must match the whole topic.
+- `*` matches one segment. A segment holds no dot.
+- `**` matches any text, dots included.
+- Every other character matches itself. A dot, a dash and a plus have no special meaning.
+
+| Pattern | Matches | Does not match |
+|---------|---------|----------------|
+| `order.*` | `order.created`, `order.paid` | `order`, `order.item.added` |
+| `order.**` | `order.created`, `order.item.added` | `order` |
+| `**` | every topic | nothing |
+| `order.created` | `order.created` | `order.updated` |
+
+Put the specific routes first and a catch-all `**` route last:
+
+```yaml
+destinations:
+  billing:
+    type: http
+    baseUrl: https://billing.internal
+    path: /events
+  archive:
+    type: http
+    baseUrl: https://archive.internal
+    path: /events
+
+routes:
+  - topicPattern: "invoice.*"
+    destination: billing
+  - topicPattern: "**"
+    destination: archive
+```
+
+A route can also set a `transform` for its rows. It runs before the transform of the destination.
+
+## Send one event to several endpoints
+
+A row goes to one destination: the destination of the first route that matches. Two routes with the same pattern do not copy a row. To reach several endpoints, write one outbox row per destination, each with its own topic.
+
+This keeps each delivery independent. Each row has its own attempt count, its own retries and its own dead-letter state. An endpoint that is down retries alone and never holds back the others.
+
+Give each destination a topic prefix:
+
+```yaml
+destinations:
+  analytics:
+    type: http
+    baseUrl: http://analytics:8080
+    path: /events
+    timeoutMs: 5000
+  audit:
+    type: http
+    baseUrl: http://audit:8080
+    path: /events
+    timeoutMs: 5000
+
+routes:
+  - topicPattern: "analytics.**"
+    destination: analytics
+  - topicPattern: "audit.**"
+    destination: audit
+```
+
+Then write both rows in the transaction of the business write:
+
+```sql
+BEGIN;
+
+INSERT INTO outbox (topic, key, payload)
+VALUES ('analytics.payment.succeeded', 'cust-42', '{"paymentId":"pay_1","amount":4200}'::jsonb);
+
+INSERT INTO outbox (topic, key, payload)
+VALUES ('audit.payment.succeeded', 'cust-42', '{"paymentId":"pay_1","amount":4200}'::jsonb);
+
+COMMIT;
+```
+
+For a message that arrives through the inbox, the source `topic` template sets the topic. One inbox message therefore reaches one destination. To fan out an inbox message, send it to one endpoint of your own that writes the rows.
+
+## Run the example
+
+`examples/http-fanout` runs QueueBox, PostgreSQL and two small HTTP receivers. Its inbox source uses the event type as the topic, so two posts reach two receivers.
+
+```bash
+cd examples/http-fanout
+docker compose up -d --build
+curl -X POST http://localhost:18081/inbox/stripe -H 'Content-Type: application/json' \
+  -d '{"id":"e1","type":"analytics.payment.succeeded"}'
+curl -X POST http://localhost:18081/inbox/stripe -H 'Content-Type: application/json' \
+  -d '{"id":"e2","type":"audit.payment.succeeded"}'
+docker compose logs analytics audit
+docker compose down -v
+```
+
+The `analytics` log shows `e1`, and the `audit` log shows `e2`. `./smoke-test.sh` runs the same steps and checks that no receiver gets the topic of the other.
+
+## Block private addresses
+
+Set `http.blockPrivateAddresses: true` to refuse a destination whose host resolves to a loopback, link-local, site-local or unique-local address. QueueBox runs the check at startup. A host that does not resolve does not stop the start.
+
+```yaml
+http:
+  blockPrivateAddresses: true
+  maxErrorBodyBytes: 2048
+
+destinations:
+  partner-api:
+    type: http
+    baseUrl: https://api.partner.example
+    path: /webhooks
+
+routes:
+  - topicPattern: "partner.**"
+    destination: partner-api
+```
+
+`http.maxErrorBodyBytes` caps the error body that QueueBox keeps from a failed publish. QueueBox redacts secrets from that text before it reaches a log or the `last_error` column.
+
+<Aside>
+Leave `blockPrivateAddresses` off when your destinations run on an internal network, as the examples above do.
+</Aside>

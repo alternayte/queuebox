@@ -1,0 +1,15 @@
+{
+  "name": "queuebox",
+  "description": "The QueueBox skill for coding agents.",
+  "owner": {
+    "name": "alternayte",
+    "url": "https://github.com/alternayte"
+  },
+  "plugins": [
+    {
+      "name": "queuebox",
+      "source": "./",
+      "description": "Rules for application code that writes QueueBox outbox rows, consumes the inbox with a pull client, or edits queuebox.yml."
+    }
+  ]
+}

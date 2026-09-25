@@ -1,0 +1,213 @@
+---
+title: HTTP API
+description: Every HTTP route of QueueBox, with its method, authentication, request, status codes and response bodies.
+sidebar:
+  order: 5
+---
+
+This page lists every HTTP route that QueueBox serves: the inbox sources, the health routes, the metrics route and the admin routes.
+
+## Ports
+
+| Route | Port without `server.managementPort` | Port with `server.managementPort` |
+| --- | --- | --- |
+| `GET /` | `server.httpPort` | `server.httpPort` |
+| `POST <inbox.basePath><path>` | `server.httpPort` | `server.httpPort` |
+| `GET /health/live`, `GET /health/ready`, `GET /health` | `server.httpPort` | `server.managementPort` only |
+| `GET /metrics` | `server.httpPort` | `server.managementPort` only |
+| `POST /admin/transform/test`, `POST /admin/replay` | `server.httpPort` | `server.managementPort` only |
+
+With a management port, the data port answers `404` on the health, metrics and admin paths.
+A path that no route serves answers `404`.
+
+Two rules apply to every route of the data port:
+
+- A request whose `Content-Length` is above `inbox.maxBodyBytes` gets `413` with `{"error":"Request body exceeds <n> bytes"}`.
+- A request that arrives during shutdown gets `503` with `{"error":"QueueBox is shutting down"}`.
+
+## Root
+
+`GET /` answers `200` with the text `QueueBox is running!`. It checks nothing. Use the health routes for a probe.
+
+## Inbox sources
+
+Each HTTP source of `sources` registers one route: `POST` on `inbox.basePath` followed by the `path` of the source.
+With the default `basePath`, a source with `path: /stripe` answers at `/inbox/stripe`. The source name is not part of the path.
+
+```bash
+curl -X POST http://localhost:8080/inbox/stripe \
+  -H "Content-Type: application/json" \
+  -d '{"id": "evt_123", "type": "payment.completed"}'
+```
+
+### Request
+
+| Part | Rule |
+| --- | --- |
+| Body | One JSON document, at most `inbox.maxBodyBytes` bytes. The route counts the bytes of a chunked body as it reads them. |
+| `Content-Type` | The route parses the body as JSON whatever the header says. |
+| Authentication | The `auth` block of the source, when it has one. See [source auth](/reference/configuration/#source-auth). |
+| `X-Correlation-Id` | Optional. QueueBox stores it on the row. Without it, QueueBox generates a UUID. |
+| Other headers | QueueBox stores them in the `headers` column, except the credential headers. The header filter of the source reads them. |
+
+### Processing order
+
+1. QueueBox reads the body under the size cap.
+2. It checks the credentials.
+3. It runs the header filter.
+4. It sets the `X-Correlation-Id` response header.
+5. It parses the body as JSON.
+6. It extracts the idempotency key, the event type and the aggregate identifier.
+7. It runs the source transform.
+8. It stores the row. The unique constraint on `(source, idempotency_key)` detects a duplicate here.
+
+The transform runs before the duplicate check. A repeat of a stored message whose transform now fails therefore gets `422`, not `200`.
+
+### Responses
+
+| Status | Body | Meaning |
+| --- | --- | --- |
+| `202` | `{"messageId":"<uuid>"}` | The message is new. QueueBox stored it. The value is the `id` of the inbox row. |
+| `202` | `{"status":"filtered"}` | The header filter dropped the message. QueueBox stored no row. |
+| `200` | `{"status":"duplicate"}` | The source already holds a message with this idempotency key. |
+| `400` | `{"error":"Invalid JSON"}` | The body is not JSON. |
+| `400` | `{"error":"<reason>"}` | The idempotency key path found no value. |
+| `401` | `{"error":"<reason>"}` | The request failed the authentication of the source. The reason names the check, never a credential. |
+| `413` | `{"error":"Request body exceeds <n> bytes"}` | The body is larger than `inbox.maxBodyBytes`. |
+| `422` | `{"error":"Transform failed: <reason>"}` | The source transform rejected the payload. QueueBox stored no row. |
+| `429` | none | The request went over `rateLimit.requestsPerMinute`. The response carries `Retry-After`. |
+| `500` | `{"error":"Storage failed"}` | The database write failed. Send the message again. |
+| `503` | `{"error":"QueueBox is shutting down"}` | The process is stopping. Send the message again. |
+
+A `202` means that the message is durable in the inbox, not that a destination received it.
+A sender can send the message again after a `500` or a `503`. A `4xx` answer does not change when the sender repeats the same request.
+
+## Health
+
+The health routes need no authentication. Each answers JSON.
+
+### GET /health/live
+
+Liveness. It reports the process and touches no dependency, so a slow database cannot fail it. Use it for a liveness probe.
+
+```json
+{"status":"healthy","components":{"process":{"status":"up"}}}
+```
+
+It always answers `200`.
+
+### GET /health/ready
+
+Readiness. It checks the database and every worker. Use it for a readiness probe.
+
+| Status | Body `status` | Meaning |
+| --- | --- | --- |
+| `200` | `healthy` | Every component that decides readiness is `up`. |
+| `503` | `unhealthy` | At least one component that decides readiness is `down`. |
+
+```json
+{
+  "status": "healthy",
+  "components": {
+    "database": {"status": "up"},
+    "outbox-poller": {"status": "up"},
+    "inbox-relay": {"status": "up"},
+    "rabbitmq.orders-queue": {"status": "up"}
+  }
+}
+```
+
+| Component | Present when | Decides readiness |
+| --- | --- | --- |
+| `database` | always | yes |
+| `outbox-capture` | `outbox.capture.enabled` is `true` | no. The component shows a capture fault, and delivery continues through SQL. |
+| `outbox-poller` | always | yes |
+| `retention-service` | `retention.enabled` is `true` | yes |
+| `inbox-relay` | `inbox.relay.enabled` is `true` | yes |
+| `rabbitmq.<source>` | one per RabbitMQ source | yes |
+| `kafka.<source>` | one per Kafka source | yes |
+| `nats.<source>` | one per NATS source | yes |
+
+Each check has a bound of 3 seconds. A check that does not answer in time counts as `down`.
+
+### GET /health
+
+An alias of `GET /health/ready`, with the same status codes and body.
+
+## Metrics
+
+`GET /metrics` answers `200` with the Prometheus text format, content type `text/plain; version=0.0.4; charset=utf-8`.
+It needs no authentication. Keep it on an internal network, because the names and counts show destinations and traffic.
+The [metrics](/reference/metrics/) page lists every metric.
+
+## Admin routes
+
+The admin routes exist only when `admin.enabled` is `true`. Otherwise they answer `404`.
+Each request needs the credentials of `admin.auth`, unless `admin.insecure` is `true`.
+The body is JSON of at most `admin.maxPayloadBytes` bytes. The route ignores an unknown field.
+
+### POST /admin/transform/test
+
+Evaluates a JSONata expression against a sample payload. It sends nothing and writes nothing.
+
+| Field | Type | Required | Meaning |
+| --- | --- | --- | --- |
+| `expression` | string | yes | The JSONata expression. |
+| `payload` | JSON | yes | The input of the expression. |
+| `mockTopic` | string | no | The value of `$topic`. Default: `test.topic`. |
+| `mockSource` | string | no | The value of `$source`. |
+| `timeoutMs` | integer | no | The evaluation timeout. Default: `100`. QueueBox uses at most `admin.maxTransformTimeoutMs`. |
+
+```bash
+curl -X POST http://localhost:9090/admin/transform/test \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "expression": "{ \"total\": $sum(items.(price * qty)) }",
+    "payload": {"items": [{"price": 10, "qty": 2}, {"price": 5, "qty": 3}]},
+    "mockTopic": "order.created"
+  }'
+```
+
+| Status | Body | Meaning |
+| --- | --- | --- |
+| `200` | `{"success":true,"result":<json>,"context":{"messageId":"<uuid>","topic":"<topic>","attempt":0,"timestamp":"<iso-8601>"}}` | The expression ran. `context` shows the variables that it saw. |
+| `400` | `{"success":false,"error":"Invalid request: <reason>"}` | The body is not a valid request. |
+| `400` | `{"success":false,"error":"Invalid expression: <reason>"}` | The expression does not compile. |
+| `400` | `{"success":false,"error":"<reason>"}` | The evaluation failed or ran out of time. |
+| `401` | `{"success":false,"error":"<reason>"}` | The credentials are wrong or absent. |
+| `413` | `{"success":false,"error":"Request body exceeds <n> bytes"}` | The body is larger than `admin.maxPayloadBytes`. |
+
+### POST /admin/replay
+
+Moves outbox rows back to pending, so the poller delivers them again. It takes only rows that are sent or dead.
+A row that waits or runs never moves. The move sets `attempt` to `0`, `scheduled_at` to now, and clears `last_error` and the claim columns.
+The row keeps its `id`.
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `ids` | array of UUIDs | Only these rows. |
+| `topic` | string | Only rows with this topic. |
+| `topics` | array of strings | Only rows with one of these topics. |
+| `destination` | string | Only rows whose topic the routes send to this destination. The first-match rule of the routes applies. With `topics`, only the topics in both sets. |
+| `createdAfter` | ISO-8601 instant | Only rows created after this time. |
+| `createdBefore` | ISO-8601 instant | Only rows created before this time. |
+
+Every field is optional, and the fields combine with AND. A request needs at least one field.
+
+```bash
+curl -X POST http://localhost:9090/admin/replay \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"destination": "orders-api", "createdAfter": "2026-09-01T00:00:00Z"}'
+```
+
+| Status | Body | Meaning |
+| --- | --- | --- |
+| `200` | `{"moved":<n>}` | The number of rows that moved. QueueBox also logs the count and the filter. |
+| `400` | `{"error":"A replay needs at least one filter."}` | The request sets no field. |
+| `400` | `{"error":"Invalid request: <reason>"}` | The body is not a valid request. |
+| `401` | `{"error":"<reason>"}` | The credentials are wrong or absent. |
+| `413` | `{"error":"Request body exceeds <n> bytes"}` | The body is larger than `admin.maxPayloadBytes`. |
+
+[Replay dead letters](/how-to/replay-dead-letters/) gives the procedure.

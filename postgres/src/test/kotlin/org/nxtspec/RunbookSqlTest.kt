@@ -10,8 +10,8 @@ import kotlin.test.fail
 /**
  * F-054 and F-055.
  *
- * Executes every fenced `sql` block of the two operations documents against the shipped schema.
- * The SQL is never pasted into this test. A document that drifts from the schema fails here.
+ * Executes every fenced `sql` block of the two operations pages of the docs site against the shipped
+ * schema. The SQL is never pasted into this test. A page that drifts from the schema fails here.
  */
 class RunbookSqlTest : PostgresTestBase() {
 
@@ -28,8 +28,9 @@ class RunbookSqlTest : PostgresTestBase() {
         // A cast writes two colons, so the pattern must not treat "::text" as a placeholder.
         private val PLACEHOLDER_PATTERN = Regex("(?<!:):[a-z_]+")
 
+        // MDX has no HTML comment, so a block name is an MDX comment: {/* sql-id: name */}.
         private val BLOCK_PATTERN = Regex(
-            "(?:<!--\\s*sql-id:\\s*([A-Za-z0-9_-]+)\\s*-->\\s*)?```sql[ \\t]*\\r?\\n(.*?)```",
+            "(?:\\{/\\*\\s*sql-id:\\s*([A-Za-z0-9_-]+)\\s*\\*/\\}\\s*)?```sql[ \\t]*\\r?\\n(.*?)```",
             setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE)
         )
 
@@ -37,16 +38,18 @@ class RunbookSqlTest : PostgresTestBase() {
         // blocks, so a block cannot escape the extraction because of its fence spelling.
         private val ANY_FENCE_PATTERN = Regex("^```([A-Za-z0-9_+-]*)[ \\t]*$", RegexOption.MULTILINE)
 
+        private const val OPERATIONS_PAGES = "site/src/content/docs/operations"
+
         private fun repoRoot(): File {
             var dir = File(System.getProperty("user.dir")).absoluteFile
-            while (!File(dir, "docs/operations").isDirectory) {
+            while (!File(dir, OPERATIONS_PAGES).isDirectory) {
                 dir = dir.parentFile ?: fail("Repository root not found from ${System.getProperty("user.dir")}")
             }
             return dir
         }
 
         fun documentFile(name: String): File {
-            val file = File(repoRoot(), "docs/operations/$name")
+            val file = File(repoRoot(), "$OPERATIONS_PAGES/$name")
             assertTrue(file.isFile, "Missing document: ${file.absolutePath}")
             return file
         }
@@ -147,18 +150,18 @@ class RunbookSqlTest : PostgresTestBase() {
 
     @Test
     fun `every sql statement in the runbook runs against the shipped schema`() {
-        executeDocument("runbook.md")
+        executeDocument("runbook.mdx")
     }
 
     @Test
     fun `every sql statement in the dead-letter document runs against the shipped schema`() {
-        executeDocument("dead-letter.md")
+        executeDocument("dead-letters.mdx")
     }
 
     @Test
     fun `the documented requeue resets the state, the attempt and the schedule`() {
         val id = insertOutboxMessage(state = "dead", attempt = 5)
-        val block = sqlBlocks(documentFile("dead-letter.md")).single { it.id == "requeue-one" }
+        val block = sqlBlocks(documentFile("dead-letters.mdx")).single { it.id == "requeue-one" }
         val sql = statements(block.body).single().replace(":message_id", "'$id'")
         withConnection { connection ->
             connection.createStatement().use { it.executeUpdate(sql) }
@@ -172,7 +175,7 @@ class RunbookSqlTest : PostgresTestBase() {
 
     @Test
     fun `the runbook covers the five documented scenarios`() {
-        val text = documentFile("runbook.md").readText()
+        val text = documentFile("runbook.mdx").readText()
         listOf(
             "Scenario 1: Inspect dead-lettered messages",
             "Scenario 2: Replay a dead-lettered message",

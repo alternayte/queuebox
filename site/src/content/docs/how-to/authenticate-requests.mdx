@@ -1,0 +1,272 @@
+---
+title: Authenticate requests
+description: Protect an inbox source and the admin endpoint with a bearer token, an API key or an HMAC signature, and send credentials to a destination.
+sidebar:
+  order: 7
+---
+
+import { Tabs, TabItem, Aside } from "@astrojs/starlight/components";
+
+This guide shows how to make QueueBox check the credentials of an incoming request, on an HTTP inbox source and on the admin endpoint. It also shows how QueueBox sends credentials to an HTTP destination.
+
+An inbox source without `auth` accepts every request. A request that fails the check gets `401 Unauthorized`, and QueueBox stores nothing.
+
+## Protect an inbox source
+
+Add an `auth` block to the source. Choose one of three types.
+
+<Tabs>
+<TabItem label="Bearer token">
+
+```yaml
+sources:
+  orders:
+    type: http
+    path: /orders
+    idempotencyKeyPath: $.id
+    eventTypePath: $.type
+    auth:
+      type: bearer
+      token: ${ORDERS_WEBHOOK_TOKEN}
+```
+
+The sender puts the token in the `Authorization` header:
+
+```bash
+curl -X POST http://localhost:8080/inbox/orders \
+  -H "Authorization: Bearer $ORDERS_WEBHOOK_TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"id":"order-1","type":"order.created"}'
+```
+
+The scheme name `Bearer` matches in any letter case. A header without a scheme fails.
+
+</TabItem>
+<TabItem label="API key">
+
+```yaml
+sources:
+  partner:
+    type: http
+    path: /partner
+    idempotencyKeyPath: $.id
+    eventTypePath: $.type
+    auth:
+      type: api-key
+      headerName: X-API-Key
+      key: ${PARTNER_API_KEY}
+```
+
+The sender puts the key in the header that `headerName` names. The default is `X-API-Key`.
+
+```bash
+curl -X POST http://localhost:8080/inbox/partner \
+  -H "X-API-Key: $PARTNER_API_KEY" \
+  -H 'Content-Type: application/json' \
+  -d '{"id":"evt-1","type":"partner.updated"}'
+```
+
+</TabItem>
+<TabItem label="HMAC signature">
+
+```yaml
+sources:
+  github:
+    type: http
+    path: /github
+    idempotencyKeyPath: $.delivery
+    eventTypePath: $.action
+    auth:
+      type: hmac
+      secret: ${GITHUB_WEBHOOK_SECRET}
+      headerName: X-Hub-Signature-256
+      algorithm: HmacSHA256
+      signaturePrefix: "sha256="
+```
+
+QueueBox computes the HMAC of the raw request body with `secret`. It writes the result as lower case hexadecimal after `signaturePrefix`, and compares it with the header. This matches the `X-Hub-Signature-256` header that GitHub sends.
+
+A sender computes the same value:
+
+```bash
+body='{"delivery":"d-1","action":"opened"}'
+signature="sha256=$(printf '%s' "$body" | openssl dgst -sha256 -hmac "$GITHUB_WEBHOOK_SECRET" | sed 's/^.* //')"
+curl -X POST http://localhost:8080/inbox/github \
+  -H "X-Hub-Signature-256: $signature" \
+  -H 'Content-Type: application/json' \
+  -d "$body"
+```
+
+</TabItem>
+</Tabs>
+
+QueueBox compares every credential in constant time. A stored inbox row never holds the `Authorization` header, the `Proxy-Authorization` header, the `Cookie` header, or the header that `auth.headerName` names.
+
+### HMAC settings
+
+| Field | Default | Meaning |
+|-------|---------|---------|
+| `secret` | none, required | The shared secret. |
+| `headerName` | `X-Signature` | The header that carries the signature. |
+| `algorithm` | `HmacSHA256` | `HmacSHA256` or `HmacSHA512`. No other value loads. |
+| `signaturePrefix` | `sha256=` | The text before the hexadecimal signature. Set `""` for none. |
+| `timestampHeader` | none | A header that carries the send time, in milliseconds since the Unix epoch. |
+| `timestampTolerance` | `300000` | The largest difference, in milliseconds, between the send time and the clock of QueueBox. |
+| `signaturePayloadFormat` | see below | `body` or `timestamp-dot-body`. |
+
+### Reject replayed requests
+
+Without a timestamp, a captured request stays valid for ever. Set `timestampHeader` to make QueueBox reject an old request:
+
+```yaml
+sources:
+  billing:
+    type: http
+    path: /billing
+    idempotencyKeyPath: $.id
+    eventTypePath: $.type
+    auth:
+      type: hmac
+      secret: ${BILLING_WEBHOOK_SECRET}
+      headerName: X-Signature
+      signaturePrefix: "sha256="
+      timestampHeader: X-Timestamp
+      timestampTolerance: 300000
+```
+
+When `timestampHeader` is set, `signaturePayloadFormat` defaults to `timestamp-dot-body`. The sender then signs the timestamp, a dot, and the body. A request with a fresh timestamp and an old signature fails.
+
+```bash
+body='{"id":"inv-1","type":"invoice.paid"}'
+timestamp=$(( $(date +%s) * 1000 ))
+signature="sha256=$(printf '%s.%s' "$timestamp" "$body" | openssl dgst -sha256 -hmac "$BILLING_WEBHOOK_SECRET" | sed 's/^.* //')"
+curl -X POST http://localhost:8080/inbox/billing \
+  -H "X-Timestamp: $timestamp" \
+  -H "X-Signature: $signature" \
+  -H 'Content-Type: application/json' \
+  -d "$body"
+```
+
+Set `signaturePayloadFormat: body` only for a sender that signs the body alone. QueueBox then checks the age of the timestamp, but a replay with a new timestamp header passes. `timestamp-dot-body` without a `timestampHeader` does not load.
+
+<Aside type="caution">
+Stripe signs `timestamp.body` in seconds and sends it in one `Stripe-Signature` header with the fields `t=` and `v1=`. The QueueBox HMAC check reads one signature header and a timestamp in milliseconds, so it does not verify that header.
+</Aside>
+
+## Protect the admin endpoint
+
+The admin endpoint runs a JSONata expression that the caller sends. QueueBox registers it only when `admin.enabled` is `true`, and it refuses to start when `admin.auth` is absent.
+
+```yaml
+admin:
+  enabled: true
+  auth:
+    type: bearer
+    token: ${ADMIN_TOKEN}
+  maxTransformTimeoutMs: 1000
+  maxPayloadBytes: 65536
+```
+
+`admin.auth` takes the same `bearer` and `api-key` blocks as a source. A request without valid credentials gets `401`.
+
+```bash
+curl -X POST http://localhost:8080/admin/transform/test \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"expression":"$.amount * 2","payload":{"amount":21}}'
+```
+
+<Aside type="caution">
+Do not use `hmac` for the admin endpoint. The admin route does not keep the raw request body, so the HMAC check answers `500` to every request.
+</Aside>
+
+`admin.insecure: true` allows the endpoint with no authentication. Use it on a local machine only.
+
+Set `server.managementPort` to move `/admin`, `/health` and `/metrics` to a separate port, and keep that port on an internal network. See [Security](/operations/security/).
+
+## Authenticate to a destination
+
+An HTTP destination can send credentials on every request.
+
+<Tabs>
+<TabItem label="OAuth2">
+
+```yaml
+destinations:
+  protected-api:
+    type: http
+    baseUrl: https://api.example.com
+    path: /events
+    auth:
+      type: oauth2
+      clientId: queuebox
+      clientSecret: ${CLIENT_SECRET}
+      tokenUrl: https://auth.example.com/oauth/token
+      scope: api:write
+      extraParams:
+        audience: https://api.example.com
+
+routes:
+  - topicPattern: "**"
+    destination: protected-api
+```
+
+QueueBox runs the client credentials flow against `tokenUrl`, and it sends the access token as a bearer token. `scope` and `extraParams` are optional.
+
+</TabItem>
+<TabItem label="Basic">
+
+```yaml
+destinations:
+  legacy-api:
+    type: http
+    baseUrl: https://legacy.example.com
+    auth:
+      type: basic
+      username: queuebox
+      password: ${LEGACY_API_PASSWORD}
+
+routes:
+  - topicPattern: "**"
+    destination: legacy-api
+```
+
+</TabItem>
+<TabItem label="Header">
+
+```yaml
+destinations:
+  static-api:
+    type: http
+    baseUrl: https://static.example.com
+    auth:
+      type: header
+      headerName: Authorization
+      headerValue: "Bearer ${STATIC_TOKEN}"
+
+routes:
+  - topicPattern: "**"
+    destination: static-api
+```
+
+`headerName` defaults to `Authorization`.
+
+</TabItem>
+</Tabs>
+
+A row header of the same name wins over the authentication header. Do not write credential headers into outbox rows.
+
+## Keep secrets out of the file
+
+Every secret field accepts an environment variable, such as `${ADMIN_TOKEN}`, or a `file:` reference. A `file:` reference reads a mounted file, for example a Kubernetes secret, once at startup:
+
+```yaml
+# fragment
+sources:
+  orders:
+    auth:
+      type: bearer
+      token: file:/var/run/secrets/queuebox/orders-token
+```
+
+QueueBox prints a mask in place of every secret. `database.url`, the RabbitMQ destination `url` and the RabbitMQ source `connectionUrl` take no `file:` reference, because a log needs their host and port. QueueBox masks the password inside them. Set those through environment variables.

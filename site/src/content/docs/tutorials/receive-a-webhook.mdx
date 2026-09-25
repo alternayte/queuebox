@@ -1,0 +1,379 @@
+---
+title: Receive a webhook
+description: Post a webhook to a QueueBox inbox source, see QueueBox reject the duplicate, and consume the stored message with a pull client.
+sidebar:
+  order: 2
+---
+
+import { Tabs, TabItem, Aside } from "@astrojs/starlight/components";
+
+In this tutorial you post a webhook to a QueueBox inbox source, post it a second time and see QueueBox reject the duplicate. Then you consume the stored message with a pull client in Go, TypeScript or C#. The client writes an order row and completes the message in one transaction.
+
+## Before you start
+
+You need Git, Docker with the Compose plugin, and `curl`. You also need one of these toolchains:
+
+- Go 1.24 or later.
+- Node 22.18 or later, which runs a TypeScript file directly.
+- The .NET 8 SDK or later.
+
+The stack uses the ports `8080` and `5432` on your machine. If you did [the first tutorial](/tutorials/first-outbox-message/), run `docker compose -f docker-compose.yml down -v` first to start from an empty database.
+
+## Get the repository
+
+Clone the repository and change into it. If you cloned it in the first tutorial, change into that directory instead.
+
+```bash
+git clone https://github.com/alternayte/queuebox.git
+cd queuebox
+```
+
+## Add a pull source
+
+An inbox source is one configured ingress. This tutorial adds an HTTP source named `orders`. Its messages stay in the inbox until your worker takes them, because the source sets `consumption: pull`.
+
+`sources` is the last block of `examples/queuebox.yml`. Append the new source to it:
+
+```bash
+cat >> examples/queuebox.yml <<'YAML'
+
+  orders:
+    type: http
+    path: /orders
+    idempotencyKeyPath: $.id
+    consumption: pull
+YAML
+```
+
+The source now reads:
+
+```yaml
+sources:
+  orders:
+    type: http
+    path: /orders
+    idempotencyKeyPath: $.id
+    consumption: pull
+```
+
+- `path: /orders` puts the source at `POST /inbox/orders`, because `inbox.basePath` is `/inbox`.
+- `idempotencyKeyPath: $.id` reads the idempotency key from the `id` field of the body.
+- `consumption: pull` tells QueueBox not to forward the message. A pull source needs no topic, no route and no destination.
+
+<Aside>
+The Compose file mounts `examples/queuebox.yml` as a single file. Append to the file as the command above does. An editor that writes a new file in its place breaks the mount until you restart the stack.
+</Aside>
+
+Start the stack:
+
+```bash
+docker compose -f docker-compose.yml --env-file .env.example up -d --build
+```
+
+The first build compiles QueueBox. Ask QueueBox whether it is ready:
+
+```bash
+curl http://localhost:8080/health
+```
+
+A ready instance answers with status `200` and a body that starts with `{"status":"healthy"`. If `curl` cannot connect, wait a moment and send the request again.
+
+## Post the webhook
+
+Send an order to the source:
+
+```bash
+curl -i -X POST http://localhost:8080/inbox/orders \
+  -H 'Content-Type: application/json' \
+  -d '{"id":"order-1","total":42}'
+```
+
+QueueBox stores the message and answers `202 Accepted`. The body holds the identifier of the new inbox row:
+
+```text
+HTTP/1.1 202 Accepted
+...
+{"messageId":"8d5c3f0e-2f7b-4c0e-9d51-6f0c1b3a7e21"}
+```
+
+Your identifier differs.
+
+## Post it again
+
+A webhook sender retries when it does not see an answer, so the same message can arrive twice. Send the same request again:
+
+```bash
+curl -i -X POST http://localhost:8080/inbox/orders \
+  -H 'Content-Type: application/json' \
+  -d '{"id":"order-1","total":42}'
+```
+
+QueueBox finds a stored row with the same source and the same idempotency key. It stores nothing and answers `200 OK`:
+
+```text
+HTTP/1.1 200 OK
+...
+{"status":"duplicate"}
+```
+
+## Look at the stored row
+
+Read the inbox table:
+
+```bash
+docker compose -f docker-compose.yml exec postgres psql -U queuebox -d queuebox \
+  -c "SELECT source, idempotency_key, consumption, state FROM inbox;"
+```
+
+The inbox holds one row, in state `pending`:
+
+```text
+ source | idempotency_key | consumption |  state
+--------+-----------------+-------------+---------
+ orders | order-1         | pull        | pending
+(1 row)
+```
+
+## Create the business table
+
+The worker writes each order into a table that your application owns. Create it in the same database:
+
+```bash
+docker compose -f docker-compose.yml exec postgres psql -U queuebox -d queuebox \
+  -c "CREATE TABLE IF NOT EXISTS orders (id TEXT PRIMARY KEY, total INTEGER NOT NULL);"
+```
+
+## Write the worker
+
+The pull client claims the messages of one source. It gives each message to your handler with an open transaction. When the handler returns, the client marks the message `processed` in that same transaction and commits. The order row and the completion commit together, or neither commits.
+
+Choose a language, create the project and write the worker.
+
+<Tabs syncKey="lang">
+<TabItem label="Go">
+
+```bash
+mkdir orders-worker && cd orders-worker
+go mod init example.com/orders-worker
+```
+
+Write `main.go`:
+
+```go
+package main
+
+import (
+	"context"
+	"database/sql"
+	"log"
+	"os"
+	"os/signal"
+	"syscall"
+
+	_ "github.com/jackc/pgx/v5/stdlib"
+
+	queuebox "github.com/alternayte/queuebox/clients/go"
+)
+
+func main() {
+	db, err := sql.Open("pgx", "postgres://queuebox:queuebox@localhost:5432/queuebox?sslmode=disable")
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer db.Close()
+
+	worker, err := queuebox.NewInboxWorker(db, queuebox.Options{Source: "orders"})
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	log.Println("Waiting for messages of the source 'orders'. Press Ctrl+C to stop.")
+
+	err = worker.Run(ctx, func(ctx context.Context, message queuebox.Message, tx *sql.Tx) error {
+		var order struct {
+			ID    string `json:"id"`
+			Total int    `json:"total"`
+		}
+		if err := message.UnmarshalPayload(&order); err != nil {
+			return err
+		}
+
+		if _, err := tx.ExecContext(ctx, "INSERT INTO orders (id, total) VALUES ($1, $2)", order.ID, order.Total); err != nil {
+			return err
+		}
+
+		log.Printf("Stored the order %s.", message.IdempotencyKey)
+		return nil
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+}
+```
+
+Fetch the dependencies and run it:
+
+```bash
+go mod tidy
+go run .
+```
+
+</TabItem>
+<TabItem label="TypeScript">
+
+```bash
+mkdir orders-worker && cd orders-worker
+npm init -y
+npm pkg set type=module
+npm install @alternayte/queuebox-inbox pg
+```
+
+Write `worker.ts`:
+
+```ts
+import pg from "pg";
+import { InboxWorker, fromPg } from "@alternayte/queuebox-inbox";
+
+const stopping = new AbortController();
+process.on("SIGINT", () => stopping.abort());
+process.on("SIGTERM", () => stopping.abort());
+
+const pool = new pg.Pool({ connectionString: "postgres://queuebox:queuebox@localhost:5432/queuebox" });
+
+const worker = new InboxWorker(fromPg(pool), { source: "orders" });
+
+console.log("Waiting for messages of the source 'orders'. Press Ctrl+C to stop.");
+
+await worker.run(async (message, tx) => {
+  const order = message.payload as { id: string; total: number };
+
+  await tx.query("INSERT INTO orders (id, total) VALUES ($1, $2)", [order.id, order.total]);
+
+  console.log(`Stored the order ${message.idempotencyKey}.`);
+}, stopping.signal);
+
+await pool.end();
+```
+
+Run it:
+
+```bash
+node worker.ts
+```
+
+</TabItem>
+<TabItem label="C#">
+
+```bash
+dotnet new console -o OrdersWorker && cd OrdersWorker
+dotnet add package QueueBox.Inbox
+dotnet add package Npgsql
+```
+
+Replace `Program.cs`:
+
+```csharp
+using Npgsql;
+using QueueBox.Inbox;
+
+using var stopping = new CancellationTokenSource();
+Console.CancelKeyPress += (_, eventArgs) =>
+{
+    eventArgs.Cancel = true;
+    stopping.Cancel();
+};
+
+await using var dataSource = NpgsqlDataSource.Create(
+    "Host=localhost;Database=queuebox;Username=queuebox;Password=queuebox");
+
+var worker = new InboxWorker(
+    InboxConnections.From(dataSource),
+    new InboxOptions { Source = "orders" });
+
+Console.WriteLine("Waiting for messages of the source 'orders'. Press Ctrl+C to stop.");
+
+await worker.RunAsync(async (message, transaction, cancellationToken) =>
+{
+    await using var command = transaction.CreateCommand();
+
+    command.CommandText = "INSERT INTO orders (id, total) VALUES (@id, @total)";
+    command
+        .WithParameter("@id", message.Payload.GetProperty("id").GetString())
+        .WithParameter("@total", message.Payload.GetProperty("total").GetInt32());
+
+    await command.ExecuteNonQueryAsync(cancellationToken);
+
+    Console.WriteLine($"Stored the order {message.IdempotencyKey}.");
+}, stopping.Token);
+```
+
+Run it:
+
+```bash
+dotnet run
+```
+
+</TabItem>
+</Tabs>
+
+The worker claims the stored message at once and prints:
+
+```text
+Stored the order order-1.
+```
+
+Leave the worker running.
+
+## Check the result
+
+Open a second terminal in the `queuebox` directory. Read the order table and the inbox row:
+
+```bash
+docker compose -f docker-compose.yml exec postgres psql -U queuebox -d queuebox \
+  -c "SELECT id, total FROM orders;" \
+  -c "SELECT idempotency_key, state FROM inbox WHERE source = 'orders';"
+```
+
+The order row exists, and the inbox row is in state `processed`:
+
+```text
+   id    | total
+---------+-------
+ order-1 |    42
+(1 row)
+
+ idempotency_key |   state
+-----------------+-----------
+ order-1         | processed
+(1 row)
+```
+
+Post a new order while the worker runs, and watch the worker print it:
+
+```bash
+curl -X POST http://localhost:8080/inbox/orders \
+  -H 'Content-Type: application/json' \
+  -d '{"id":"order-2","total":17}'
+```
+
+## Clean up
+
+Press Ctrl+C in the worker terminal. The worker stops claiming and lets a running handler finish. Then stop the stack, delete its volume, and restore the configuration file:
+
+```bash
+docker compose -f docker-compose.yml down -v
+git checkout examples/queuebox.yml
+```
+
+## What you did
+
+You posted a webhook to an inbox source, and QueueBox stored it once although it arrived twice. A pull worker then took the message and wrote an order row. The completion committed in the same transaction as the order row.
+
+## Next steps
+
+- [Consume the inbox](/how-to/consume-the-inbox/) compares the push relay with pull workers, and covers retries and idempotent handlers.
+- [Authenticate requests](/how-to/authenticate-requests/) protects an inbox source with a token, an API key or an HMAC signature.
+- [Pull clients](/reference/pull-clients/) lists every setting of the three libraries.

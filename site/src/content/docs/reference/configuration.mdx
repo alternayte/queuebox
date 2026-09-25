@@ -1,0 +1,701 @@
+---
+title: Configuration
+description: Every section and key of queuebox.yml, with its type, its default and its meaning.
+sidebar:
+  order: 1
+---
+
+import { Aside } from "@astrojs/starlight/components";
+
+This page lists every key of `queuebox.yml`, with its type, its default and its meaning. The
+[environment variables page](/reference/environment-variables/) gives the `QUEUEBOX_` name of each key and the precedence of the sources.
+
+## Where the configuration comes from
+
+QueueBox reads its configuration from three places:
+
+1. The `QUEUEBOX_` environment variables.
+2. One YAML file. `QUEUEBOX_CONFIG_FILE` names the file. The default path is `/etc/queuebox/queuebox.yml`.
+3. The `queuebox.yml` resource in the image.
+
+A variable wins over the file. The file replaces the packaged resource, so the file must hold a complete configuration.
+QueueBox reads the packaged resource only when no file exists and no `QUEUEBOX_` variable is set.
+Start from [`examples/queuebox.yml`](https://github.com/alternayte/queuebox/blob/main/examples/queuebox.yml).
+Do not edit `config/src/main/resources/queuebox.yml`, because a change there needs a new image.
+
+## Value formats
+
+| Format | Where | Rule |
+| --- | --- | --- |
+| Milliseconds | Every key that ends in `Ms` | A whole number of milliseconds. |
+| Retention duration | `retention.*.maxAge`, `retention.*.cleanupInterval` | A whole number and one suffix: `s`, `m`, `h` or `d`. For example `7d`. |
+| Secret | Every password, token, key and client secret | A string, or `file:` and a path. QueueBox reads the file once at load time and removes the trailing newline. A log line prints `Secret(***)`. |
+| Placeholder | Any value | `${NAME}` reads the environment variable or JVM system property `NAME`. `${NAME:-fallback}` gives a fallback value. |
+| Enumeration | `transform.onError`, `retention.*.policy`, `auth.signaturePayloadFormat` | Write the value in the exact letter case that the tables below show. `onError: fail` does not load. |
+
+## How QueueBox selects the kind of an entry
+
+A destination, a source and an `auth` block each have several kinds. Write `type` on every entry, so a reader sees the kind.
+The loader does not check `type`. It selects the kind from the required keys that the entry sets.
+An entry with `type: rabbitmq` and the keys of an HTTP destination loads as an HTTP destination.
+
+| Block | Kind | Required keys that select the kind |
+| --- | --- | --- |
+| `destinations.<name>` | `http` | `baseUrl` |
+| `destinations.<name>` | `rabbitmq` | `url`, `exchange` |
+| `destinations.<name>` | `kafka` | `bootstrapServers`, `topic` |
+| `destinations.<name>` | `nats` | `servers`, `subject` |
+| `sources.<name>` | `http` | `path`, `idempotencyKeyPath` |
+| `sources.<name>` | `rabbitmq` | `queueName`, `connectionUrl` |
+| `sources.<name>` | `kafka` | `bootstrapServers`, `topics`, `groupId` |
+| `sources.<name>` | `nats` | `servers`, `stream`, `durable` |
+| `destinations.<name>.auth` | `oauth2` | `clientId`, `clientSecret`, `tokenUrl` |
+| `destinations.<name>.auth` | `basic` | `username`, `password` |
+| `destinations.<name>.auth` | `header` | `headerValue` |
+| `sources.<name>.auth`, `admin.auth` | `bearer` | `token` |
+| `sources.<name>.auth`, `admin.auth` | `api-key` | `key` |
+| `sources.<name>.auth`, `admin.auth` | `hmac` | `secret` |
+
+## A complete example
+
+This file sets every section. It loads and validates as it is, when the placeholders have values.
+
+```yaml
+server:
+  httpPort: 8080                        # The data port: the inbox routes
+  managementPort: 9090                  # Moves /health, /metrics and /admin to this port
+
+database:
+  type: postgresql                      # postgresql or sqlserver
+  url: jdbc:postgresql://db:5432/queuebox
+  username: queuebox
+  password: ${DB_PASSWORD}              # Or file:/run/secrets/db-password
+  poolSize: 10
+  connectionTimeoutMs: 30000
+  startupTimeoutMs: 60000               # How long the start waits for the database
+  migrate: true                         # Apply the bundled Flyway migrations at start
+
+outbox:
+  pollIntervalMs: 100
+  batchSize: 100
+  concurrency: 8                        # Rows published at the same time
+  retryBaseDelayMs: 1000                # Backoff base: 1000 ms * 2^attempt, at most 60 s
+  maxAttempts: 5                        # Written into max_attempts of each row QueueBox creates
+  claimTimeoutMs: 300000                # A claim older than this returns to pending
+  pendingGaugeIntervalMs: 5000
+  shutdownTimeoutMs: 30000
+  capture:
+    mode: polling                       # polling, postgres-logical or sqlserver-cdc
+    enabled: false
+
+inbox:
+  basePath: /inbox                      # A source with path /stripe answers at /inbox/stripe
+  maxBodyBytes: 1048576                 # A larger request body gets 413
+  relay:
+    enabled: true                       # Copies push rows into the outbox
+    pollIntervalMs: 100
+    batchSize: 100
+    claimTimeoutMs: 300000
+    pendingGaugeIntervalMs: 5000
+    maxAttempts: 10                     # Relayed rows only. Default: outbox.maxAttempts
+
+http:
+  maxErrorBodyBytes: 2048               # Bytes of a failed response kept in last_error
+  blockPrivateAddresses: false          # true refuses a destination on a private address
+
+admin:
+  enabled: true                         # Registers /admin/transform/test and /admin/replay
+  auth:
+    type: bearer
+    token: ${ADMIN_TOKEN}
+  maxTransformTimeoutMs: 1000
+  maxPayloadBytes: 65536
+
+destinations:
+  orders-api:
+    type: http
+    baseUrl: https://orders.example.com
+    path: /events
+    timeoutMs: 30000
+    headers:
+      X-Team: orders                    # A static header on every request
+    auth:
+      type: oauth2
+      clientId: queuebox
+      clientSecret: ${ORDERS_CLIENT_SECRET}
+      tokenUrl: https://auth.example.com/oauth/token
+    transform:
+      expression: '{ "data": $, "topic": $topic }'
+      onError: Fail                     # Fail, Skip or Dead, in this letter case
+
+  events-exchange:
+    type: rabbitmq
+    url: amqp://rabbitmq:5672
+    exchange: "events.{{ aggregateType }}"  # A template, or a literal name
+    exchangeType: topic
+    routingKeyTemplate: "{{ topic }}"
+    deliveryMode: persistent
+
+  events-topic:
+    type: kafka
+    bootstrapServers: kafka-1:9092,kafka-2:9092
+    topic: orders
+    keyTemplate: "{{ key }}"
+    timeoutMs: 30000                    # At least 2000
+
+  events-subject:
+    type: nats
+    servers: nats://nats:4222
+    subject: "orders.{{ topic }}"
+    jetStream: true
+
+routes:
+  - topicPattern: "order.*"             # First match wins, in list order
+    destination: orders-api
+  - topicPattern: "event.**"
+    destination: events-exchange
+    routingKeyTemplate: "{{ payload.region }}.{{ topic }}"
+    routingKeyMissingFieldDefault: unknown
+
+sources:
+  stripe:
+    type: http
+    path: /stripe                       # POST /inbox/stripe
+    idempotencyKeyPath: $.id
+    eventTypePath: $.type
+    aggregateIdPath: $.data.object.customer
+    topic: "stripe.{{ eventType }}"
+    auth:
+      type: hmac
+      secret: ${STRIPE_WEBHOOK_SECRET}
+      headerName: Stripe-Signature
+      signaturePrefix: "v1="
+    rateLimit:
+      requestsPerMinute: 600
+
+  orders:
+    type: http
+    path: /orders
+    idempotencyKeyPath: $.id
+    consumption: pull                   # A pull client claims the row. No topic or route needed
+
+  orders-queue:
+    type: rabbitmq
+    queueName: incoming-orders
+    connectionUrl: amqp://rabbitmq:5672
+    idempotencyKeyPath: $.messageId
+    aggregateIdPath: $.orderId
+    topic: "{{ source }}"
+    filter:
+      exclude:
+        - header: x-test
+          exists: true
+
+  orders-log:
+    type: kafka
+    bootstrapServers: kafka-1:9092
+    topics: [orders]
+    groupId: queuebox-orders
+    idempotencyKeyPath: $.id
+    eventTypePath: $.type
+    topic: "{{ eventType }}"
+
+  orders-stream:
+    type: nats
+    servers: nats://nats:4222
+    stream: ORDERS
+    durable: queuebox-orders
+    filterSubject: "orders.>"
+    idempotencyKeyPath: $.id
+
+retention:
+  enabled: true
+  outbox:
+    policy: AGE                         # AGE, COUNT or DISABLED, in upper case
+    maxAge: 7d
+    cleanupInterval: 1h
+    batchSize: 1000
+  inbox:
+    policy: AGE                         # AGE or DISABLED
+    maxAge: 30d
+    cleanupInterval: 6h
+    batchSize: 1000
+```
+
+## server
+
+| Key | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `server.httpPort` | integer | `8080` | The port of the inbox routes. It must be from 1 to 65535. |
+| `server.managementPort` | integer | none | The port of `/health`, `/metrics` and `/admin`. When it is set, the data port answers 404 on those paths. It must differ from `httpPort`. |
+
+## database
+
+| Key | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `database.type` | string | `postgresql` | `postgresql` or `sqlserver`. |
+| `database.url` | string | required | The JDBC URL. It must start with `jdbc:postgresql://` or `jdbc:sqlserver://`, to match `type`. |
+| `database.username` | string | required | The database user. |
+| `database.password` | secret | required | The database password. |
+| `database.poolSize` | integer | `10` | The size of the HikariCP connection pool. It must be above 0. |
+| `database.connectionTimeoutMs` | milliseconds | `30000` | The longest wait for a connection from the pool. |
+| `database.startupTimeoutMs` | milliseconds | `60000` | How long the start retries the database before the process exits. |
+| `database.migrate` | boolean | `true` | Apply the bundled Flyway migrations at start. Set it to `false` when you rename a table or a column. |
+| `database.outboxTableName` | string | `outbox` | The name of the outbox table. It must be a SQL identifier: a letter or `_` first, then letters, digits and `_`. |
+| `database.inboxTableName` | string | `inbox` | The name of the inbox table. The same identifier rule applies. |
+| `database.columnMapping.outbox.*` | string | the default names | The outbox column names. See the next table. |
+| `database.columnMapping.inbox.*` | string | the default names | The inbox column names. See the table after it. |
+
+QueueBox refuses to start when a table or a column has a custom name and `database.migrate` is `true`.
+The bundled migrations create the default names only. Apply your own schema first.
+[Use custom tables](/how-to/use-custom-tables/) gives the steps.
+
+### database.columnMapping.outbox
+
+Each key names one column of the outbox table. A key that you omit keeps its default. Every value must be a SQL identifier.
+The [outbox table](/reference/outbox-table/) page describes each column.
+
+| Key | Default column |
+| --- | --- |
+| `id` | `id` |
+| `topic` | `topic` |
+| `key` | `key` |
+| `aggregateType` | `aggregate_type` |
+| `payload` | `payload` |
+| `headers` | `headers` |
+| `state` | `state` |
+| `attempt` | `attempt` |
+| `maxAttempts` | `max_attempts` |
+| `scheduledAt` | `scheduled_at` |
+| `createdAt` | `created_at` |
+| `updatedAt` | `updated_at` |
+| `claimedAt` | `claimed_at` |
+| `claimToken` | `claim_token` |
+| `leaseExpiresAt` | `lease_expires_at` |
+| `lastError` | `last_error` |
+| `sequence` | `sequence` |
+
+### database.columnMapping.inbox
+
+Each key names one column of the inbox table. A key that you omit keeps its default.
+The [inbox table](/reference/inbox-table/) page describes each column.
+
+| Key | Default column |
+| --- | --- |
+| `id` | `id` |
+| `source` | `source` |
+| `idempotencyKey` | `idempotency_key` |
+| `aggregateId` | `aggregate_id` |
+| `eventType` | `event_type` |
+| `payload` | `payload` |
+| `state` | `state` |
+| `createdAt` | `created_at` |
+| `processedAt` | `processed_at` |
+| `claimedAt` | `claimed_at` |
+| `claimToken` | `claim_token` |
+| `leaseExpiresAt` | `lease_expires_at` |
+| `correlationId` | `correlation_id` |
+| `consumption` | `consumption` |
+| `scheduledAt` | `scheduled_at` |
+| `attempt` | `attempt` |
+| `lastError` | `last_error` |
+| `headers` | `headers` |
+
+At start, QueueBox reads the columns of the inbox table. It stops when the column that `headers` names does not exist.
+The error message holds the `ALTER TABLE` statement that adds the column.
+
+## outbox
+
+| Key | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `outbox.pollIntervalMs` | milliseconds | `100` | The wait between two claim cycles of the poller. It must be above 0. |
+| `outbox.batchSize` | integer | `100` | The largest number of rows that one claim takes. It must be above 0. |
+| `outbox.concurrency` | integer | `8` | The largest number of rows that the poller publishes at the same time. It must be above 0. |
+| `outbox.retryBaseDelayMs` | milliseconds | `1000` | The base of the retry backoff. See the note below. |
+| `outbox.maxAttempts` | integer | `5` | The dead-letter ceiling that QueueBox writes into `max_attempts` of each row it creates. It must be above 0. |
+| `outbox.claimTimeoutMs` | milliseconds | `300000` | The visibility timeout. A claim older than this returns to pending. Set it above the slowest publish. |
+| `outbox.pendingGaugeIntervalMs` | milliseconds | `5000` | The shortest interval between two queries for the pending gauges. |
+| `outbox.shutdownTimeoutMs` | milliseconds | `30000` | The longest wait for the publishes in flight at shutdown. |
+| `outbox.capture.*` | block | polling | Change data capture. See the next section. |
+
+The retry delay after a failed delivery is `retryBaseDelayMs × 2^attempt`, plus a random 0 to 25 percent.
+The delay never passes 60 seconds.
+The poller reads `max_attempts` of the row, not `outbox.maxAttempts`.
+A row that the application inserts takes the column default of `5` unless the insert sets `max_attempts`.
+
+### outbox.capture
+
+Capture wakes the poller when the database log shows an outbox insert. The poller still claims and publishes through SQL.
+[Capture](/concepts/capture/) explains the model and [Capture changes](/how-to/capture-changes/) gives the setup.
+
+| Key | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `outbox.capture.mode` | string | `polling` | `polling`, `postgres-logical` or `sqlserver-cdc`. `postgres-logical` needs PostgreSQL. `sqlserver-cdc` needs SQL Server. |
+| `outbox.capture.enabled` | boolean | `false` | Set it to `true` on the one replica that owns capture. `true` needs a mode other than `polling`. |
+| `outbox.capture.identity` | string | `queuebox` | The name of the capture owner. Lower case letters, digits and `_`, at most 63 characters, a letter first. |
+| `outbox.capture.stateDirectory` | string | empty | A durable directory for the capture offsets. Required when `enabled` is `true`. |
+| `outbox.capture.schema` | string | none | The schema of the outbox table. None means `public` on PostgreSQL and `dbo` on SQL Server. |
+| `outbox.capture.publication` | string | `queuebox_outbox` | PostgreSQL only. The publication of the outbox table. QueueBox never creates it. |
+| `outbox.capture.slot` | string | `queuebox_outbox` | PostgreSQL only. The replication slot. The connector creates it on the first start. |
+| `outbox.capture.reconciliationIntervalMs` | milliseconds | `1000` | The longest wait of the poller when no event arrives. It must be above 0. |
+
+The `identity`, `slot` and `publication` values follow the same rule: a lower case letter first, then lower case letters, digits and `_`, at most 63 characters.
+
+### outbox.capture.connection
+
+Capture reads the host, the port and the database from `database.url`. Each key below replaces one value for the capture connection only.
+
+| Key | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `outbox.capture.connection.hostname` | string | from `database.url` | The capture host. Required when `database.url` names more than one host. |
+| `outbox.capture.connection.port` | integer | from `database.url` | The capture port, from 1 to 65535. |
+| `outbox.capture.connection.database` | string | from `database.url` | The database name. |
+| `outbox.capture.connection.username` | string | `database.username` | The capture account. |
+| `outbox.capture.connection.password` | secret | `database.password` | The password of the capture account. |
+| `outbox.capture.connection.encrypt` | boolean | `true` | SQL Server only. Encrypt the capture connection. |
+| `outbox.capture.connection.trustServerCertificate` | boolean | `false` | SQL Server only. Accept the server certificate without a check. |
+
+## inbox
+
+| Key | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `inbox.basePath` | string | `/inbox` | The prefix of every HTTP source path. A source with `path: /stripe` answers at `/inbox/stripe`. The source name is not part of the path. |
+| `inbox.maxBodyBytes` | integer | `1048576` | The largest request body in bytes, on every route of the data port. A larger body gets `413`. It must be above 0. |
+| `inbox.relay.*` | block | on | The relay. See the next section. |
+
+### inbox.relay
+
+The relay copies each push row of the inbox into the outbox. A pull row stays in the inbox for a [pull client](/reference/pull-clients/).
+
+| Key | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `inbox.relay.enabled` | boolean | `true` | Run the relay. With `false`, a push row stays in the inbox. |
+| `inbox.relay.pollIntervalMs` | milliseconds | `100` | The wait between two relay cycles. |
+| `inbox.relay.batchSize` | integer | `100` | The largest number of rows that one relay claim takes. |
+| `inbox.relay.claimTimeoutMs` | milliseconds | `300000` | The visibility timeout of a relay claim. |
+| `inbox.relay.pendingGaugeIntervalMs` | milliseconds | `5000` | The shortest interval between two queries for the oldest pending inbox row. |
+| `inbox.relay.maxAttempts` | integer | `outbox.maxAttempts` | The value that the relay writes into `max_attempts` of each outbox row it creates. It must be above 0. |
+
+## http
+
+These keys apply to every HTTP destination.
+
+| Key | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `http.maxErrorBodyBytes` | integer | `2048` | The largest part of a failed response body that QueueBox keeps. QueueBox removes secret values from the text before it reaches a log or `last_error`. |
+| `http.blockPrivateAddresses` | boolean | `false` | Refuse a destination `baseUrl` or OAuth2 `tokenUrl` whose host resolves to a loopback, link-local, site-local or unique-local address. The check runs at start. A host that does not resolve passes. |
+
+## admin
+
+The admin routes evaluate a JSONata expression that the caller supplies, and they move outbox rows back to pending.
+The [HTTP API](/reference/http-api/#admin-routes) page describes the routes.
+
+| Key | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `admin.enabled` | boolean | `false` | Register `/admin/transform/test` and `/admin/replay`. With `false`, the routes do not exist. |
+| `admin.auth` | block | none | The credentials of the admin routes. It takes the same kinds as a [source `auth` block](#source-auth): `bearer`, `api-key` or `hmac`. |
+| `admin.insecure` | boolean | `false` | Allow the admin routes without `auth`. Use it for a local test only. |
+| `admin.maxTransformTimeoutMs` | milliseconds | `1000` | The upper bound of the `timeoutMs` that a caller of `/admin/transform/test` sends. QueueBox uses the smaller value. |
+| `admin.maxPayloadBytes` | integer | `65536` | The largest admin request body. A larger body gets `413`. |
+
+QueueBox refuses to start when `admin.enabled` is `true`, `admin.auth` is absent and `admin.insecure` is `false`.
+
+## destinations
+
+`destinations` is a map. The key is the destination name, and a route refers to it.
+
+### Keys of every destination
+
+| Key | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `type` | string | none | `http`, `rabbitmq`, `kafka` or `nats`. See [how QueueBox selects the kind](#how-queuebox-selects-the-kind-of-an-entry). |
+| `headers` | map of strings | empty | Static headers on every message to this destination. A header of the outbox row wins over a static header of the same name. |
+| `transform` | block | none | A JSONata transform that runs before the publish. See [transform](#transform). |
+
+### HTTP destination
+
+QueueBox sends a `POST` with the payload as the JSON body. A `2xx` status completes the delivery.
+
+| Key | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `baseUrl` | string | required | An absolute `http` or `https` URL with a host. It must not hold a user name or a password. |
+| `path` | string | `/` | The path after `baseUrl`. It must not hold a `.` or a `..` segment. |
+| `timeoutMs` | milliseconds | `30000` | The request timeout. |
+| `auth` | block | none | The credentials of the request. See the next section. |
+
+### Destination auth
+
+| Kind | Key | Type | Default | Meaning |
+| --- | --- | --- | --- | --- |
+| `oauth2` | `clientId` | string | required | The client identifier of the client credentials grant. |
+| `oauth2` | `clientSecret` | secret | required | The client secret. |
+| `oauth2` | `tokenUrl` | string | required | The token endpoint. The same URL rules as `baseUrl` apply. |
+| `oauth2` | `scope` | string | none | The `scope` parameter of the token request. |
+| `oauth2` | `extraParams` | map of strings | empty | Extra form parameters of the token request. |
+| `basic` | `username` | string | required | The user name of HTTP Basic authentication. |
+| `basic` | `password` | secret | required | The password. |
+| `header` | `headerName` | string | `Authorization` | The header that carries the credential. |
+| `header` | `headerValue` | secret | required | The value of that header. |
+
+The `oauth2` kind sends `Authorization: Bearer <token>` and caches the token. The `basic` kind sends `Authorization: Basic <credentials>`.
+
+### RabbitMQ destination
+
+QueueBox declares the exchange, publishes with the `mandatory` flag and waits for the broker confirm.
+An unroutable message fails and retries.
+
+| Key | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `url` | string | required | The AMQP URI of the broker. |
+| `exchange` | string | required | The exchange name, or an [address template](#address-templates-and-address-columns). |
+| `exchangeFrom` | string | none | A row column that holds the exchange name: `aggregate_type`, `topic` or `key`. It wins over `exchange`. |
+| `exchangeType` | string | `topic` | The exchange type that QueueBox declares: `topic`, `direct` or `fanout`. |
+| `routingKeyTemplate` | string | `{{ topic }}` | The routing key when the matched route sets none. See [routing key templates](/reference/transforms/#routing-key-templates). |
+| `deliveryMode` | string | `persistent` | `persistent` or `transient`. A persistent message in a durable queue survives a broker restart. |
+
+### Kafka destination
+
+The producer publishes with `acks=all` and idempotence.
+
+| Key | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `bootstrapServers` | string | required | The brokers, separated by commas. |
+| `topic` | string | required | The Kafka topic, or an [address template](#address-templates-and-address-columns). |
+| `topicFrom` | string | none | A row column that holds the topic name: `aggregate_type`, `topic` or `key`. It wins over `topic`. |
+| `keyTemplate` | string | `{{ key }}` | The record key. `{{ key }}` and `{{ topic }}` render. An empty result sends no key. A route `routingKeyTemplate` wins. |
+| `timeoutMs` | milliseconds | `30000` | The whole publish budget, with the broker acknowledgement. It must be at least `2000`. |
+| `securityProtocol` | string | `PLAINTEXT` | `PLAINTEXT`, `SSL`, `SASL_PLAINTEXT` or `SASL_SSL`. |
+| `saslMechanism` | string | none | For example `SCRAM-SHA-512`. Required by a `SASL_` protocol. |
+| `saslUsername` | string | none | Required by a `SASL_` protocol. |
+| `saslPassword` | secret | none | Required by a `SASL_` protocol. |
+
+### NATS destination
+
+| Key | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `servers` | string | required | The server URLs, separated by commas. |
+| `subject` | string | required | The subject, or an [address template](#address-templates-and-address-columns). |
+| `subjectFrom` | string | none | A row column that holds the subject: `aggregate_type`, `topic` or `key`. It wins over `subject`. |
+| `jetStream` | boolean | `true` | Publish through JetStream and wait for its acknowledgement. `false` publishes on core NATS, with no acknowledgement. |
+| `timeoutMs` | milliseconds | `30000` | The publish timeout. It must be above 0. |
+| `username` | string | none | A user name. It needs `password`. |
+| `password` | secret | none | A password. It needs `username`. |
+| `token` | secret | none | A token. Set a token or a user name, not both. |
+
+### Address templates and address columns
+
+`exchange`, `topic` and `subject` accept a literal name or a template with `{{ ... }}` placeholders.
+
+| Placeholder | Value |
+| --- | --- |
+| `{{ topic }}` | The `topic` column of the row. |
+| `{{ key }}` | The `key` column of the row. |
+| `{{ aggregateType }}` | The `aggregate_type` column of the row. |
+| `{{ payload.field }}` | A payload field. A dot separates nested fields. |
+| `{{ data.field }}` | The same as `payload.field`. |
+
+A placeholder with another name stops the start. The error names the field and the destination.
+A template that renders an empty name fails the publish of that row.
+
+`exchangeFrom`, `topicFrom` and `subjectFrom` name a column instead. The value of the column is the address, and QueueBox renders no template.
+The permitted names are `aggregate_type`, `topic` and `key`, with the underscore. Another name stops the start.
+
+## routes
+
+`routes` is a list. QueueBox tests the patterns in list order, and the first match wins. A row that matches no route goes dead.
+
+| Key | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `topicPattern` | string | required | A glob on the whole topic. `*` matches one segment without a dot. `**` matches any text. Every other character is a literal. `***` stops the start. |
+| `destination` | string | required | The name of a destination. An unknown name stops the start. |
+| `routingKeyTemplate` | string | none | The RabbitMQ routing key or the Kafka record key for this route. It wins over the destination template. |
+| `routingKeyMissingFieldDefault` | string | empty string | The value of a placeholder that finds no value. |
+| `transform` | block | none | A JSONata transform that runs before the destination transform. See [transform](#transform). |
+
+## sources
+
+`sources` is a map. The key is the source name. QueueBox stores the name in the `source` column of each inbox row.
+
+### Keys of every source
+
+| Key | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `type` | string | none | `http`, `rabbitmq`, `kafka` or `nats`. See [how QueueBox selects the kind](#how-queuebox-selects-the-kind-of-an-entry). |
+| `consumption` | string | `push` | `push`: the relay copies the row into the outbox. `pull`: a pull client claims the row. QueueBox stores the value on the row at receipt. |
+| `topic` | string | `{{ eventType }}` for HTTP, `{{ source }}` for the others | The outbox topic that the relay writes. `{{ source }}` and `{{ eventType }}` render. It must not be blank on a push source. |
+| `idempotencyKeyPath` | string | required for HTTP, `$.id` for the others | The JSONPath of the idempotency key in the body. |
+| `aggregateIdPath` | string | none | The JSONPath of the aggregate identifier. The relay writes it into the outbox `key`. |
+| `eventTypePath` | string | none | The JSONPath of the event type. |
+| `transform` | block | none | A JSONata transform that runs before the store. See [transform](#transform). |
+| `filter` | block | none | A header filter. See [filter](#filter). |
+| `rateLimit.requestsPerMinute` | integer | none | The request limit of an HTTP source. A request over it gets `429`. QueueBox ignores the key on the other kinds. It must be above 0. |
+
+Every JSONPath must be definite. A path such as `$..orderId` stops the start.
+The relay marks a row dead when its topic renders empty.
+QueueBox therefore refuses to start when a push source uses `{{ eventType }}` and has no source of the event type.
+An HTTP source needs `eventTypePath`. The other kinds need `eventTypePath` or `eventTypeFromHeader: true`.
+
+### HTTP source
+
+The source answers `POST <basePath><path>`. The [HTTP API](/reference/http-api/#inbox-sources) page lists the status codes.
+
+| Key | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `path` | string | required | The path after `inbox.basePath`. |
+| `idempotencyKeyPath` | string | required | The JSONPath of the idempotency key. A request whose key path finds no value gets `400`. |
+| `auth` | block | none | The credentials that each request must carry. See the next section. |
+
+### Source auth
+
+The same block configures `admin.auth`. A request that fails the check gets `401`.
+
+| Kind | Key | Type | Default | Meaning |
+| --- | --- | --- | --- | --- |
+| `bearer` | `token` | secret | required | The request must send `Authorization: Bearer <token>`. The scheme matches in any letter case. |
+| `api-key` | `key` | secret | required | The value of the key header. |
+| `api-key` | `headerName` | string | `X-API-Key` | The header that carries the key. |
+| `hmac` | `secret` | secret | required | The HMAC key. |
+| `hmac` | `headerName` | string | `X-Signature` | The header that carries the signature. |
+| `hmac` | `algorithm` | string | `HmacSHA256` | `HmacSHA256` or `HmacSHA512`. |
+| `hmac` | `signaturePrefix` | string | `sha256=` | The text before the hexadecimal signature in the header. |
+| `hmac` | `timestampHeader` | string | none | A header that carries the request time in Unix milliseconds. |
+| `hmac` | `timestampTolerance` | milliseconds | `300000` | The largest difference between the request time and the clock. It must be above 0. |
+| `hmac` | `signaturePayloadFormat` | enumeration | see below | `BODY` signs the body. `TIMESTAMP_DOT_BODY` signs the timestamp, a dot and the body. |
+
+When `timestampHeader` is set, `signaturePayloadFormat` defaults to `TIMESTAMP_DOT_BODY`. Otherwise it defaults to `BODY`.
+`TIMESTAMP_DOT_BODY` without a `timestampHeader` stops the start.
+
+### RabbitMQ source
+
+QueueBox acknowledges a delivery after the inbox row commits.
+A body that is not JSON, or a message that the transform rejects, becomes a dead row, and QueueBox acknowledges it.
+
+| Key | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `queueName` | string | required | The queue to consume. |
+| `connectionUrl` | string | required | The AMQP URI of the broker. |
+| `prefetchCount` | integer | `10` | The largest number of unacknowledged deliveries. |
+| `declareQueue` | boolean | `false` | Declare the queue as durable before the consumer starts. Keep `false` when the queue exists, so a typo in `queueName` fails the start. |
+| `eventTypeFromHeader` | boolean | `false` | Declare that every publisher sets the event type header. |
+| `attributeHeaders` | block | see [attributeHeaders](#attributeheaders) | The header names of the three attributes. |
+
+The idempotency key comes from the first of these that gives a value:
+the key header, `idempotencyKeyPath`, the AMQP `messageId` property, a SHA-256 digest of the body.
+Two different messages with the same body and no other key deduplicate to one row.
+
+### Kafka source
+
+The consumer commits an offset only after the inbox row commits. Every replica with the same `groupId` shares the partitions.
+
+| Key | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `bootstrapServers` | string | required | The brokers, separated by commas. |
+| `topics` | list of strings | required | The Kafka topics. One consumer reads them all. No entry may be blank. |
+| `groupId` | string | required | The consumer group. |
+| `autoOffsetReset` | string | `earliest` | Where a new group starts: `earliest` or `latest`. |
+| `maxPollRecords` | integer | `100` | The largest number of records in one poll. It must be above 0. |
+| `eventTypeFromHeader` | boolean | `false` | Declare that every producer sets the event type header. |
+| `securityProtocol` | string | `PLAINTEXT` | `PLAINTEXT`, `SSL`, `SASL_PLAINTEXT` or `SASL_SSL`. |
+| `saslMechanism` | string | none | Required by a `SASL_` protocol. |
+| `saslUsername` | string | none | Required by a `SASL_` protocol. |
+| `saslPassword` | secret | none | Required by a `SASL_` protocol. |
+| `attributeHeaders` | block | see [attributeHeaders](#attributeheaders) | The header names of the three attributes. |
+
+The idempotency key comes from the first of these that gives a value:
+the key header, `idempotencyKeyPath`, the record key, a SHA-256 digest of the body.
+The aggregate identifier falls back to the record key when the body path and the header give nothing.
+
+### NATS source
+
+The source reads a JetStream stream through a durable consumer. QueueBox never creates the stream.
+
+| Key | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `servers` | string | required | The server URLs, separated by commas. |
+| `stream` | string | required | The JetStream stream. |
+| `durable` | string | required | The durable consumer name. Replicas with the same name share the work. |
+| `filterSubject` | string | none | A subject filter. None reads every subject of the stream. |
+| `ackWaitMs` | milliseconds | `30000` | How long JetStream waits for the acknowledgement before it redelivers. |
+| `batchSize` | integer | `100` | The largest number of messages in one fetch. |
+| `eventTypeFromHeader` | boolean | `false` | Declare that every publisher sets the event type header. |
+| `username` | string | none | A user name. It needs `password`. |
+| `password` | secret | none | A password. It needs `username`. |
+| `token` | secret | none | A token. Set a token or a user name, not both. |
+| `attributeHeaders` | block | see [attributeHeaders](#attributeheaders) | The header names of the three attributes. |
+
+The idempotency key comes from the first of these that gives a value:
+the key header, `idempotencyKeyPath`, the `Nats-Msg-Id` header, a SHA-256 digest of the body.
+
+### attributeHeaders
+
+The RabbitMQ, Kafka and NATS sources read three attributes from message headers. These keys set the header names.
+
+| Key | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `attributeHeaders.idempotencyKey` | string | `x-idempotency-key` | The header of the idempotency key. It comes before `idempotencyKeyPath`. |
+| `attributeHeaders.aggregateId` | string | `x-aggregate-id` | The header of the aggregate identifier. It comes after `aggregateIdPath`. |
+| `attributeHeaders.eventType` | string | `x-event-type` | The header of the event type. It comes after `eventTypePath`. |
+
+The [headers](/reference/headers/#headers-that-queuebox-reads) page gives the full order for each kind.
+
+### filter
+
+A filter reads the headers of each received message. It applies to every kind of source.
+
+| Key | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `filter.require` | list of rules | empty | A message must match every rule. |
+| `filter.exclude` | list of rules | empty | A message must match no rule. |
+
+| Rule key | Type | Meaning |
+| --- | --- | --- |
+| `header` | string | The header name. Required. It matches in any letter case. |
+| `equals` | string | The value must equal this string. |
+| `in` | list of strings | The value must equal one entry. The list must not be empty. |
+| `matches` | string | The value must match this topic glob. `*` matches one segment and `**` matches anything. |
+| `exists` | boolean | `true`: the header must be present. `false` stops the start. |
+
+A rule sets exactly one of `equals`, `in`, `matches` and `exists`. A value matches in the same letter case only.
+A rule with `equals`, `in` or `matches` does not match a message without the header.
+
+A message that does not pass leaves no row. A broker source acknowledges it.
+An HTTP source answers `202` with `{"status":"filtered"}`. The counter `queuebox_inbox_filtered_total` counts it.
+
+## transform
+
+A `transform` block can sit on a source, a route and a destination. The [transforms](/reference/transforms/) page gives the variables of each stage.
+
+| Key | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `expression` | string | required | The JSONata expression. It must compile at start. |
+| `timeoutMs` | milliseconds | `100` | The longest run time of one evaluation. It must be above 0. |
+| `maxDepth` | integer | `100` | The deepest recursion of one evaluation. It must be above 0. |
+| `onError` | enumeration | `Fail` | `Fail`, `Skip` or `Dead`. See [error strategies](/reference/transforms/#error-strategies). |
+
+## retention
+
+Retention deletes old rows in batches. It never deletes a row that waits or runs.
+
+| Key | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `retention.enabled` | boolean | `false` | Run the cleanup. The table blocks below apply only when it is `true`. |
+| `retention.outbox.*` | block | disabled | The outbox policy. |
+| `retention.inbox.*` | block | disabled | The inbox policy. |
+
+### retention.outbox and retention.inbox
+
+| Key | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `policy` | enumeration | `DISABLED` | `AGE`, `COUNT` or `DISABLED`. The inbox accepts `AGE` or `DISABLED`. |
+| `maxAge` | retention duration | none | Required by `AGE`. Rows older than this go. |
+| `maxCount` | integer | none | Required by `COUNT`. It must be above 0. |
+| `cleanupInterval` | retention duration | `1h` | The wait between two cleanup runs. |
+| `batchSize` | integer | `1000` | The largest number of rows that one delete statement removes. It must be above 0. |
+
+The outbox age policy measures from `updated_at`. It deletes rows in state `sent` or `dead`.
+The inbox age policy measures from `created_at`. It deletes rows in state `processed` or `dead`.
+The outbox count policy keeps `maxCount` sent rows and, apart from them, `maxCount` dead rows.
+
+<Aside type="caution">
+A deleted inbox row no longer deduplicates. Set `retention.inbox.maxAge` above the longest time in which a sender can repeat a message.
+</Aside>

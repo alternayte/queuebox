@@ -1,0 +1,204 @@
+---
+title: Dead letters
+description: List, requeue and discard dead outbox and inbox messages with SQL.
+sidebar:
+  order: 5
+---
+
+import { Aside } from "@astrojs/starlight/components";
+
+This page gives the supported SQL to list, requeue and discard a dead message.
+To replay through the HTTP API with filters, see [Replay dead letters](/how-to/replay-dead-letters/).
+
+## When a message is dead
+
+An outbox message reaches the state `dead` when:
+
+- its `attempt` count reaches the `max_attempts` of its own row,
+- no route matches its topic,
+- no publisher supports its destination,
+- or a transform with `onError: Dead` rejects it.
+
+QueueBox writes `outbox.maxAttempts` into `max_attempts` for every row that it creates.
+Your application can set a different value on a row that it inserts, and the row value wins.
+See [Configuration](/reference/configuration/).
+
+An inbox message reaches the state `dead` when:
+
+- an AMQP source stores a message that the source transform rejected,
+- a broker source receives a body that is not JSON,
+- the topic template of a push source renders empty,
+- or a pull worker gives up on it.
+
+QueueBox never deletes a dead message on its own.
+The retention job removes it after `retention.outbox.maxAge` or `retention.inbox.maxAge`, when retention is on.
+Watch `queuebox_outbox_messages_total{status="dead"}` to see new dead messages.
+
+## How to read the SQL
+
+The SQL is for the shipped PostgreSQL schema.
+A test runs every `sql` block on this page against that schema.
+Another test runs the `requeue-one` block and checks that the destination then receives the message.
+
+- Each statement ends with a semicolon at the end of a line.
+- A placeholder starts with a colon, for example `:message_id`.
+  Replace it with a real value before you run the statement.
+- The placeholders are `:message_id`, `:topic`, `:state`, `:destination` and `:limit`.
+- An MDX comment `{/* sql-id: name */}` before a block gives the block a name.
+  A test selects the block by that name.
+
+On SQL Server, write `SELECT TOP (n)` in place of `LIMIT n`, and `N'text'` for a string literal.
+The `UPDATE` and `DELETE` statements run unchanged.
+
+## List the dead messages
+
+Count the dead messages per topic:
+
+{/* sql-id: list-dead-by-topic */}
+```sql
+SELECT topic, count(*) AS dead_count
+FROM outbox
+WHERE state = 'dead'
+GROUP BY topic
+ORDER BY dead_count DESC;
+```
+
+List the newest dead messages with the failure reason:
+
+{/* sql-id: list-dead */}
+```sql
+SELECT id, topic, key, attempt, max_attempts, created_at, updated_at, last_error
+FROM outbox
+WHERE state = 'dead'
+ORDER BY updated_at DESC
+LIMIT :limit;
+```
+
+Read one dead message in full, with its payload and its headers:
+
+{/* sql-id: show-dead */}
+```sql
+SELECT id, topic, key, payload, headers, attempt, max_attempts, scheduled_at, created_at,
+       updated_at, claimed_at, last_error
+FROM outbox
+WHERE id = :message_id
+  AND state = 'dead';
+```
+
+`last_error` holds the reason for the last failure.
+QueueBox masks secret values in it and truncates it.
+
+## Requeue one dead message
+
+Correct the cause of the failure first.
+A requeue against a destination that is still broken produces a second dead message.
+
+The requeue sets the state to `pending`, resets `attempt` to zero and sets `scheduled_at` to the current time.
+The poller claims the row on its next cycle.
+
+{/* sql-id: requeue-one */}
+```sql
+UPDATE outbox
+SET state = 'pending',
+    attempt = 0,
+    scheduled_at = CURRENT_TIMESTAMP,
+    claimed_at = NULL,
+    last_error = NULL,
+    updated_at = CURRENT_TIMESTAMP
+WHERE id = :message_id
+  AND state = 'dead';
+```
+
+The clause `AND state = 'dead'` protects a message that another operator already requeued.
+The statement then reports zero updated rows.
+
+Confirm the new state:
+
+{/* sql-id: verify-requeue */}
+```sql
+SELECT id, state, attempt, scheduled_at, last_error
+FROM outbox
+WHERE id = :message_id;
+```
+
+The message is delivered when its state becomes `sent`.
+
+<Aside>
+A requeued row keeps its `sequence`.
+If the row has a `key`, it becomes the head of its key again and holds back the later rows of that key until it is sent or dead.
+It reaches the destination after the rows of its key that passed it while it was dead.
+See [Ordering](/concepts/ordering/#order-and-the-key).
+</Aside>
+
+## Requeue every dead message of one topic
+
+Use this form after you repair a destination.
+Requeue one message first and confirm the delivery.
+
+{/* sql-id: requeue-topic */}
+```sql
+UPDATE outbox
+SET state = 'pending',
+    attempt = 0,
+    scheduled_at = CURRENT_TIMESTAMP,
+    claimed_at = NULL,
+    last_error = NULL,
+    updated_at = CURRENT_TIMESTAMP
+WHERE state = 'dead'
+  AND topic = :topic;
+```
+
+## Requeue a dead inbox message
+
+List the dead inbox rows first:
+
+{/* sql-id: list-dead-inbox */}
+```sql
+SELECT id, source, consumption, idempotency_key, event_type, attempt, created_at, last_error
+FROM inbox
+WHERE state = 'dead'
+ORDER BY created_at DESC
+LIMIT :limit;
+```
+
+Correct the cause first.
+For a transform rejection, correct the source transform.
+For an empty topic, set `sources.<name>.topic` or the event type path.
+
+The requeue sets the state back to `pending`.
+The relay then forwards a push row, and a pull worker claims a pull row.
+The requeue also resets `attempt`, so a pull worker applies its full retry ceiling again.
+
+{/* sql-id: requeue-inbox */}
+```sql
+UPDATE inbox
+SET state = 'pending',
+    attempt = 0,
+    scheduled_at = CURRENT_TIMESTAMP,
+    last_error = NULL,
+    claimed_at = NULL,
+    processed_at = NULL
+WHERE id = :message_id
+  AND state = 'dead';
+```
+
+<Aside type="caution">
+A requeued inbox row keeps its stored payload.
+A payload that the source transform rejected at receipt was stored untransformed, and the relay runs no transform.
+Correct the payload in the row, or have the sender send a corrected message under a new idempotency key.
+</Aside>
+
+## Discard a dead message
+
+Delete a message only when you accept the loss of the event.
+Copy the payload first.
+
+{/* sql-id: discard-dead */}
+```sql
+DELETE FROM outbox
+WHERE id = :message_id
+  AND state = 'dead';
+```
+
+Deleting a dead inbox row also ends deduplication for its `(source, idempotency_key)`.
+A repeat of that message then becomes a new row.

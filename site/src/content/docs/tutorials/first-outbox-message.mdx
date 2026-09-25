@@ -1,0 +1,143 @@
+---
+title: Deliver your first outbox message
+description: Start QueueBox with Docker Compose, insert one outbox row, and watch QueueBox deliver it to an HTTP receiver.
+sidebar:
+  order: 1
+---
+
+import { Aside } from "@astrojs/starlight/components";
+
+In this tutorial you start QueueBox with Docker Compose, insert one row into the outbox table, and watch QueueBox deliver that row to an HTTP receiver. At the end, the row is in state `sent`.
+
+## Before you start
+
+You need Git, Docker with the Compose plugin, and `curl`. The stack uses the ports `8080` and `5432` on your machine, so stop anything else that listens on them.
+
+## Start the stack
+
+Clone the repository and start the Compose stack.
+
+```bash
+git clone https://github.com/alternayte/queuebox.git
+cd queuebox
+docker compose -f docker-compose.yml --env-file .env.example up -d --build
+```
+
+The stack runs three services:
+
+| Service | What it does |
+|---------|--------------|
+| `postgres` | PostgreSQL 16. QueueBox creates its tables in it at startup. |
+| `queuebox` | QueueBox, built from the repository. It reads `examples/queuebox.yml`. |
+| `receiver` | A small HTTP server. It answers `200` and prints every request body it receives. |
+
+The first build compiles QueueBox, so it takes some time. Ask QueueBox whether it is ready:
+
+```bash
+curl http://localhost:8080/health
+```
+
+A ready instance answers with status `200` and a body that starts with `{"status":"healthy"`. If `curl` cannot connect, wait a moment and send the request again.
+
+<Aside>
+`-f docker-compose.yml` selects the shipped stack. Without it, Docker Compose also reads `docker-compose.override.yml`, which holds a development loop that this tutorial does not need. Every command below names the file for the same reason.
+</Aside>
+
+## Read the route
+
+Open `examples/queuebox.yml`. The configuration names one HTTP destination and a route to it:
+
+```yaml
+# fragment
+destinations:
+  webhook-api:
+    type: http
+    baseUrl: http://receiver:8080
+    path: /webhook
+    timeoutMs: 30000
+
+routes:
+  - topicPattern: "order.*"
+    destination: webhook-api
+```
+
+A row whose topic matches `order.*` goes to `webhook-api`. QueueBox sends it as an HTTP `POST` to `http://receiver:8080/webhook`.
+
+## Insert an outbox row
+
+Your application sends a message with one `INSERT` into the `outbox` table. Run that insert through `psql` in the `postgres` container:
+
+```bash
+docker compose -f docker-compose.yml exec -T postgres psql -U queuebox -d queuebox <<'SQL'
+BEGIN;
+INSERT INTO outbox (topic, key, payload)
+VALUES ('order.created', 'order-1001', '{"orderId":"1001","amount":42}');
+COMMIT;
+SQL
+```
+
+`psql` prints `BEGIN`, `INSERT 0 1` and `COMMIT`. The row names three columns:
+
+- `topic` is `order.created`, so the route `order.*` matches it.
+- `key` is `order-1001`. The rows of one key arrive in insert order.
+- `payload` is the JSON body that the receiver gets.
+
+In a real application, the same transaction also writes the business row, for example the order itself. Both rows commit together, or neither commits.
+
+## Watch the delivery
+
+Read the log of the receiver:
+
+```bash
+docker compose -f docker-compose.yml logs receiver
+```
+
+The last line shows the delivery:
+
+```text
+receiver-1  | receiver listening on 8080
+receiver-1  | delivered POST /webhook {"amount":42,"orderId":"1001"}
+```
+
+The keys of the body are in a different order. PostgreSQL stores `payload` as `JSONB`, which keeps the content of a JSON object but not the order of its keys.
+
+QueueBox polls the outbox every 100 milliseconds in this configuration, so the line appears at once. If the line is absent, run the command again.
+
+## See the row in state `sent`
+
+Read the row back from the outbox table:
+
+```bash
+docker compose -f docker-compose.yml exec postgres psql -U queuebox -d queuebox \
+  -c "SELECT topic, key, state, attempt FROM outbox;"
+```
+
+The output shows the row in state `sent`:
+
+```text
+     topic     |    key     | state | attempt
+---------------+------------+-------+---------
+ order.created | order-1001 | sent  |       0
+(1 row)
+```
+
+`attempt` counts the failed deliveries. It is `0`, because the receiver accepted the first delivery.
+
+## Clean up
+
+Stop the stack and delete its database volume:
+
+```bash
+docker compose -f docker-compose.yml down -v
+```
+
+## What you did
+
+You started QueueBox, wrote one outbox row, and saw QueueBox deliver it to an HTTP endpoint and mark it `sent`. QueueBox did the polling, the routing and the delivery. The application wrote one row.
+
+## Next steps
+
+- [Receive a webhook](/tutorials/receive-a-webhook/) shows the other direction: the inbox.
+- [Write outbox rows](/how-to/write-outbox-rows/) shows the insert inside a business transaction, with headers, a schedule and a retry ceiling.
+- [Fan out over HTTP](/how-to/fan-out-over-http/) sends rows to more than one HTTP endpoint.
+- [Delivery semantics](/concepts/delivery-semantics/) states what QueueBox promises for a row it delivers.

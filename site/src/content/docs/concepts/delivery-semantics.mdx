@@ -1,0 +1,250 @@
+---
+title: Delivery semantics
+description: What QueueBox promises for an accepted message, and what your application must do to hold its side of the contract.
+sidebar:
+  order: 2
+---
+
+import { Tabs, TabItem, Aside } from "@astrojs/starlight/components";
+
+This page states what QueueBox promises for a message that it accepted.
+It also states what your application and your receivers must do in return.
+For the order of messages, see [Ordering](/concepts/ordering/).
+
+## At least once
+
+QueueBox delivers every accepted message at least once.
+It never delivers a message zero times, and it can deliver a message more than once.
+
+- The outbox row commits with your business write, so a committed business change always has its message.
+- QueueBox retries a failed delivery until the row reaches its `max_attempts`, and then marks the row `dead`.
+  A dead row stays in the table until an operator replays or deletes it, or retention removes it.
+- A crash between the publish and the mark `sent` delivers the message a second time.
+
+Every consumer must therefore tolerate a repeat.
+The inbox is how a QueueBox consumer does that.
+
+## Push and pull
+
+Every source declares how its messages leave the inbox.
+
+```yaml
+# fragment
+sources:
+  orders:
+    type: http
+    path: /orders
+    idempotencyKeyPath: $.id
+    consumption: pull   # default: push
+```
+
+QueueBox stores the value on the row at receipt.
+A later change of the configuration never alters a message that the inbox already holds.
+
+| | `push` | `pull` |
+| --- | --- | --- |
+| Who moves the message | The inbox relay | Your worker |
+| Needs a topic and a route | Yes | No |
+| The relay claims the row | Yes | Never |
+| `processed` means | QueueBox forwarded the row into the outbox | Your application finished the work |
+
+The relay claims push rows only.
+A pull row is invisible to it, so a pull source needs no topic, no route and no destination.
+
+`processed` carries two different meanings.
+For a push row, it says that the message reached the outbox.
+Delivery to the destination is a separate outbox state.
+For a pull row, it says that your application completed the business work.
+
+A pull worker claims rows, renews its lease, and completes, retries or dead-letters each row.
+A client library does this work for you, so your application writes only its handler.
+
+| Language | Package |
+| --- | --- |
+| C# | `QueueBox.Inbox` on NuGet |
+| TypeScript | `@alternayte/queuebox-inbox` on npm |
+| Go | `github.com/alternayte/queuebox/clients/go` |
+
+See [Pull clients](/reference/pull-clients/) and [Consume the inbox](/how-to/consume-the-inbox/).
+
+## Where a message comes from, and where it goes
+
+| Broker | As a source | As a destination |
+| --- | --- | --- |
+| HTTP | Yes, `POST /inbox/<path>` | Yes |
+| RabbitMQ | Yes, one queue per source | Yes, one exchange per destination |
+| Kafka | Yes, one consumer group per source | Yes, one topic per destination |
+| NATS | Yes, JetStream only | Yes, JetStream by default |
+
+Each source keeps the promise of the broker that it reads.
+QueueBox acknowledges a message only after the inbox row commits.
+A crash therefore replays the message instead of losing it, and the unique constraint on `(source, idempotency_key)` rejects the replay.
+
+- **Kafka** commits the offset after the store.
+  An offset says that everything before it is done.
+  The consumer therefore commits only the unbroken run of records that the inbox accepted, and it seeks back to the first record that failed.
+- **NATS** acknowledges the message after the store.
+  It negatively acknowledges a failed store, so JetStream returns the message at once.
+  The source reads JetStream only, because core NATS cannot acknowledge, and an inbox on it loses every message that arrives during a restart.
+- **RabbitMQ** acknowledges after the store and requeues on failure.
+
+QueueBox stores a broker message whose body is not JSON in state `dead`, and acknowledges it.
+Nothing downstream can read such a body.
+A refusal to acknowledge it stops the partition or returns the message for ever.
+
+## The identity of a message
+
+Three identifiers travel with a forwarded message.
+Each answers a different question.
+
+| Identifier | Where | Stable across |
+| --- | --- | --- |
+| `(source, idempotency_key)` | The inbox unique constraint | Every retry and every replay |
+| `x-inbox-id` | An outbox header | The inbox row |
+| `X-Message-Id` | An outbox header, equal to the outbox `id` | One outbox row, every delivery attempt |
+
+The replay identity `(source, idempotency_key)` includes the source on purpose.
+Two sources can send the same event ID and mean different events.
+
+The relay copies the inbox `headers` onto the outbox row.
+Then it sets `x-inbox-id`, `x-source`, `x-idempotency-key` and `X-Correlation-Id`.
+Each of these four replaces a received header of the same name in any letter case, so a sender cannot set them.
+See [Headers](/reference/headers/).
+
+A replay of an inbox row creates a **new** outbox row with a new `X-Message-Id`.
+A receiver that deduplicates on `X-Message-Id` alone accepts the replay as new work.
+Deduplicate relay traffic on `x-idempotency-key`, which carries the inbox idempotency key unchanged.
+
+### Where the idempotency key comes from
+
+An HTTP source reads the key with `idempotencyKeyPath`.
+A broker source reads the `x-idempotency-key` header first, then `idempotencyKeyPath`, then the AMQP `messageId` property.
+When all of them give nothing, QueueBox uses a SHA-256 digest of the body.
+
+<Aside type="caution">
+The digest treats identical bytes as one message.
+Two distinct events with an identical body deduplicate to one row, and QueueBox does not forward the second event.
+Configure a key source when two events can carry the same body.
+</Aside>
+
+### Join the inbox and the outbox
+
+Join the two tables through the header when you investigate a message.
+
+<Tabs syncKey="database">
+<TabItem label="PostgreSQL">
+
+```sql
+SELECT o.id, o.topic, o.state, o.attempt, i.source, i.idempotency_key
+FROM outbox o
+JOIN inbox i ON i.id = (o.headers ->> 'x-inbox-id')::uuid
+WHERE i.source = 'stripe' AND i.idempotency_key = 'evt_123';
+```
+
+</TabItem>
+<TabItem label="SQL Server">
+
+```sql
+SELECT o.id, o.topic, o.state, o.attempt, i.source, i.idempotency_key
+FROM outbox o
+JOIN inbox i ON i.id = CAST(JSON_VALUE(o.headers, '$."x-inbox-id"') AS UNIQUEIDENTIFIER)
+WHERE i.source = N'stripe' AND i.idempotency_key = N'evt_123';
+```
+
+</TabItem>
+</Tabs>
+
+## HTTP delivery
+
+QueueBox sends the payload as the body of a POST, with the headers in [Headers](/reference/headers/).
+Every 2xx status completes the delivery.
+No other status completes it.
+QueueBox never follows a redirect, so a 3xx answer fails the attempt.
+
+### A 202 transfers durable responsibility
+
+A `202 Accepted` completes the delivery exactly as a `200 OK` does.
+QueueBox marks the outbox row `sent` and never sends that row again.
+
+Answer 202 only after the message is durable at the receiver.
+A receiver that answers 202 and then loses the message in memory loses it for good.
+QueueBox holds no copy that it retries, because a 2xx says that the receiver took responsibility.
+A receiver that cannot store the message yet must answer a status that is not 2xx, so that QueueBox retries.
+
+### Duplicates
+
+A receiver must be idempotent.
+Two situations create a duplicate even when nothing is broken.
+
+- **The response is lost.**
+  The receiver stored the message and answered, the answer never arrived, and QueueBox retries the same `X-Message-Id`.
+- **The claim expires during a slow publish.**
+  QueueBox publishes, another replica takes over the row, and that replica publishes it again.
+  QueueBox logs the duplicate and counts it in `queuebox_claims_lost_total{component="outbox"}`.
+  Raise `outbox.claimTimeoutMs` above the slowest publish to remove the cause.
+
+QueueBox never drops a duplicate in silence, and it never rolls a delivery back.
+See [Claims and leases](/concepts/claims-and-leases/#lost-claims-and-duplicates).
+
+### An idempotent receiver
+
+Store the identifier and the effect in one transaction.
+A repeat then finds the row and changes nothing, whatever the reason for the repeat.
+
+<Tabs syncKey="database">
+<TabItem label="PostgreSQL">
+
+```sql
+BEGIN;
+
+INSERT INTO delivery_receipts (message_id, idempotency_key, received_at)
+VALUES ($1, $2, now())
+ON CONFLICT (idempotency_key) DO NOTHING;
+
+-- Zero rows means this is a repeat. Skip the business work and answer 200.
+-- One row means this is new work. Apply the business change here, in this
+-- transaction, and answer 200 only after the commit succeeds.
+
+COMMIT;
+```
+
+</TabItem>
+<TabItem label="SQL Server">
+
+```sql
+BEGIN TRANSACTION;
+
+INSERT INTO delivery_receipts (message_id, idempotency_key, received_at)
+SELECT @message_id, @idempotency_key, SYSUTCDATETIME()
+WHERE NOT EXISTS (
+    SELECT 1 FROM delivery_receipts WITH (UPDLOCK, HOLDLOCK)
+    WHERE idempotency_key = @idempotency_key
+);
+
+-- Zero rows means this is a repeat. One row means new work: apply it here.
+
+COMMIT TRANSACTION;
+```
+
+</TabItem>
+</Tabs>
+
+Use `x-idempotency-key` as the key for relay traffic.
+Use `X-Message-Id` for traffic that a producer wrote directly into the outbox.
+Answer a 2xx only after the transaction commits.
+A 2xx before the commit turns a receiver crash into a lost message, because QueueBox does not send the message again.
+
+## Retention
+
+Retention is off by default.
+Turn it on for each table separately in the [configuration](/reference/configuration/).
+
+Retention never deletes active work.
+In the outbox, it deletes rows in state `sent` or `dead`.
+In the inbox, it deletes rows in state `processed` or `dead`.
+A row in state `pending` or `processing` stays, whatever its age.
+
+Deleting an inbox row ends deduplication for that message.
+The unique constraint on `(source, idempotency_key)` rejects a repeat, and a deleted row no longer rejects anything.
+Set the inbox retention age above the longest window in which a sender can repeat a delivery.
+If you do not, QueueBox accepts the repeat as a new message.

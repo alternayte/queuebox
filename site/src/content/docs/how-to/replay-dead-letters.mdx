@@ -1,0 +1,169 @@
+---
+title: Replay dead letters
+description: Send dead or already delivered outbox messages again through the admin replay route, with filters by id, topic, destination and time.
+---
+
+import { Steps, Aside } from "@astrojs/starlight/components";
+
+This guide replays outbox messages through the `POST /admin/replay` route.
+It assumes that you know how QueueBox marks a message dead.
+If not, read [Dead letters](/operations/dead-letters/) first.
+
+## Choose the route or the SQL
+
+| | `POST /admin/replay` | [SQL](/operations/dead-letters/) |
+| --- | --- | --- |
+| Selects | `sent` and `dead` outbox rows | Any row that your `WHERE` clause names |
+| Filters | ids, topic, topics, destination, creation time | Anything |
+| Resolves a destination to its topics | Yes, through the configured routes | No |
+| Inbox rows | No | Yes |
+| Needs | `admin.enabled` and admin credentials | Write access to the database |
+| Leaves a record | A log line with the filter and the count | Your own audit |
+
+Use the route when an operator replays by destination or by time without database access.
+Use the SQL for an inbox row, or for a selection that the route filters cannot express.
+
+<Aside type="caution">
+The route moves `sent` rows as well as `dead` rows.
+A filter by topic, destination or time sends every delivered message in that range again.
+To replay dead messages only, select their ids first and pass `ids`.
+</Aside>
+
+## Before you start
+
+- Correct the cause of the failure.
+  A replay against a destination that is still broken produces new dead messages.
+- Enable the admin routes with authentication.
+  They are off by default.
+
+```yaml
+# fragment
+admin:
+  enabled: true
+  auth:
+    type: bearer
+    token: file:/run/secrets/queuebox-admin-token
+```
+
+The admin routes are on the management port when `server.managementPort` is set.
+Never publish `/admin` through the ingress.
+See [Security](/operations/security/#the-admin-routes).
+
+## Replay dead messages by id
+
+<Steps>
+
+1. List the dead messages that you want to replay.
+
+   ```sql
+   SELECT id, topic, key, attempt, updated_at, last_error
+   FROM outbox
+   WHERE state = 'dead' AND topic = 'order.created'
+   ORDER BY updated_at DESC;
+   ```
+
+2. Send their ids to the route.
+
+   ```bash
+   curl -X POST http://localhost:9090/admin/replay \
+     -H "Authorization: Bearer $ADMIN_TOKEN" \
+     -H "Content-Type: application/json" \
+     -d '{"ids": ["3f2b1c1e-8d4a-4c1b-9a53-2d0f6f1e7a10", "9b7e5d2c-1a3f-4e8b-b6c4-0f1e2d3c4b5a"]}'
+   ```
+
+3. Read the count in the answer.
+
+   ```json
+   {"moved": 2}
+   ```
+
+4. Watch the rows reach `sent`.
+
+   ```sql
+   SELECT id, state, attempt, last_error
+   FROM outbox
+   WHERE id IN ('3f2b1c1e-8d4a-4c1b-9a53-2d0f6f1e7a10', '9b7e5d2c-1a3f-4e8b-b6c4-0f1e2d3c4b5a');
+   ```
+
+</Steps>
+
+## Replay everything for one destination in a time window
+
+Use this form after a destination lost data and needs every message of a period again.
+
+```bash
+curl -X POST http://localhost:9090/admin/replay \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "destination": "billing-service",
+    "createdAfter": "2026-09-24T08:00:00Z",
+    "createdBefore": "2026-09-24T12:00:00Z"
+  }'
+```
+
+QueueBox resolves the destination to the topics that route to it.
+It uses the configured routes and their first-match rule, exactly as the poller does.
+It then moves the `sent` and `dead` rows of those topics in the window.
+
+## The filter
+
+Every field is optional, but the request needs at least one.
+The route combines the fields with AND.
+
+| Field | Type | Selects |
+| --- | --- | --- |
+| `ids` | Array of UUID strings | Rows with these `id` values. |
+| `topic` | String | Rows with this exact topic. |
+| `topics` | Array of strings | Rows with any of these topics. |
+| `destination` | String | Rows whose topic routes to this destination name. |
+| `createdAfter` | ISO 8601 instant | Rows with `created_at` strictly after this time. |
+| `createdBefore` | ISO 8601 instant | Rows with `created_at` strictly before this time. |
+
+- The route always adds `state IN ('sent', 'dead')`.
+  No filter can move a `pending` or `processing` row.
+- `topics` together with `destination` narrows the destination's topics to the ones you list.
+  It never adds a topic.
+  When the two sets do not overlap, the route moves nothing.
+- A destination that no topic routes to moves nothing.
+- The route ignores an unknown field.
+  Check the spelling of each field name, because a misspelt field filters nothing.
+
+## What a replay changes
+
+For each selected row, the replay sets:
+
+- `state` to `pending`,
+- `attempt` to 0,
+- `scheduled_at` to now,
+- `last_error`, `claimed_at`, `claim_token` and `lease_expires_at` to null.
+
+The row keeps its `id`, its `sequence`, its payload and its headers.
+The poller claims it on its next cycle and delivers it to the destination that its topic routes to now.
+
+- **Order.** A replayed row with a `key` becomes the head of its key again.
+  It holds back later pending rows of that key until it is sent or dead.
+  It reaches the destination after the rows that passed it.
+  See [Ordering](/concepts/ordering/#order-and-the-key).
+- **Identity.** A replayed row keeps its `X-Message-Id`, because it is the same outbox row.
+  A receiver that deduplicates on `X-Message-Id` discards the replay of a row that it already stored.
+  Clear the receipt at the receiver first if the receiver must apply the message again.
+
+## The answers
+
+| Status | Body | Meaning |
+| --- | --- | --- |
+| 200 | `{"moved": n}` | The replay moved `n` rows. `0` means that nothing matched. |
+| 400 | `{"error": "A replay needs at least one filter."}` | The request has no filter. |
+| 400 | `{"error": "Invalid request: ..."}` | The body is not valid JSON, or a field has the wrong type. |
+| 401 | `{"error": "..."}` | The credentials are missing or wrong. |
+| 413 | `{"error": "Request body exceeds ... bytes"}` | The body is larger than `admin.maxPayloadBytes` (default 65536). |
+| 404 | None | `admin.enabled` is false, or the request went to the data port while a management port is set. |
+
+QueueBox logs every replay with its filter and the count.
+An operator who loses the answer can find the replay in the log.
+
+## Replay a dead inbox message
+
+The route replays outbox rows only.
+To requeue a dead inbox row, use the SQL in [Dead letters](/operations/dead-letters/#requeue-a-dead-inbox-message).

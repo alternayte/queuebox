@@ -1,0 +1,134 @@
+---
+title: Change data capture
+description: Why QueueBox reads the database log, what capture changes and what it does not, and how one owner keeps its state.
+sidebar:
+  order: 5
+---
+
+import { Aside } from "@astrojs/starlight/components";
+
+This page explains what change data capture does in QueueBox and why it cannot lose a message.
+For the setup steps, see [Capture changes](/how-to/capture-changes/).
+
+## Why capture exists
+
+Without capture, the outbox poller asks the database for due rows every `outbox.pollIntervalMs`.
+A short interval gives a short delay and a constant query load.
+A long interval gives a light load and a longer delay.
+
+Capture removes that trade.
+The capture connector reads the database log.
+When it sees an insert into the outbox table, it wakes the delivery loop at once.
+The delivery loop then claims and publishes through SQL, exactly as it does without capture.
+
+## Capture only wakes delivery
+
+Capture delivers nothing.
+SQL stays the only source of truth:
+
+- The delivery loop claims every row with the same SQL claim as in polling mode.
+- A capture event that QueueBox never receives costs latency, not a message.
+- The reconciliation timer still wakes delivery at least once per `outbox.capture.reconciliationIntervalMs`.
+  It also wakes delivery when the next retry or lease deadline falls due.
+- Delivery continues while capture is down, misconfigured or disabled.
+
+Capture ignores updates, deletes and tombstones.
+Only an insert or a snapshot record wakes delivery.
+A state change that QueueBox itself writes therefore creates no new work.
+
+## The modes
+
+| `outbox.capture.mode` | Database | Behaviour |
+| --- | --- | --- |
+| `polling` | Any | The default. Delivery polls at `outbox.pollIntervalMs`. |
+| `postgres-logical` | PostgreSQL | Delivery reacts to the logical replication stream. |
+| `sqlserver-cdc` | SQL Server | Delivery reacts to the change data capture tables. |
+
+The connector runs inside the QueueBox process.
+You operate no Kafka, no Kafka Connect and no Debezium Server.
+
+`enabled` is `false` and `mode` is `polling` by default.
+An upgrade therefore changes no behaviour until you ask for capture.
+
+Capture reads its host, port and database from `database.url`.
+The fields under `outbox.capture.connection` replace those values for the capture connection only.
+Use them to give capture a different account, a read replica, or one host when the URL lists several.
+
+## The database side
+
+On PostgreSQL, capture reads a logical replication slot through a publication on the outbox table.
+You create the publication.
+QueueBox never creates or drops it, because an automatic publication can capture the wrong tables.
+The connector creates the replication slot on the first start, and QueueBox never drops it.
+
+<Aside type="caution">
+A replication slot holds write-ahead log until capture consumes it.
+A slot that nobody reads fills the disk of the database.
+Monitor `pg_replication_slots`, and drop the slot by hand when you retire a capture identity.
+</Aside>
+
+On SQL Server, capture reads the change data capture tables of the outbox table.
+The SQL Server Agent must run.
+QueueBox checks that capture is enabled on the database and on the table before it starts the connector.
+
+## The state directory
+
+The connector records how far it has read.
+`outbox.capture.stateDirectory` must be a durable volume that survives a restart.
+
+| File | Content |
+| --- | --- |
+| `offsets.dat` | The log position that capture already delivered. |
+| `history.dat` | The schema history. SQL Server only. |
+| `identity` | The identifier that ties these files to the database registry row. |
+
+The image runs as the non-root user `queuebox` and ships `/var/lib/queuebox/capture` owned by that user.
+An empty Docker named volume mounted there inherits that ownership.
+A bind mount keeps the ownership of the host directory, so change its owner before you start QueueBox.
+A container without a mounted volume loses the files on every restart.
+
+## Reconciliation of the state
+
+The table `queuebox_capture_state` records the capture identity and a fingerprint of the capture settings.
+QueueBox compares the table, the state files and the settings at start.
+The comparison detects three faults that otherwise pass unnoticed:
+
+- The volume is missing or empty, but the database says that capture ran before.
+- The state files belong to a different instance.
+- The settings changed.
+  A new slot, publication, schema, table, host or database makes the recorded offsets meaningless.
+
+QueueBox also stops capture when the PostgreSQL replication slot disappeared but the state remains.
+Otherwise the connector creates a new slot and restarts from the present.
+
+A fault that needs a decision does not retry.
+QueueBox stops capture, reports the reason, and keeps delivering through SQL.
+Recovery is an operator decision, because every automatic answer either replays or drops log positions.
+[Capture changes](/how-to/capture-changes/) holds the recovery steps.
+A fresh snapshot after recovery delivers no message twice, because delivery claims each row through SQL.
+
+## One owner
+
+Exactly one process owns a capture identity.
+The owner holds a database session lock for the whole run.
+A second process that starts with the same identity fails the lock.
+It reports that the identity already has an owner, and it keeps delivering through SQL.
+
+Set `outbox.capture.enabled: false` on every replica that must not own capture.
+QueueBox does not elect an owner, so failover is manual.
+To move capture, stop the current owner, move or recreate the state directory, and start the new owner with the same identity.
+
+## Health
+
+Capture health is separate from delivery health.
+`/health/ready` reports the component `outbox-capture`, but that component is advisory.
+A capture fault never makes the readiness answer unhealthy, because the instance still delivers.
+
+When the connector fails, QueueBox:
+
+- marks capture unhealthy and keeps SQL delivery running,
+- retries with a backoff from one second up to thirty seconds,
+- wakes delivery on every attempt, so nothing waits for capture to recover.
+
+Watch the `outbox-capture` component to see a capture fault.
+Watch the delivery metrics to see whether messages move.

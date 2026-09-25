@@ -1,0 +1,356 @@
+---
+title: Use custom tables
+description: Point QueueBox at tables and columns with your own names, turn off the bundled migrations, and apply the schema by hand.
+sidebar:
+  order: 8
+---
+
+import { Tabs, TabItem, Aside } from "@astrojs/starlight/components";
+
+This guide shows how to run QueueBox against tables that you create and name yourself. It also shows how to apply the default schema by hand when the QueueBox database user has no rights to change the schema.
+
+By default, QueueBox creates the `outbox` and `inbox` tables itself. At startup, Flyway applies the bundled migrations, because `database.migrate` is `true`.
+
+## Choose the case
+
+Set `database.migrate: false` and apply the schema yourself in two cases:
+
+1. The QueueBox database user has no rights to create or change tables. Apply the bundled migration files with a privileged user. See [Apply the default schema by hand](#apply-the-default-schema-by-hand).
+2. The configuration renames a table or a column. The bundled files use the default names, so they cannot create your schema. See [Rename tables and columns](#rename-tables-and-columns).
+
+QueueBox refuses to start when the configuration renames a table or a column and `database.migrate` is still `true`. The error names each renamed setting.
+
+## Apply the default schema by hand
+
+Apply every migration file of your database, in version order, with a privileged user. The files are in the repository at the tag of the QueueBox version that you run.
+
+<Tabs syncKey="dialect">
+<TabItem label="PostgreSQL">
+
+```bash
+for version in 1 2 3 4 5 6 7 8 9 10 11; do
+  psql "$ADMIN_DATABASE_URL" -v ON_ERROR_STOP=1 \
+    -f postgres/src/main/resources/db/postgresql/V${version}__*.sql
+done
+```
+
+</TabItem>
+<TabItem label="SQL Server">
+
+```bash
+for version in 1 2 3 4 5 6 7 8 9 10 11; do
+  sqlcmd -S db.internal -d queuebox -U admin -b -I \
+    -i sqlserver/src/main/resources/db/sqlserver/V${version}__*.sql
+done
+```
+
+`-I` sets `QUOTED_IDENTIFIER ON`. `V8__add_pull_claim_indexes.sql` and `V11__add_outbox_sequence.sql` create filtered indexes, and SQL Server needs that setting for them.
+
+</TabItem>
+</Tabs>
+
+These are the files of the current release:
+
+| File | Change |
+|------|--------|
+| `V1__create_outbox.sql` | Create the outbox table and its indexes. |
+| `V2__create_inbox.sql` | Create the inbox table, its unique constraint on `(source, idempotency_key)`, and its indexes. |
+| `V3__add_claimed_at.sql` | Add `claimed_at` to both tables. |
+| `V4__add_last_error.sql` | Add `last_error` to the outbox. |
+| `V5__add_correlation_id.sql` | Add `correlation_id` to the inbox. |
+| `V6__add_consumption_and_leases.sql` | Add `claim_token` and `lease_expires_at` to both tables, and `consumption`, `scheduled_at`, `attempt` and `last_error` to the inbox. |
+| `V7__capture_state.sql` | Create `queuebox_capture_state`. |
+| `V8__add_pull_claim_indexes.sql` | Add the two indexes of the pull claim. |
+| `V9__add_aggregate_type.sql` | Add `aggregate_type` to the outbox. |
+| `V10__add_inbox_headers.sql` | Add `headers` to the inbox. |
+| `V11__add_outbox_sequence.sql` | Add `sequence` to the outbox, number the existing rows, and add the index on `key` and `sequence`. |
+
+Apply every file. A missing file does not stop the start. The first insert that names the missing column fails instead.
+
+Then turn the migrations off:
+
+```yaml
+database:
+  url: jdbc:postgresql://db.internal:5432/queuebox
+  username: queuebox_app
+  password: ${DB_PASSWORD}
+  migrate: false
+```
+
+A new QueueBox version can add a migration. Apply it by hand before you start that version. [Upgrade QueueBox](/how-to/upgrade/) lists the steps.
+
+## Rename tables and columns
+
+`database.outboxTableName` and `database.inboxTableName` rename the tables. `database.columnMapping.outbox` and `database.columnMapping.inbox` rename the columns. A key that you omit keeps its default name.
+
+```yaml
+database:
+  url: jdbc:postgresql://db.internal:5432/app
+  username: app
+  password: ${DB_PASSWORD}
+  migrate: false
+  outboxTableName: qb_outbox
+  inboxTableName: qb_inbox
+  columnMapping:
+    outbox:
+      payload: body
+    inbox:
+      idempotencyKey: dedup_key
+```
+
+### The column keys
+
+Each list below is complete. Every column must exist in your table, because QueueBox reads or writes each one.
+
+| Outbox key | Default column |
+|------------|----------------|
+| `id` | `id` |
+| `topic` | `topic` |
+| `key` | `key` |
+| `aggregateType` | `aggregate_type` |
+| `payload` | `payload` |
+| `headers` | `headers` |
+| `state` | `state` |
+| `attempt` | `attempt` |
+| `maxAttempts` | `max_attempts` |
+| `scheduledAt` | `scheduled_at` |
+| `createdAt` | `created_at` |
+| `updatedAt` | `updated_at` |
+| `claimedAt` | `claimed_at` |
+| `claimToken` | `claim_token` |
+| `leaseExpiresAt` | `lease_expires_at` |
+| `lastError` | `last_error` |
+| `sequence` | `sequence` |
+
+| Inbox key | Default column |
+|-----------|----------------|
+| `id` | `id` |
+| `source` | `source` |
+| `idempotencyKey` | `idempotency_key` |
+| `aggregateId` | `aggregate_id` |
+| `eventType` | `event_type` |
+| `payload` | `payload` |
+| `headers` | `headers` |
+| `state` | `state` |
+| `consumption` | `consumption` |
+| `attempt` | `attempt` |
+| `lastError` | `last_error` |
+| `scheduledAt` | `scheduled_at` |
+| `createdAt` | `created_at` |
+| `processedAt` | `processed_at` |
+| `claimedAt` | `claimed_at` |
+| `claimToken` | `claim_token` |
+| `leaseExpiresAt` | `lease_expires_at` |
+| `correlationId` | `correlation_id` |
+
+### Two columns that QueueBox checks at startup
+
+QueueBox reads the columns of both tables at startup and stops when one of these two is absent. The error names the table and the column, and it prints the `ALTER TABLE` statement for your database.
+
+- The inbox `headers` column. It holds the received headers as a JSON object. It is `NOT NULL` with the default `'{}'`.
+- The outbox `sequence` column. It is a `BIGINT` that the database fills on insert. The claim orders the rows of one key by it.
+
+<Tabs syncKey="dialect">
+<TabItem label="PostgreSQL">
+
+```sql
+ALTER TABLE "qb_inbox" ADD COLUMN "headers" JSONB NOT NULL DEFAULT '{}';
+ALTER TABLE "qb_outbox" ADD COLUMN "sequence" BIGINT GENERATED BY DEFAULT AS IDENTITY;
+CREATE INDEX ON "qb_outbox" ("key", "sequence") WHERE "state" IN ('pending', 'processing');
+```
+
+</TabItem>
+<TabItem label="SQL Server">
+
+```sql
+ALTER TABLE [qb_inbox] ADD [headers] NVARCHAR(MAX) NOT NULL DEFAULT '{}';
+ALTER TABLE [qb_outbox] ADD [sequence] BIGINT IDENTITY(1,1) NOT NULL;
+CREATE INDEX ix_qb_outbox_key_sequence ON [qb_outbox] ([key], [sequence]);
+```
+
+</TabItem>
+</Tabs>
+
+QueueBox checks no other column at startup. A missing column fails the first statement that names it.
+
+### Create the tables
+
+The statements below create both tables with the columns, the constraints and the indexes of the current default schema. They match the configuration above: the tables are `qb_outbox` and `qb_inbox`, the outbox payload column is `body`, and the inbox idempotency key column is `dedup_key`. Change the names to match your own configuration.
+
+<Tabs syncKey="dialect">
+<TabItem label="PostgreSQL">
+
+```sql
+CREATE TABLE qb_outbox (
+    id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    topic            VARCHAR(255) NOT NULL,
+    key              VARCHAR(255),
+    aggregate_type   VARCHAR(255),
+    body             JSONB NOT NULL,
+    headers          JSONB NOT NULL DEFAULT '{}',
+    state            VARCHAR(50) NOT NULL DEFAULT 'pending',
+    attempt          INTEGER NOT NULL DEFAULT 0,
+    max_attempts     INTEGER NOT NULL DEFAULT 5,
+    scheduled_at     TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    created_at       TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at       TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    claimed_at       TIMESTAMPTZ,
+    claim_token      UUID,
+    lease_expires_at TIMESTAMPTZ,
+    last_error       TEXT,
+    sequence         BIGINT GENERATED BY DEFAULT AS IDENTITY
+);
+
+CREATE INDEX qb_outbox_pending_scheduled ON qb_outbox (state, scheduled_at) WHERE state = 'pending';
+CREATE INDEX qb_outbox_processing_claimed ON qb_outbox (claimed_at) WHERE state = 'processing';
+CREATE INDEX qb_outbox_key_sequence ON qb_outbox (key, sequence) WHERE state IN ('pending', 'processing');
+CREATE INDEX qb_outbox_topic ON qb_outbox (topic);
+
+CREATE TABLE qb_inbox (
+    id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    source           VARCHAR(255) NOT NULL,
+    dedup_key        VARCHAR(255) NOT NULL,
+    aggregate_id     VARCHAR(255),
+    event_type       VARCHAR(255),
+    payload          JSONB NOT NULL,
+    headers          JSONB NOT NULL DEFAULT '{}',
+    state            VARCHAR(50) NOT NULL DEFAULT 'pending',
+    consumption      VARCHAR(4) NOT NULL DEFAULT 'push' CHECK (consumption IN ('push', 'pull')),
+    attempt          INT NOT NULL DEFAULT 0,
+    last_error       TEXT,
+    scheduled_at     TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    created_at       TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    processed_at     TIMESTAMPTZ,
+    claimed_at       TIMESTAMPTZ,
+    claim_token      UUID,
+    lease_expires_at TIMESTAMPTZ,
+    correlation_id   VARCHAR(128),
+    CONSTRAINT qb_inbox_source_idempotency UNIQUE (source, dedup_key)
+);
+
+CREATE INDEX qb_inbox_pending ON qb_inbox (state) WHERE state = 'pending';
+CREATE INDEX qb_inbox_state_created ON qb_inbox (state, created_at);
+CREATE INDEX qb_inbox_aggregate_state ON qb_inbox (aggregate_id, state);
+CREATE INDEX qb_inbox_processing_claimed ON qb_inbox (claimed_at) WHERE state = 'processing';
+CREATE INDEX qb_inbox_consumption_pending ON qb_inbox (consumption, state, scheduled_at);
+CREATE INDEX qb_inbox_pull_pending ON qb_inbox (source, scheduled_at, created_at, id)
+    WHERE consumption = 'pull' AND state = 'pending';
+CREATE INDEX qb_inbox_pull_busy ON qb_inbox (source, aggregate_id, lease_expires_at)
+    WHERE consumption = 'pull' AND state = 'processing';
+```
+
+</TabItem>
+<TabItem label="SQL Server">
+
+```sql
+SET QUOTED_IDENTIFIER ON;
+
+CREATE TABLE qb_outbox (
+    id               UNIQUEIDENTIFIER PRIMARY KEY DEFAULT NEWID(),
+    topic            NVARCHAR(255) NOT NULL,
+    [key]            NVARCHAR(255),
+    aggregate_type   NVARCHAR(255),
+    body             NVARCHAR(MAX) NOT NULL,
+    headers          NVARCHAR(MAX) NOT NULL DEFAULT '{}',
+    state            NVARCHAR(50) NOT NULL DEFAULT 'pending',
+    attempt          INT NOT NULL DEFAULT 0,
+    max_attempts     INT NOT NULL DEFAULT 5,
+    scheduled_at     DATETIME2 NOT NULL DEFAULT GETUTCDATE(),
+    created_at       DATETIME2 NOT NULL DEFAULT GETUTCDATE(),
+    updated_at       DATETIME2 NOT NULL DEFAULT GETUTCDATE(),
+    claimed_at       DATETIME2 NULL,
+    claim_token      UNIQUEIDENTIFIER NULL,
+    lease_expires_at DATETIME2 NULL,
+    last_error       NVARCHAR(MAX) NULL,
+    sequence         BIGINT IDENTITY(1,1) NOT NULL
+);
+
+CREATE INDEX qb_outbox_pending_scheduled ON qb_outbox (state, scheduled_at) WHERE state = 'pending';
+CREATE INDEX qb_outbox_state_updated ON qb_outbox (state, updated_at);
+CREATE INDEX qb_outbox_processing_claimed ON qb_outbox (claimed_at) WHERE state = 'processing';
+CREATE INDEX qb_outbox_key_sequence ON qb_outbox ([key], sequence) WHERE state IN ('pending', 'processing');
+
+CREATE TABLE qb_inbox (
+    id               UNIQUEIDENTIFIER PRIMARY KEY DEFAULT NEWID(),
+    source           NVARCHAR(255) NOT NULL,
+    dedup_key        NVARCHAR(255) NOT NULL,
+    aggregate_id     NVARCHAR(255),
+    event_type       NVARCHAR(255),
+    payload          NVARCHAR(MAX) NOT NULL,
+    headers          NVARCHAR(MAX) NOT NULL DEFAULT '{}',
+    state            NVARCHAR(50) NOT NULL DEFAULT 'pending',
+    consumption      VARCHAR(4) NOT NULL DEFAULT 'push' CHECK (consumption IN ('push', 'pull')),
+    attempt          INT NOT NULL DEFAULT 0,
+    last_error       NVARCHAR(MAX) NULL,
+    scheduled_at     DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
+    created_at       DATETIME2 NOT NULL DEFAULT GETUTCDATE(),
+    processed_at     DATETIME2 NULL,
+    claimed_at       DATETIME2 NULL,
+    claim_token      UNIQUEIDENTIFIER NULL,
+    lease_expires_at DATETIME2 NULL,
+    correlation_id   NVARCHAR(128) NULL,
+    CONSTRAINT qb_inbox_source_idempotency UNIQUE (source, dedup_key)
+);
+
+CREATE INDEX qb_inbox_state ON qb_inbox (state);
+CREATE INDEX qb_inbox_state_created ON qb_inbox (state, created_at);
+CREATE INDEX qb_inbox_aggregate_state ON qb_inbox (aggregate_id, state);
+CREATE INDEX qb_inbox_processing_claimed ON qb_inbox (claimed_at) WHERE state = 'processing';
+CREATE INDEX qb_inbox_consumption_pending ON qb_inbox (consumption, state, scheduled_at);
+CREATE INDEX qb_inbox_pull_pending ON qb_inbox (source, scheduled_at, created_at, id)
+    WHERE consumption = 'pull' AND state = 'pending';
+CREATE INDEX qb_inbox_pull_busy ON qb_inbox (source, aggregate_id, lease_expires_at)
+    WHERE consumption = 'pull' AND state = 'processing';
+```
+
+</TabItem>
+</Tabs>
+
+<Aside type="caution">
+Keep the unique constraint on the source and idempotency key columns. QueueBox deduplicates the inbox through that constraint. Without it, the inbox stores every repeat.
+</Aside>
+
+For change data capture, also create `queuebox_capture_state` from `V7__capture_state.sql`. Its name is fixed.
+
+### Tell the pull clients
+
+A pull client builds its own SQL, so it needs the same names. Pass them through the schema option of the library:
+
+<Tabs syncKey="lang">
+<TabItem label="Go">
+
+```go
+schema := queuebox.DefaultSchema()
+schema.Table = "qb_inbox"
+schema.IdempotencyKey = "dedup_key"
+
+worker, err := queuebox.NewInboxWorker(db, queuebox.Options{Source: "orders", Schema: &schema})
+```
+
+</TabItem>
+<TabItem label="TypeScript">
+
+```ts
+import { defaultSchema } from "@alternayte/queuebox-inbox";
+
+const worker = new InboxWorker(fromPg(pool), {
+  source: "orders",
+  schema: { ...defaultSchema, table: "qb_inbox", idempotencyKey: "dedup_key" },
+});
+```
+
+</TabItem>
+<TabItem label="C#">
+
+```csharp
+var options = new InboxOptions
+{
+    Source = "orders",
+    Schema = InboxSchema.Default with { Table = "qb_inbox", IdempotencyKey = "dedup_key" },
+};
+```
+
+</TabItem>
+</Tabs>
+
+The library quotes and checks every name, so a mapping cannot carry SQL.

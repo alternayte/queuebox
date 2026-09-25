@@ -1,0 +1,443 @@
+---
+title: Runbook
+description: Diagnose and fix dead messages, a growing backlog, pool pressure, slow destinations, lost claims and a stalled inbox.
+sidebar:
+  order: 2
+---
+
+import { Aside } from "@astrojs/starlight/components";
+
+This runbook gives the SQL and the commands for the common operational scenarios.
+Each scenario starts from a symptom and ends with actions in order.
+
+## How to read the SQL
+
+The SQL is for the shipped PostgreSQL schema.
+A test runs every `sql` block on this page against that schema, so a statement that drifts from the schema fails the build.
+
+- Each statement ends with a semicolon at the end of a line.
+- A placeholder starts with a colon, for example `:message_id`.
+  Replace it with a real value before you run the statement.
+- The placeholders are `:message_id`, `:topic`, `:state`, `:destination` and `:limit`.
+- A `bash` or `yaml` block is a command or a configuration, not SQL.
+
+On SQL Server, write `SELECT TOP (n)` in place of `LIMIT n`, and `N'text'` for a string literal.
+
+The examples read the metrics on port 8080.
+Use the management port when `server.managementPort` is set.
+
+---
+
+## Scenario 1: Inspect dead-lettered messages
+
+**Symptom:** `queuebox_outbox_messages_total{status="dead"}` rises.
+
+A message reaches the state `dead` when its `attempt` count reaches the `max_attempts` of its own row.
+QueueBox writes `outbox.maxAttempts` into that column for every row that it creates, and your application can set a different value per row.
+The column `last_error` holds the redacted reason for the last failure.
+
+Count the dead messages per topic:
+
+```sql
+SELECT topic, count(*) AS dead_count
+FROM outbox
+WHERE state = 'dead'
+GROUP BY topic
+ORDER BY dead_count DESC;
+```
+
+List the most recent dead messages with the reason:
+
+```sql
+SELECT id, topic, key, attempt, max_attempts, updated_at, last_error
+FROM outbox
+WHERE state = 'dead'
+ORDER BY updated_at DESC
+LIMIT :limit;
+```
+
+Read one message in full:
+
+```sql
+SELECT id, topic, key, payload, headers, attempt, scheduled_at, created_at, updated_at,
+       claimed_at, last_error
+FROM outbox
+WHERE id = :message_id;
+```
+
+Group the dead messages by the first part of the failure reason:
+
+```sql
+SELECT left(last_error, 60) AS reason, count(*) AS dead_count
+FROM outbox
+WHERE state = 'dead'
+GROUP BY left(last_error, 60)
+ORDER BY dead_count DESC;
+```
+
+The inbox has a `dead` state too.
+List the dead inbox rows:
+
+```sql
+SELECT id, source, idempotency_key, event_type, created_at
+FROM inbox
+WHERE state = 'dead'
+ORDER BY created_at DESC
+LIMIT :limit;
+```
+
+Read the dead count over time from the metrics:
+
+```bash
+curl -s http://localhost:8080/metrics | grep queuebox_outbox_messages_total
+```
+
+A reason of `No route matches topic` means that no route pattern matches the topic.
+Add the route, then replay the messages.
+
+---
+
+## Scenario 2: Replay a dead-lettered message
+
+[Dead letters](/operations/dead-letters/) holds the full SQL procedure.
+[Replay dead letters](/how-to/replay-dead-letters/) replays through the admin API with filters.
+This section gives the short SQL form.
+
+Correct the cause of the failure first.
+A replay against a destination that is still broken produces a second dead message.
+
+Replay one message:
+
+```sql
+UPDATE outbox
+SET state = 'pending',
+    attempt = 0,
+    scheduled_at = CURRENT_TIMESTAMP,
+    claimed_at = NULL,
+    last_error = NULL,
+    updated_at = CURRENT_TIMESTAMP
+WHERE id = :message_id
+  AND state = 'dead';
+```
+
+Replay every dead message of one topic:
+
+```sql
+UPDATE outbox
+SET state = 'pending',
+    attempt = 0,
+    scheduled_at = CURRENT_TIMESTAMP,
+    claimed_at = NULL,
+    last_error = NULL,
+    updated_at = CURRENT_TIMESTAMP
+WHERE state = 'dead'
+  AND topic = :topic;
+```
+
+Confirm the result:
+
+```sql
+SELECT id, state, attempt, scheduled_at
+FROM outbox
+WHERE id = :message_id;
+```
+
+The message is delivered when its state becomes `sent`.
+
+---
+
+## Scenario 3: The pending gauge grows
+
+**Symptom:** `queuebox_outbox_oldest_pending_age_seconds` or `queuebox_outbox_messages_pending` grows.
+
+A growing backlog means that the poller delivers slower than the producers write.
+The oldest-pending age is the better signal.
+A count of pending rows cannot separate a busy poller from a stopped one.
+
+Read the gauges:
+
+```bash
+curl -s http://localhost:8080/metrics | grep -E 'queuebox_outbox_messages_pending|queuebox_outbox_oldest_pending_age_seconds'
+```
+
+Measure the backlog and its age:
+
+```sql
+SELECT count(*) AS pending_count,
+       min(created_at) AS oldest_created_at,
+       max(created_at) AS newest_created_at
+FROM outbox
+WHERE state = 'pending';
+```
+
+Find the oldest rows that are due now:
+
+```sql
+SELECT id, topic, key, created_at, scheduled_at, attempt
+FROM outbox
+WHERE state = 'pending'
+  AND scheduled_at <= CURRENT_TIMESTAMP
+ORDER BY scheduled_at ASC
+LIMIT :limit;
+```
+
+Separate a real backlog from a retry backlog.
+A large `attempt` value means that the destination rejects the messages:
+
+```sql
+SELECT attempt, count(*) AS pending_count
+FROM outbox
+WHERE state = 'pending'
+GROUP BY attempt
+ORDER BY attempt ASC;
+```
+
+Find the keys that hold back other rows.
+A row of a key waits while an earlier row of the same key is `pending` or `processing`, so one retrying row can stall its key:
+
+```sql
+SELECT key, count(*) AS waiting_rows, min(created_at) AS oldest_created_at
+FROM outbox
+WHERE state = 'pending'
+  AND key IS NOT NULL
+  AND key <> ''
+GROUP BY key
+ORDER BY waiting_rows DESC
+LIMIT :limit;
+```
+
+Check for rows that stay in the state `processing`.
+The reclaim step returns such a row to `pending` after its lease of `outbox.claimTimeoutMs` expires:
+
+```sql
+SELECT count(*) AS stuck_count, min(claimed_at) AS oldest_claim
+FROM outbox
+WHERE state = 'processing';
+```
+
+Actions, in order:
+
+1. Confirm that the destination is healthy. Use scenario 5.
+2. Raise `outbox.concurrency` if the destination accepts more parallel requests.
+3. Raise `outbox.batchSize` if each poll cycle returns a full batch.
+4. Lower `outbox.pollIntervalMs` if the batch is not full and the backlog still grows.
+5. Raise `database.poolSize` if the pool limits the poller. Use scenario 4.
+
+A backlog on one key does not shrink with more concurrency.
+One row of a key is in flight at a time.
+See [Ordering](/concepts/ordering/#throughput-of-one-key).
+
+---
+
+## Scenario 4: Size the pool and the batch
+
+**Symptom:** `hikaricp_connections_pending` is above zero, or claims are slow.
+
+Four settings control the throughput of the outbox poller:
+
+| Setting | Default | Effect |
+| --- | --- | --- |
+| `database.poolSize` | 10 | The maximum number of open database connections. |
+| `outbox.batchSize` | 100 | The number of messages that one poll cycle claims. |
+| `outbox.concurrency` | 8 | The number of messages that QueueBox publishes at the same time. |
+| `outbox.pollIntervalMs` | 100 | The wait between two poll cycles. |
+
+Rules:
+
+- Keep `database.poolSize` larger than `outbox.concurrency`.
+  The poller, the relay, the retention job and the HTTP routes all take a connection.
+- Keep `outbox.batchSize` larger than `outbox.concurrency`.
+  A batch smaller than the concurrency leaves publisher slots idle.
+- The destination is the usual limit, not the database.
+  Raise the concurrency first.
+
+Set the values in the YAML file:
+
+```yaml
+# fragment
+database:
+  poolSize: 20
+outbox:
+  pollIntervalMs: 100
+  batchSize: 200
+  concurrency: 16
+  claimTimeoutMs: 300000
+```
+
+Or set them through the environment:
+
+```bash
+export QUEUEBOX_DATABASE_POOLSIZE=20
+export QUEUEBOX_OUTBOX_BATCHSIZE=200
+export QUEUEBOX_OUTBOX_CONCURRENCY=16
+export QUEUEBOX_OUTBOX_POLLINTERVALMS=100
+```
+
+Compare the open connections with `poolSize` times the number of replicas:
+
+```sql
+SELECT count(*) AS open_connections
+FROM pg_stat_activity
+WHERE datname = current_database();
+```
+
+Check the server limit:
+
+```sql
+SHOW max_connections;
+```
+
+Read the pool metrics and the processing time together:
+
+```bash
+curl -s http://localhost:8080/metrics | grep -E 'hikaricp_connections_(active|pending|timeout_total)|queuebox_outbox_processing_duration_seconds'
+```
+
+---
+
+## Scenario 5: A destination is slow
+
+**Symptom:** `queuebox_outbox_publish_duration_seconds` rises, and then the pending backlog rises.
+
+Read the publish duration per destination type:
+
+```bash
+curl -s http://localhost:8080/metrics | grep queuebox_outbox_publish_duration_seconds
+```
+
+Read the failures per destination and the HTTP status classes:
+
+```bash
+curl -s http://localhost:8080/metrics | grep -E 'queuebox_outbox_destination_messages_total|queuebox_http_publish_responses_total'
+```
+
+Read the readiness endpoint.
+It reports each component:
+
+```bash
+curl -s http://localhost:8080/health/ready
+```
+
+Find the topics that retry.
+A retry is the first signal of a slow or failing destination:
+
+```sql
+SELECT topic, count(*) AS retry_count, max(attempt) AS worst_attempt
+FROM outbox
+WHERE state = 'pending'
+  AND attempt > 0
+GROUP BY topic
+ORDER BY retry_count DESC;
+```
+
+Read the last error text for the affected topic:
+
+```sql
+SELECT id, attempt, updated_at, last_error
+FROM outbox
+WHERE topic = :topic
+  AND last_error IS NOT NULL
+ORDER BY updated_at DESC
+LIMIT :limit;
+```
+
+Measure the time between the creation and the last update of the delivered messages.
+A large value means a slow destination or a long retry chain:
+
+```sql
+SELECT topic,
+       count(*) AS sent_count,
+       avg(extract(epoch FROM (updated_at - created_at))) AS avg_seconds
+FROM outbox
+WHERE state = 'sent'
+GROUP BY topic
+ORDER BY avg_seconds DESC;
+```
+
+Actions, in order:
+
+1. Test the destination directly.
+   Compare its latency with the configured `timeoutMs` of the destination.
+2. Raise the destination `timeoutMs` if the destination is slow but correct.
+3. Lower `outbox.concurrency` if the destination rejects requests under load.
+4. Raise `outbox.retryBaseDelayMs` to give the destination more time between attempts.
+5. Inspect the dead messages with scenario 1 after the destination recovers.
+
+---
+
+## Scenario 6: Claims are lost
+
+**Symptom:** `queuebox_claims_lost_total` rises.
+
+A lost claim means that a worker held a message past its lease, and another replica took it.
+For the outbox, the destination received a duplicate.
+For the inbox, the relay rolled its outbox insert back, so no duplicate exists.
+See [Claims and leases](/concepts/claims-and-leases/#lost-claims-and-duplicates).
+
+```bash
+curl -s http://localhost:8080/metrics | grep queuebox_claims_lost_total
+```
+
+Look for rows that other replicas reclaimed:
+
+```bash
+curl -s http://localhost:8080/metrics | grep queuebox_outbox_messages_reclaimed_total
+```
+
+Actions, in order:
+
+1. Read the `component` label.
+   `outbox` points at `outbox.claimTimeoutMs`, and `inbox` points at `inbox.relay.claimTimeoutMs`.
+2. Compare the slowest publish in `queuebox_outbox_publish_duration_seconds_max` with the claim timeout.
+3. Check the database latency and the pool.
+   A renewal that cannot reach the database cannot extend the lease.
+4. Check for long pauses of the process, for example CPU throttling of the container.
+5. Raise the claim timeout above the slowest publish or forward.
+
+---
+
+## Scenario 7: The inbox backlog grows
+
+**Symptom:** `queuebox_inbox_oldest_pending_age_seconds` grows.
+
+The gauge covers push and pull rows.
+A push row waits for the relay.
+A pull row waits for your worker.
+The relay refreshes the gauge, so the gauge stays at zero when `inbox.relay.enabled` is false.
+Use the SQL below in that case.
+
+Find which source and which mode hold the backlog:
+
+```sql
+SELECT source, consumption, count(*) AS pending_count, min(created_at) AS oldest_created_at
+FROM inbox
+WHERE state = 'pending'
+GROUP BY source, consumption
+ORDER BY oldest_created_at ASC;
+```
+
+Find the aggregates that hold back other rows:
+
+```sql
+SELECT source, aggregate_id, count(*) AS waiting_rows
+FROM inbox
+WHERE state = 'pending'
+  AND aggregate_id IS NOT NULL
+GROUP BY source, aggregate_id
+ORDER BY waiting_rows DESC
+LIMIT :limit;
+```
+
+Actions, in order:
+
+1. For a `pull` backlog, check the workers of that source.
+   QueueBox does not move pull rows.
+2. For a `push` backlog, read the `inbox-relay` component of `/health/ready` and the counter `queuebox_inbox_relay_errors_total`.
+3. Confirm that `inbox.relay.enabled` is true.
+4. Raise `inbox.relay.batchSize` or lower `inbox.relay.pollIntervalMs` if the relay keeps up but lags.
+
+<Aside>
+On SQL Server, the pull claim serializes per source.
+More workers on one busy source do not raise its throughput.
+See [Ordering](/concepts/ordering/#the-sql-server-pull-claim-serializes-per-source).
+</Aside>

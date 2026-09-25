@@ -36,7 +36,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 /**
- * Executes every SQL sample in `docs/integration.md`. See F-084.
+ * Executes every SQL sample in `site/src/content/docs/how-to/write-outbox-rows.mdx`. See F-084.
  *
  * The test parses the document and extracts every fenced block tagged `sql postgres` and
  * `sql sqlserver`. Each dialect gets a container that carries the shipped migration set. The test
@@ -50,7 +50,7 @@ import kotlin.test.assertTrue
 class IntegrationDocSqlTest {
 
     companion object {
-        private const val DOC_PATH = "docs/integration.md"
+        private const val DOC_PATH = "site/src/content/docs/how-to/write-outbox-rows.mdx"
         private const val ROUTE_PATTERN = "order.*"
         private const val DESTINATION_NAME = "doc-http"
         private const val DELIVERY_TIMEOUT_MS = 30_000L

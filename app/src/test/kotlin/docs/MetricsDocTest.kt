@@ -18,7 +18,7 @@ import kotlin.test.Test
 import kotlin.test.assertTrue
 
 /**
- * F-079: `docs/operations/metrics.md` must list every metric that a live scrape exposes.
+ * F-079: `site/src/content/docs/reference/metrics.mdx` must list every metric that a live scrape exposes.
  *
  * The test starts the metrics route against a real PostgreSQL container, so the HikariCP pool
  * metrics reach the registry. It then compares the scraped names against the document. A prefix
@@ -37,7 +37,7 @@ class MetricsDocTest {
                 .also { it.start() }
     }
 
-    private val documentFile = File(File("..").canonicalFile, "docs/operations/metrics.md")
+    private val documentFile = File(File("..").canonicalFile, "site/src/content/docs/reference/metrics.mdx")
 
     /** Drives one call per metric family, so every lazy meter registers before the scrape. */
     private fun exerciseEveryMetric(collector: MetricsCollector) {
@@ -78,12 +78,12 @@ class MetricsDocTest {
 
     /** The prefixes of the `metrics:allowlist` block. */
     private fun allowedPrefixes(text: String): List<String> {
-        val start = text.indexOf("<!-- metrics:allowlist -->")
-        val end = text.indexOf("<!-- /metrics:allowlist -->")
+        val start = text.indexOf("{/* metrics:allowlist */}")
+        val end = text.indexOf("{/* /metrics:allowlist */}")
         assertTrue(
             start >= 0 && end > start,
-            "docs/operations/metrics.md must carry a block between " +
-                "<!-- metrics:allowlist --> and <!-- /metrics:allowlist -->"
+            "site/src/content/docs/reference/metrics.mdx must carry a block between " +
+                "{/* metrics:allowlist */} and {/* /metrics:allowlist */}"
         )
         return text.substring(start, end).lines()
             .filter { it.trimStart().startsWith("- `") }
@@ -94,7 +94,7 @@ class MetricsDocTest {
     fun `the document lists every metric of a live scrape`() = testApplication {
         assertTrue(
             documentFile.exists(),
-            "docs/operations/metrics.md must exist at ${documentFile.path}"
+            "site/src/content/docs/reference/metrics.mdx must exist at ${documentFile.path}"
         )
         val text = documentFile.readText()
 
@@ -123,7 +123,7 @@ class MetricsDocTest {
             val missing = documented - scraped
             assertTrue(
                 missing.isEmpty(),
-                "docs/operations/metrics.md documents a metric that the scrape does not carry: " +
+                "site/src/content/docs/reference/metrics.mdx documents a metric that the scrape does not carry: " +
                     missing.sorted().joinToString(", ")
             )
 
@@ -132,7 +132,7 @@ class MetricsDocTest {
                 .filterNot { name -> prefixes.any { name.startsWith(it) } }
             assertTrue(
                 undocumented.isEmpty(),
-                "the scrape carries a metric that docs/operations/metrics.md neither documents " +
+                "the scrape carries a metric that site/src/content/docs/reference/metrics.mdx neither documents " +
                     "nor allows by prefix: " + undocumented.sorted().joinToString(", ")
             )
         } finally {
