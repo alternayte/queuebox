@@ -45,6 +45,13 @@ class OutboxRepository(
     override suspend fun claimBatch(batchSize: Int, leaseMs: Long): List<OutboxMessage> = joinOrNewTransaction {
         require(batchSize > 0 && leaseMs in 1..Int.MAX_VALUE.toLong())
         val t = q(tableName)
+        val keyCol = q(columnMapping.key)
+        val sequenceCol = q(columnMapping.sequence)
+        // Key order: the claim takes a keyed row only when it is the head of its key, that is,
+        // no row of the same key with a lower sequence is still pending or processing. A row in
+        // retry backoff is pending, so it holds back its successors. A dead row releases the key.
+        // Two claimers compute the same head, the row lock serializes them, and the loser has no
+        // other row of that key to take. See docs/specs/outbox-key-order.md.
         val sql = """
             UPDATE $t AS target
             SET ${q(columnMapping.state)} = 'processing',
@@ -53,13 +60,18 @@ class OutboxRepository(
                 ${q(columnMapping.claimToken)} = gen_random_uuid(),
                 ${q(columnMapping.leaseExpiresAt)} = clock_timestamp() + INTERVAL '1 millisecond' * $leaseMs
             FROM (
-                SELECT ${q(columnMapping.id)} AS claim_id
-                FROM $t
-                WHERE ${q(columnMapping.state)} = 'pending'
-                  AND ${q(columnMapping.scheduledAt)} <= ?
-                ORDER BY ${q(columnMapping.scheduledAt)} ASC, ${q(columnMapping.createdAt)} ASC
+                SELECT head.${q(columnMapping.id)} AS claim_id
+                FROM $t AS head
+                WHERE head.${q(columnMapping.state)} = 'pending'
+                  AND head.${q(columnMapping.scheduledAt)} <= ?
+                  AND (head.$keyCol IS NULL OR head.$keyCol = '' OR NOT EXISTS (
+                        SELECT 1 FROM $t AS prior
+                        WHERE prior.$keyCol = head.$keyCol
+                          AND prior.${q(columnMapping.state)} IN ('pending', 'processing')
+                          AND prior.$sequenceCol < head.$sequenceCol))
+                ORDER BY head.${q(columnMapping.scheduledAt)} ASC, head.$sequenceCol ASC
                 LIMIT ?
-                FOR UPDATE SKIP LOCKED
+                FOR UPDATE OF head SKIP LOCKED
             ) AS candidates
             WHERE target.${q(columnMapping.id)} = candidates.claim_id
             RETURNING target.${q(columnMapping.id)}, target.${q(columnMapping.topic)},

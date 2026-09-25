@@ -178,8 +178,9 @@ second window, because it returns a row to `pending` on a timer. The claim fence
 window: the old owner cannot complete the row and cannot forward a second copy of it. Two
 replicas therefore never write one aggregate into the outbox twice.
 
-Ordering after the forward step is not guaranteed. The outbox poller and the destination decide
-the final delivery order.
+The relay writes the `aggregate_id` into the outbox `key`. The outbox then delivers the rows of
+one key in insert order, so the order of one aggregate holds from the inbox to the destination.
+See [delivery semantics](delivery-semantics.md#order-and-the-key).
 
 The tests `postgres/src/test/kotlin/org/nxtspec/InboxRepositoryConcurrencyTest.kt` and
 `sqlserver/src/test/kotlin/org/nxtspec/SqlServerInboxRepositoryConcurrencyTest.kt` are the
@@ -194,6 +195,7 @@ QueueBox creates two tables:
 id              UUID PRIMARY KEY
 topic           VARCHAR(255)
 key             VARCHAR(255)        -- Optional partition/ordering key
+sequence        BIGINT              -- Insert order, filled by the database; the claim orders one key by it
 payload         JSONB
 headers         JSONB
 state           VARCHAR(50)         -- see architecture.md for the state set

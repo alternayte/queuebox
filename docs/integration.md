@@ -23,7 +23,7 @@ The shipped schema is `postgres/src/main/resources/db/postgresql/` and
 |--------|-----------------|-----------------|------|---------|---------------|
 | `id` | `UUID` | `UNIQUEIDENTIFIER` | no | `gen_random_uuid()` / `NEWID()` | the application, or the default |
 | `topic` | `VARCHAR(255)` | `NVARCHAR(255)` | no | none | the application. Required. |
-| `key` | `VARCHAR(255)` | `NVARCHAR(255)` | yes | none | the application. Optional. |
+| `key` | `VARCHAR(255)` | `NVARCHAR(255)` | yes | none | the application. Optional. The rows of one non-empty key arrive in insert order. See [delivery semantics](delivery-semantics.md#order-and-the-key). |
 | `payload` | `JSONB` | `NVARCHAR(MAX)` | no | none | the application. Required. |
 | `headers` | `JSONB` | `NVARCHAR(MAX)` | no | `'{}'` | the application. Optional. |
 | `aggregate_type` | `VARCHAR(255)` | `NVARCHAR(255)` | yes | none | the application. Optional. |
@@ -35,6 +35,7 @@ The shipped schema is `postgres/src/main/resources/db/postgresql/` and
 | `updated_at` | `TIMESTAMP WITH TIME ZONE` | `DATETIME2` | no | `CURRENT_TIMESTAMP` / `GETUTCDATE()` | QueueBox |
 | `claimed_at` | `TIMESTAMP WITH TIME ZONE` | `DATETIME2` | yes | none | QueueBox |
 | `last_error` | `TEXT` | `NVARCHAR(MAX)` | yes | none | QueueBox |
+| `sequence` | `BIGINT` | `BIGINT` | no | `nextval('outbox_sequence_seq')` / `NEXT VALUE FOR outbox_sequence_seq` | the default. Do not write it. |
 
 **Only two columns are required: `topic` and `payload`.** Every other column has a default, or
 accepts null.

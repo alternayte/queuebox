@@ -24,6 +24,7 @@ Each version number describes the same logical change on both databases.
 | `V8__add_pull_claim_indexes.sql` | Add the two indexes that the pull claim statement needs, one for a pending row of a source and one for a busy aggregate of a source. |
 | `V9__add_aggregate_type.sql` | Add the nullable `aggregate_type` column to the outbox, so a destination can render its exchange from the row. See F-090. |
 | `V10__add_inbox_headers.sql` | Add the `headers` column to the inbox (`JSONB` on PostgreSQL, `NVARCHAR(MAX)` on SQL Server, `NOT NULL`, default `'{}'`), so the inbox keeps the received message headers. A custom inbox table must add the column by hand, because QueueBox stops at startup without it. |
+| `V11__add_outbox_sequence.sql` | Add the `sequence` column to the outbox (`BIGINT NOT NULL`, filled by the `outbox_sequence_seq` sequence), backfill existing rows in `created_at` order, and add `idx_outbox_key_sequence`. The claim orders the rows of one key by it. Stop every replica that runs an older claim before applying it. A custom outbox table must add the column by hand, because QueueBox stops at startup without it. |
 
 ## Policy
 
@@ -104,3 +105,18 @@ The online alternative differs by engine. On SQL Server, use `CREATE INDEX ... W
 ON)`, available on Enterprise Edition and on Azure SQL. On PostgreSQL, use `CREATE INDEX
 CONCURRENTLY`, run outside a transaction block. QueueBox does not use either alternative today;
 see the note in each `V8__add_pull_claim_indexes.sql` file.
+
+## Upgrading to the key order of V11
+
+`V11__add_outbox_sequence.sql` adds the outbox `sequence` column. The claim of this version
+delivers the rows of one non-empty `key` in `sequence` order, one row of a key at a time. The
+claim of an older version ignores the key, so the two versions must not claim at the same time.
+Upgrade in this order:
+
+1. Stop every QueueBox worker of the old version.
+2. Apply `V11__add_outbox_sequence.sql`. It numbers the existing rows in `created_at, id` order.
+3. Start the workers of the new version.
+
+A custom outbox table must add a `BIGINT` column that the database fills on insert, and map it
+as `database.columnMapping.outbox.sequence`. QueueBox stops at startup without it and prints the
+`ALTER TABLE` statement. See [delivery semantics](../delivery-semantics.md#order-and-the-key).

@@ -432,7 +432,7 @@ abstract class E2ETestBase {
      * Starts an [OutboxPoller] that routes every topic to the running [mockHttpServer], and
      * registers it for shutdown in `cleanupData`.
      */
-    protected fun startPoller(pollIntervalMs: Long = 20, batchSize: Int = 10): OutboxPoller {
+    protected fun startPoller(pollIntervalMs: Long = 20, batchSize: Int = 10, concurrency: Int = 8): OutboxPoller {
         val server = checkNotNull(mockHttpServer) { "call startMockHttpServer before startPoller" }
         val destination = Destination.Http(
             name = "test-http",
@@ -440,7 +440,12 @@ abstract class E2ETestBase {
             path = "/webhook",
             timeoutMs = 5000
         )
-        val config = OutboxConfig(pollIntervalMs = pollIntervalMs, batchSize = batchSize, maxAttempts = 3)
+        val config = OutboxConfig(
+            pollIntervalMs = pollIntervalMs,
+            batchSize = batchSize,
+            maxAttempts = 3,
+            concurrency = concurrency
+        )
         val poller = OutboxPoller(
             config = config,
             repository = OutboxRepository(),

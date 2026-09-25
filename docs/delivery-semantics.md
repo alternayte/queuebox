@@ -144,6 +144,37 @@ pattern, because one aggregate is one writer.
 
 Each sentence above has a test. See `app/src/test/kotlin/e2e/OrderingGuaranteeTest.kt`.
 
+## Order and the key
+
+The outbox `key` column is the unit of order on the outbox side. It is the same rule as the inbox
+`aggregate_id` rule, applied to the delivery to a destination.
+
+- The outbox delivers the rows of one key in insert order, at any `outbox.concurrency` and with any
+  number of replicas.
+- The database fills the `sequence` column on insert. The claim orders the rows of one key by
+  `sequence`, not by `created_at`, so rows that one transaction writes keep their insert order.
+- The claim takes a row of a key only when no earlier row of that key is `pending` or
+  `processing`. One row of a key is in flight at a time.
+- A row of a key that waits for a retry holds back the later rows of its key until it is sent or
+  dead.
+- A dead row releases its key, and the next row of the key is delivered. A replay of the dead row
+  delivers it after the rows that passed it.
+- A row with a null or empty `key` takes part in no ordering, and the poller publishes it in
+  parallel with other rows.
+- QueueBox does not order two different keys.
+
+The rule holds for rows that one writer inserts per key. Two transactions that insert rows of the
+same key at the same time can commit out of `sequence` order, and a row that commits late can
+arrive after a row with a higher `sequence`. An event store that checks the stream version on
+append has one writer per stream, so the rule holds for it.
+
+One key in flight at a time limits the throughput of one key to one publish round trip per row.
+Spread a busy stream over more keys only when the consumer does not need order across them.
+
+Each sentence above has a test. See `OrderingGuaranteeTest`,
+`postgres/src/test/kotlin/org/nxtspec/OutboxKeyOrderTest.kt` and
+`sqlserver/src/test/kotlin/org/nxtspec/SqlServerOutboxKeyOrderTest.kt`.
+
 ### The SQL Server pull claim serializes per source
 
 On SQL Server, the pull claim takes an exclusive application lock scoped to the source name, so

@@ -28,7 +28,8 @@ internal object ColumnMappingValidator {
                 "claimedAt" to mapping.outbox.claimedAt,
                 "claimToken" to mapping.outbox.claimToken,
                 "leaseExpiresAt" to mapping.outbox.leaseExpiresAt,
-                "lastError" to mapping.outbox.lastError
+                "lastError" to mapping.outbox.lastError,
+                "sequence" to mapping.outbox.sequence
             )
         )
         validateMappedColumns(

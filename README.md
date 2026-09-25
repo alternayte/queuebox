@@ -66,11 +66,13 @@ destination must be idempotent. QueueBox sends the message identifier in the `X-
 so that a receiver can deduplicate.
 Proved by `HttpPublisherTest` and `E2EOutboxFlowTest`.
 
-**Ordering holds for one aggregate, and only while concurrency is one.** QueueBox claims the
-oldest scheduled message first. Concurrency inside a batch removes ordering between messages,
-because two workers publish at the same time. Do not rely on ordering across aggregates.
-Proved by `OutboxRepositoryConcurrencyTest.claimBatch returns the oldest scheduled messages in
-order`.
+**Ordering holds for one key, at any concurrency.** The outbox delivers the rows that share a
+non-empty `key` in insert order, one row of a key at a time. A row that waits for a retry holds back
+the later rows of its key, and a dead row releases its key. Rows with an empty `key` and rows of
+different keys have no order. See [delivery semantics](docs/delivery-semantics.md#order-and-the-key).
+Proved by `OrderingGuaranteeTest.the outbox delivers the rows of one key in insert order at any
+concurrency`, `OutboxKeyOrderTest.concurrent claimers deliver each key in insert order` and
+`SqlServerOutboxKeyOrderTest.concurrent claimers deliver each key in insert order`.
 
 **A crash can produce a duplicate delivery.** A claimed message that no worker completes returns to
 `pending` after the claim timeout. A replacement worker then delivers that message. If the process

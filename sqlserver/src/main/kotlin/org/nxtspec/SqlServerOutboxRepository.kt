@@ -49,44 +49,22 @@ class SqlServerOutboxRepository(
             java.time.Instant.ofEpochSecond(now.epochSeconds, now.nanosecondsOfSecond.toLong())
         )
 
-        val t = quoteSqlServerIdentifier(tableName)
-        val idCol = quoteSqlServerIdentifier(columnMapping.id)
-        val stateCol = quoteSqlServerIdentifier(columnMapping.state)
-        val scheduledAtCol = quoteSqlServerIdentifier(columnMapping.scheduledAt)
-        val createdAtCol = quoteSqlServerIdentifier(columnMapping.createdAt)
-        val updatedAtCol = quoteSqlServerIdentifier(columnMapping.updatedAt)
-        val claimedAtCol = quoteSqlServerIdentifier(columnMapping.claimedAt)
-
-        val sql = """
-            WITH candidates AS (
-                SELECT TOP (?) ${quoteSqlServerIdentifier(
-            columnMapping.claimToken
-        )}, ${quoteSqlServerIdentifier(columnMapping.leaseExpiresAt)}, $idCol, $stateCol, $updatedAtCol, $claimedAtCol
-                FROM $t WITH (ROWLOCK, UPDLOCK, READPAST)
-                WHERE $stateCol = 'pending' AND $scheduledAtCol <= ?
-                ORDER BY $scheduledAtCol ASC, $createdAtCol ASC
-            )
-            UPDATE candidates
-            SET $stateCol = 'processing', $updatedAtCol = ?, $claimedAtCol = ?, ${quoteSqlServerIdentifier(
-            columnMapping.claimToken
-        )} = NEWID(), ${quoteSqlServerIdentifier(
-            columnMapping.leaseExpiresAt
-        )} = DATEADD(millisecond, $leaseMs, SYSUTCDATETIME())
-            OUTPUT INSERTED.$idCol AS ${quoteSqlServerIdentifier(columnMapping.id)}
-        """.trimIndent()
+        val sql = outboxClaimSql(columnMapping, tableName, leaseMs)
 
         val conn = TransactionManager.current().connection.connection as java.sql.Connection
-        val claimedIds = conn.prepareStatement(sql).use { stmt ->
-            stmt.setInt(1, batchSize)
-            stmt.setTimestamp(2, nowTimestamp)
-            stmt.setTimestamp(3, nowTimestamp)
-            stmt.setTimestamp(4, nowTimestamp)
-            stmt.executeQuery().use { rs ->
-                val ids = mutableListOf<UUID>()
-                while (rs.next()) {
-                    ids.add(UUID.fromString(rs.getString(columnMapping.id)))
+        val claimedIds = withClaimLock(conn, "queuebox_outbox_claim_$tableName") {
+            conn.prepareStatement(sql).use { stmt ->
+                stmt.setInt(1, batchSize)
+                stmt.setTimestamp(2, nowTimestamp)
+                stmt.setTimestamp(3, nowTimestamp)
+                stmt.setTimestamp(4, nowTimestamp)
+                stmt.executeQuery().use { rs ->
+                    val ids = mutableListOf<UUID>()
+                    while (rs.next()) {
+                        ids.add(UUID.fromString(rs.getString(columnMapping.id)))
+                    }
+                    ids
                 }
-                ids
             }
         }
 
@@ -483,4 +461,48 @@ class SqlServerOutboxRepository(
     // parameter, matching `claimBatch` and `oldestPendingAgeSeconds`.
     private fun Instant.toSqlServerTimestamp(): Timestamp =
         Timestamp.from(java.time.Instant.ofEpochSecond(epochSeconds, nanosecondsOfSecond.toLong()))
+}
+
+/**
+ * The claim statement. Its parameters are the batch size, the due time, and the claim time
+ * twice.
+ */
+private fun outboxClaimSql(columnMapping: OutboxColumnMapping, tableName: String, leaseMs: Long): String {
+    val t = quoteSqlServerIdentifier(tableName)
+    val idCol = quoteSqlServerIdentifier(columnMapping.id)
+    val stateCol = quoteSqlServerIdentifier(columnMapping.state)
+    val scheduledAtCol = quoteSqlServerIdentifier(columnMapping.scheduledAt)
+    val updatedAtCol = quoteSqlServerIdentifier(columnMapping.updatedAt)
+    val claimedAtCol = quoteSqlServerIdentifier(columnMapping.claimedAt)
+    val keyCol = quoteSqlServerIdentifier(columnMapping.key)
+    val sequenceCol = quoteSqlServerIdentifier(columnMapping.sequence)
+
+    // Key order: the claim takes a keyed row only when it is the head of its key, that is,
+    // no row of the same key with a lower sequence is still pending or processing. A row in
+    // retry backoff is pending, so it holds back its successors. A dead row releases the key.
+    // The subquery reads without READPAST, so it sees a row that another session holds. The
+    // application lock keeps two claims from waiting on each other's rows. See
+    // docs/specs/outbox-key-order.md.
+    return """
+        WITH candidates AS (
+            SELECT TOP (?) ${quoteSqlServerIdentifier(
+        columnMapping.claimToken
+    )}, ${quoteSqlServerIdentifier(columnMapping.leaseExpiresAt)}, $idCol, $stateCol, $updatedAtCol, $claimedAtCol
+            FROM $t AS head WITH (ROWLOCK, UPDLOCK, READPAST)
+            WHERE $stateCol = 'pending' AND $scheduledAtCol <= ?
+              AND (head.$keyCol IS NULL OR head.$keyCol = N'' OR NOT EXISTS (
+                    SELECT 1 FROM $t AS prior
+                    WHERE prior.$keyCol = head.$keyCol
+                      AND prior.$stateCol IN ('pending', 'processing')
+                      AND prior.$sequenceCol < head.$sequenceCol))
+            ORDER BY $scheduledAtCol ASC, $sequenceCol ASC
+        )
+        UPDATE candidates
+        SET $stateCol = 'processing', $updatedAtCol = ?, $claimedAtCol = ?, ${quoteSqlServerIdentifier(
+        columnMapping.claimToken
+    )} = NEWID(), ${quoteSqlServerIdentifier(
+        columnMapping.leaseExpiresAt
+    )} = DATEADD(millisecond, $leaseMs, SYSUTCDATETIME())
+        OUTPUT INSERTED.$idCol AS ${quoteSqlServerIdentifier(columnMapping.id)}
+    """.trimIndent()
 }
