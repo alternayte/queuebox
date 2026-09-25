@@ -97,6 +97,7 @@ object ConfigLoader {
         val config = try {
             ConfigLoaderBuilder.default()
                 .addDecoder(SecretDecoder())
+                .addDecoder(SignaturePayloadFormatDecoder())
                 .addPropertySource(createEnvSource(env))
                 .apply {
                     if (externalFile.isFile) {
@@ -138,6 +139,7 @@ object ConfigLoader {
 
         val config = ConfigLoaderBuilder.default()
             .addDecoder(SecretDecoder())
+            .addDecoder(SignaturePayloadFormatDecoder())
             .addPropertySource(createEnvSource { System.getenv() })
             .build()
             .loadConfigOrThrow<QueueBoxConfig>()
