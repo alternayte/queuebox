@@ -17,6 +17,7 @@ import org.nxtspec.app.dto.TransformTestRequest
 import org.nxtspec.app.dto.TransformTestResponse
 import org.nxtspec.auth.AuthResult
 import org.nxtspec.auth.InboxAuthValidator
+import org.nxtspec.auth.RawBodyKey
 import org.nxtspec.repository.OutboxRepositoryInterface
 import org.nxtspec.repository.ReplayFilter
 import org.nxtspec.repository.ReplayResponse
@@ -79,6 +80,19 @@ private suspend fun RoutingContext.handleTransformTest(
     authValidator: InboxAuthValidator,
     transformEngine: TransformEngine
 ) {
+    // F-034: read the body under a hard cap. A chunked request declares no length, so a check
+    // on Content-Length alone lets an arbitrarily large body reach the parser. The body is read
+    // before authentication, because an HMAC signature covers the raw bytes. See #62.
+    val rawBody = call.receiveCappedBody(admin.maxPayloadBytes.toLong())
+    if (rawBody == null) {
+        call.respond(
+            HttpStatusCode.PayloadTooLarge,
+            TransformTestResponse(success = false, error = "Request body exceeds ${admin.maxPayloadBytes} bytes")
+        )
+        return
+    }
+    call.attributes.put(RawBodyKey, rawBody)
+
     val authConfig = admin.auth
     if (authConfig != null) {
         val result = authValidator.validate(call.request, authConfig)
@@ -87,17 +101,6 @@ private suspend fun RoutingContext.handleTransformTest(
             call.respond(result.statusCode, TransformTestResponse(success = false, error = result.message))
             return
         }
-    }
-
-    // F-034: read the body under a hard cap. A chunked request declares no length, so a check
-    // on Content-Length alone lets an arbitrarily large body reach the parser.
-    val rawBody = call.receiveCappedBody(admin.maxPayloadBytes.toLong())
-    if (rawBody == null) {
-        call.respond(
-            HttpStatusCode.PayloadTooLarge,
-            TransformTestResponse(success = false, error = "Request body exceeds ${admin.maxPayloadBytes} bytes")
-        )
-        return
     }
 
     val request = try {
@@ -180,6 +183,19 @@ private suspend fun RoutingContext.handleReplay(
     outboxRepository: OutboxRepositoryInterface,
     messageRouter: MessageRouter
 ) {
+    // F-034/F-096: read the body under the same hard cap as /transform/test. An unbounded
+    // `ids` list must never reach the parser. The body is read before authentication, because
+    // an HMAC signature covers the raw bytes. See #62.
+    val rawBody = call.receiveCappedBody(admin.maxPayloadBytes.toLong())
+    if (rawBody == null) {
+        call.respond(
+            HttpStatusCode.PayloadTooLarge,
+            ReplayErrorResponse("Request body exceeds ${admin.maxPayloadBytes} bytes")
+        )
+        return
+    }
+    call.attributes.put(RawBodyKey, rawBody)
+
     val authConfig = admin.auth
     if (authConfig != null) {
         val result = authValidator.validate(call.request, authConfig)
@@ -188,17 +204,6 @@ private suspend fun RoutingContext.handleReplay(
             call.respond(result.statusCode, ReplayErrorResponse(result.message))
             return
         }
-    }
-
-    // F-034/F-096: read the body under the same hard cap as /transform/test. An unbounded
-    // `ids` list must never reach the parser.
-    val rawBody = call.receiveCappedBody(admin.maxPayloadBytes.toLong())
-    if (rawBody == null) {
-        call.respond(
-            HttpStatusCode.PayloadTooLarge,
-            ReplayErrorResponse("Request body exceeds ${admin.maxPayloadBytes} bytes")
-        )
-        return
     }
 
     val filter = try {

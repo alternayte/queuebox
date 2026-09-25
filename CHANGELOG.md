@@ -9,6 +9,24 @@ the configuration schema and for the database schema.
 
 ## [Unreleased]
 
+### Fixed
+
+- **HMAC authentication works on the admin routes.** The admin routes checked a signature before
+  they read the body, so every HMAC request got 500. They now read the body under
+  `admin.maxPayloadBytes` first, as the inbox routes do. A correctly signed request passes, and a
+  wrongly signed one gets 401. An unauthenticated request with a body over the limit now gets 413
+  instead of 401. Fixes #62.
+- **`signaturePayloadFormat: timestamp-dot-body` loads.** The loader accepted only the constant
+  names `BODY` and `TIMESTAMP_DOT_BODY`, although the validator message and the docs name
+  `timestamp-dot-body` and `body`. All four spellings now load, from YAML and from `QUEUEBOX_`
+  variables. Fixes #63.
+- **Inbox transforms bind `$idempotencyKey` and `$eventType`.** Both variables were documented but
+  never bound. A missing value binds as JSON null. Every variable bound before stays bound. Fixes
+  #64.
+- **The client packages declare the MIT license.** The npm package, both NuGet packages and the
+  three client READMEs declared Apache-2.0, but the repository is MIT. The metadata changes on the
+  next client release. Fixes #67.
+
 ## [0.4.0] — 2026-09-25
 
 This release ships the server image alone, as `v0.4.0`. No client library changed, so all four

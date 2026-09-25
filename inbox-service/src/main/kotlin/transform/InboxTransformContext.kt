@@ -39,6 +39,8 @@ data class InboxTransformContext(
      * - timestamp -> timestamp
      * - source -> source
      * - headers -> headers
+     * - idempotencyKey -> idempotencyKey (null binds as JSON null)
+     * - eventType -> eventType (null binds as JSON null)
      */
     fun toTransformContext(): TransformContext = TransformContext(
         messageId = messageId,
@@ -46,6 +48,7 @@ data class InboxTransformContext(
         attempt = 0,
         timestamp = timestamp,
         source = source,
-        headers = headers
+        headers = headers,
+        variables = mapOf("idempotencyKey" to idempotencyKey, "eventType" to eventType)
     )
 }

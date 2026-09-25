@@ -27,5 +27,10 @@ data class TransformContext(
     val timestamp: Instant,
     val source: String? = null,
     /** Bound as `$headers` when set. Only an inbox transform sets it. */
-    val headers: Map<String, String>? = null
+    val headers: Map<String, String>? = null,
+    /**
+     * Extra variables bound by name, such as `$idempotencyKey` and `$eventType`.
+     * Only an inbox transform sets them. A null value binds as JSON null.
+     */
+    val variables: Map<String, String?> = emptyMap()
 )

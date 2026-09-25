@@ -8,7 +8,7 @@
     <Version>0.1.0</Version>
     <Description>Dependency injection registration for QueueBox.Inbox. It adds one named worker as a hosted service per call, so a host with several workers keeps every one of them running.</Description>
     <Authors>AlterNayte</Authors>
-    <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageProjectUrl>https://github.com/alternayte/queuebox</PackageProjectUrl>
     <RepositoryUrl>https://github.com/alternayte/queuebox</RepositoryUrl>
     <PackageTags>queuebox;inbox;outbox;transactional;dependencyinjection;hosting</PackageTags>
