@@ -1,0 +1,204 @@
+---
+title: How QueueBox works
+description: The modules, the path of a message through the outbox and the inbox, the state sets, and the relay.
+sidebar:
+  order: 1
+---
+
+import { Aside } from "@astrojs/starlight/components";
+
+This page explains the parts of QueueBox and the path that a message takes through them.
+It also holds the one authoritative list of the outbox and inbox states.
+
+## Two tables and three workers
+
+QueueBox is one process that works on two tables in your database.
+
+- The **outbox** table holds messages that your application wants to send.
+  Your application inserts a row in the same transaction as its business write.
+  The **outbox poller** claims the row and delivers it to a destination.
+- The **inbox** table holds messages that arrive from outside.
+  An HTTP source or a broker consumer stores each message once per source and idempotency key.
+- The **relay** moves a stored inbox row into the outbox, so the outbox delivers it.
+  The relay handles push sources only.
+  A pull source leaves the row in the inbox for your own worker.
+
+A destination is one configured egress: an HTTP endpoint, a RabbitMQ exchange, a Kafka topic or a NATS subject.
+An inbox source is one configured ingress: a webhook path or a broker consumer.
+A route matches a topic pattern to a destination.
+
+QueueBox runs on PostgreSQL or SQL Server.
+Every replica reads and writes the same two tables.
+The database is the only coordination point between replicas: row locks, claim tokens and leases keep two replicas off the same message.
+See [Claims and leases](/concepts/claims-and-leases/).
+
+## The modules
+
+The source tree has one Gradle module per responsibility.
+
+| Module | Responsibility |
+| --- | --- |
+| `app` | The main application and the HTTP server: inbox routes, health, metrics and admin routes. |
+| `core` | The domain model and the repository interfaces. It depends on no other module. |
+| `config` | Configuration loading from YAML and `QUEUEBOX_` environment variables, and validation. |
+| `outbox-service` | The outbox poller, the router, the transforms and the HTTP publisher. |
+| `inbox-service` | The inbox routes, source authentication and the relay. |
+| `postgres` | The PostgreSQL repositories and migrations. |
+| `sqlserver` | The SQL Server repositories and migrations. |
+| `rabbitmq` | The RabbitMQ consumer and publisher. |
+| `kafka`, `nats` | The Kafka and NATS consumers and publishers. |
+| `capture` | Embedded change data capture. It only wakes delivery. |
+
+The repository layer loads a database provider by reflection.
+The `app` module ships both providers, so the published image runs on either database.
+The build fails when a provider leaves the runtime class path, because reflection hides that fault from the compiler.
+
+## The path of an outbox message
+
+1. Your application inserts a row into `outbox` in state `pending`, in the transaction of its business write.
+   The row commits with the business change, or neither commits.
+2. The poller claims a batch of due rows.
+   A claim moves each row to state `processing` and gives it a claim token and a lease.
+3. The router matches the row `topic` against the route patterns.
+   The first matching route names the destination.
+4. The route transform and then the destination transform run, if configured.
+5. The publisher sends the message to the destination.
+6. On success, the poller marks the row `sent`.
+7. On failure, the poller increments `attempt` and schedules a retry with exponential backoff.
+   The row goes back to `pending` with a later `scheduled_at`.
+8. When `attempt` reaches the `max_attempts` of the row, the poller marks the row `dead`.
+
+A row with no matching route, or with a destination that no publisher supports, goes to `dead` at once.
+A claim that a crash leaves behind returns to `pending` when its lease expires.
+
+The outbox delivers the rows of one `key` in insert order.
+See [Ordering](/concepts/ordering/#order-and-the-key).
+
+## The path of an inbox message
+
+1. **Receive.** An HTTP source or a broker source accepts the message.
+   An HTTP source answers at the path that `inbox.basePath` and the `path` of the source build, for example `/inbox/stripe`.
+2. **Extract.** QueueBox reads the idempotency key, the event type and the aggregate identifier.
+3. **Transform.** The source transform reshapes the payload, if one is configured.
+   The transform runs before the duplicate check.
+   A payload that the transform rejects never becomes a stored row.
+4. **Store.** QueueBox writes the inbox row in state `pending`.
+   The unique index on `(source, idempotency_key)` rejects a repeat.
+   An HTTP source answers 202 for a new message and 200 with `{"status":"duplicate"}` for a repeat.
+5. **Forward.** For a push source, the relay claims the row, writes an outbox row from it, and marks the inbox row `processed`.
+   Both writes run in one transaction.
+6. **Route and deliver.** The outbox poller routes and delivers the new outbox row as in the previous section.
+
+A 202 means that QueueBox stored the message.
+It does not mean that QueueBox delivered it.
+
+For a pull source, the path stops at step 4.
+Your worker claims the row, does the work, and marks it `processed` itself.
+See [Delivery semantics](/concepts/delivery-semantics/#push-and-pull).
+
+## The relay
+
+The relay forwards an inbox row into the outbox.
+It never reads the meaning of the payload, and it runs no transform: the transform ran at ingestion.
+The outbox machinery routes and delivers the forwarded row.
+
+The relay maps the inbox row to the outbox row as follows.
+
+| Outbox field | Value |
+| --- | --- |
+| `topic` | The rendered `sources.<name>.topic` template. |
+| `key` | The inbox `aggregate_id`. |
+| `payload` | The stored inbox payload. |
+| `headers` | The inbox `headers`, then `x-inbox-id`, `x-source`, `x-idempotency-key`, and `X-Correlation-Id` when the message carries one. |
+| `max_attempts` | `inbox.relay.maxAttempts`, or `outbox.maxAttempts` when that is not set. |
+
+The four relay headers replace a received header of the same name in any letter case.
+A sender therefore cannot set them.
+
+The topic template accepts `{{ source }}` and `{{ eventType }}`.
+The default for an HTTP source is `{{ eventType }}`.
+The default for an AMQP source is `{{ source }}`, because an AMQP message carries no event type of its own.
+QueueBox refuses to start when an AMQP template uses `{{ eventType }}` and the source sets neither `eventTypePath` nor `eventTypeFromHeader: true`.
+
+The relay marks the inbox row `dead` when the template renders empty, because such a message can reach no destination.
+
+```yaml
+# fragment
+inbox:
+  relay:
+    enabled: true
+    pollIntervalMs: 100
+    batchSize: 100
+    claimTimeoutMs: 300000
+```
+
+Set `inbox.relay.enabled: false` to turn the relay off.
+The inbox then becomes a log that only pull workers read.
+
+## Outbox states
+
+The outbox state set:
+
+{/* states:outbox */}
+```text
+pending
+processing
+sent
+dead
+```
+
+| From | To | When |
+| --- | --- | --- |
+| (insert) | `pending` | Your application inserts the row. |
+| `pending` | `processing` | The poller claims the row. |
+| `processing` | `sent` | The destination accepts the message. |
+| `processing` | `pending` | A retry is scheduled, or the lease expired and the reclaim step returned the row. |
+| `processing` | `dead` | No attempt remains, no route matches, or a transform dead-letters the message. |
+
+`sent` and `dead` are final.
+Only an operator moves a row out of them, with a [replay](/how-to/replay-dead-letters/) or with [SQL](/operations/dead-letters/).
+
+## Inbox states
+
+The inbox state set:
+
+{/* states:inbox */}
+```text
+pending
+processing
+processed
+dead
+```
+
+| From | To | When |
+| --- | --- | --- |
+| (store) | `pending` | A source accepts the message. |
+| (store) | `dead` | An AMQP source stores a message that its transform rejected, or a broker message whose body is not JSON. |
+| `pending` | `processing` | The relay or a pull worker claims the row. |
+| `processing` | `processed` | The relay forwarded the row, or a pull worker completed it. |
+| `processing` | `pending` | A pull worker schedules a retry, or the relay lease expired and the reclaim step returned the row. |
+| `processing` | `processing` | A pull claim takes over a row whose lease expired, with a new claim token. |
+| `processing` | `dead` | The topic template rendered empty, or a pull worker gave up. |
+
+`processed` means two different things.
+For a push row, the message reached the outbox, and the outbox state tracks the delivery.
+For a pull row, your application finished the work.
+
+An AMQP source writes a rejected message in state `dead` in one transaction, and only then acknowledges the broker delivery.
+The row never exists in state `pending`, so the relay cannot forward a payload that the transform rejected.
+QueueBox declares no dead-letter exchange, so that row is the only copy.
+
+The relay claims `pending` rows only, so no read path of QueueBox returns a dead inbox row.
+The row exists for an operator to read and requeue.
+See [Dead letters](/operations/dead-letters/).
+
+## The state column
+
+Both schemas declare the state column 50 characters wide.
+PostgreSQL uses `VARCHAR(50)`, and SQL Server uses `NVARCHAR(50)`.
+
+<Aside>
+In memory, `MessageState` in `core` represents a state.
+`MessageState.Sent` carries both the outbox literal `sent` and the inbox literal `processed`.
+`MessageState.Failed` is never written to the database: a repository returns it for a literal that it does not know.
+</Aside>

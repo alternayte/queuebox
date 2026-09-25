@@ -87,12 +87,12 @@ worker can complete a row that a new worker owns. Upgrade in this order:
 
 Existing inbox rows migrate as `push`, which keeps the previous behaviour. A custom schema
 must add and map the new columns by hand; see the column mapping in
-[the configuration reference](../configuration.md).
+[the configuration reference](https://queuebox-docs.pages.dev/reference/configuration/).
 
 `V7__capture_state.sql` creates `queuebox_capture_state`. The table records the capture
 identity, the state identifier and a fingerprint of the capture settings, so QueueBox can
 detect a lost durable volume and a changed capture configuration. See
-[the capture guide](../capture.md). The table is unused while capture is disabled, which
+[the capture guide](https://queuebox-docs.pages.dev/how-to/capture-changes/). The table is unused while capture is disabled, which
 is the default.
 
 ## Applying V8 to a populated database
@@ -119,4 +119,4 @@ Upgrade in this order:
 
 A custom outbox table must add a `BIGINT` column that the database fills on insert, and map it
 as `database.columnMapping.outbox.sequence`. QueueBox stops at startup without it and prints the
-`ALTER TABLE` statement. See [delivery semantics](../delivery-semantics.md#order-and-the-key).
+`ALTER TABLE` statement. See [ordering](https://queuebox-docs.pages.dev/concepts/ordering/#order-and-the-key).

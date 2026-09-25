@@ -1,0 +1,125 @@
+---
+title: Headers
+description: Every header that QueueBox sends on a delivery, and every header that it reads when a message arrives.
+sidebar:
+  order: 7
+---
+
+This page lists every header that QueueBox sends when it delivers an outbox row, and every header that it reads when a source receives a message.
+
+## Headers that QueueBox sends
+
+A delivery carries three groups of headers:
+
+1. The standard headers in the tables below.
+2. The static `headers` of the destination, and on an HTTP destination the header of the `auth` block.
+3. The entries of the `headers` column of the outbox row.
+
+A row header wins over a static header or an auth header of the same name.
+Do not give a row header the name of a standard header. QueueBox does not remove the standard header, so the message then carries two values.
+
+### HTTP destination
+
+QueueBox sends a `POST` with the payload as the body.
+
+| Header | Value |
+| --- | --- |
+| `Content-Type` | `application/json` |
+| `X-Message-Id` | The `id` of the outbox row. It stays the same on every retry and on a replay of the row. |
+| `X-Topic` | The `topic` of the row. |
+| `X-Attempt` | The `attempt` of the row. It is `0` on the first delivery. |
+| `X-Message-Key` | The `key` of the row. It is absent when the row has no key. |
+| `Authorization` | `Bearer <token>` for `oauth2`, or `Basic <credentials>` for `basic`. The `header` kind of auth sends its own `headerName` instead. |
+
+### RabbitMQ destination
+
+| Header or property | Value |
+| --- | --- |
+| `message_id` property | The `id` of the outbox row. |
+| `content_type` property | `application/json` |
+| `delivery_mode` property | `2` for `deliveryMode: persistent`, `1` for `transient`. |
+| `x-topic` header | The `topic` of the row. |
+| `x-attempt` header | The `attempt` of the row, as an integer. |
+
+The routing key carries the rendered `routingKeyTemplate`. A RabbitMQ message has no key header.
+
+### Kafka destination
+
+| Header or field | Value |
+| --- | --- |
+| Record key | The route `routingKeyTemplate`, or else the destination `keyTemplate`. The default is the `key` of the row. An empty result sends no record key. |
+| `x-message-id` header | The `id` of the outbox row. |
+| `x-topic` header | The `topic` of the row. |
+| `x-attempt` header | The `attempt` of the row. |
+
+### NATS destination
+
+| Header | Value |
+| --- | --- |
+| `x-message-id` | The `id` of the outbox row. |
+| `x-topic` | The `topic` of the row. |
+| `x-attempt` | The `attempt` of the row. |
+| `x-message-key` | The `key` of the row. It is absent when the row has no key. |
+
+## Headers that the relay adds
+
+The relay copies the `headers` of the inbox row onto the outbox row. Then it sets four headers, so a destination can trace the message to its source.
+
+| Header | Value |
+| --- | --- |
+| `x-inbox-id` | The `id` of the inbox row. |
+| `x-source` | The source name. |
+| `x-idempotency-key` | The idempotency key of the inbox row. |
+| `X-Correlation-Id` | The correlation identifier of the inbox row, when it has one. |
+
+Each of these four replaces a received header of the same name in any letter case. A sender therefore cannot set them.
+
+## Which identifier to deduplicate on
+
+| Traffic | Deduplicate on | Why |
+| --- | --- | --- |
+| A row that the application inserts | `X-Message-Id` | One outbox row keeps one `id` through every retry. |
+| A row that the relay creates | `x-idempotency-key`, with `x-source` | The relay creates a new outbox row, with a new `id`, when an operator replays an inbox row. The idempotency key stays the same. |
+
+Delivery is at least once, so a receiver must deduplicate. [Delivery semantics](/concepts/delivery-semantics/) explains why a repeat can occur.
+
+## Headers that QueueBox reads
+
+### HTTP source
+
+| Header | Use |
+| --- | --- |
+| `Authorization` | The `bearer` kind of source auth reads `Bearer <token>`. |
+| `X-API-Key` | The `api-key` kind reads the key. `auth.headerName` changes the name. |
+| `X-Signature` | The `hmac` kind reads the signature. `auth.headerName` changes the name. |
+| The `auth.timestampHeader` | The `hmac` kind reads the request time in Unix milliseconds. |
+| `X-Correlation-Id` | The correlation identifier. QueueBox generates a UUID when it is absent, and echoes the value in the response. |
+| Any header | The header filter of the source reads it. QueueBox stores it in the inbox `headers` column. |
+
+QueueBox does not store `Authorization`, `Proxy-Authorization`, `Cookie`, or the header that the `api-key` or `hmac` auth reads.
+An HTTP source takes the idempotency key, the event type and the aggregate identifier from the body only.
+
+### RabbitMQ, Kafka and NATS sources
+
+Each attribute comes from the first place in its list that gives a value.
+
+| Attribute | RabbitMQ | Kafka | NATS |
+| --- | --- | --- | --- |
+| Idempotency key | 1. `x-idempotency-key` header 2. `idempotencyKeyPath` 3. AMQP `message_id` property 4. SHA-256 digest of the body | 1. `x-idempotency-key` header 2. `idempotencyKeyPath` 3. record key 4. SHA-256 digest of the body | 1. `x-idempotency-key` header 2. `idempotencyKeyPath` 3. `Nats-Msg-Id` header 4. SHA-256 digest of the body |
+| Aggregate identifier | 1. `aggregateIdPath` 2. `x-aggregate-id` header | 1. `aggregateIdPath` 2. `x-aggregate-id` header 3. record key | 1. `aggregateIdPath` 2. `x-aggregate-id` header |
+| Event type | 1. `eventTypePath` 2. `x-event-type` header | 1. `eventTypePath` 2. `x-event-type` header | 1. `eventTypePath` 2. `x-event-type` header |
+| Correlation identifier | 1. `X-Correlation-Id` header, in any letter case 2. AMQP `correlation_id` property 3. a new UUID | 1. `X-Correlation-Id` header 2. a new UUID | 1. `X-Correlation-Id` header 2. a new UUID |
+
+`attributeHeaders.idempotencyKey`, `attributeHeaders.aggregateId` and `attributeHeaders.eventType` change the three `x-` header names.
+A Debezium producer, for example, sends `id`, `aggregateId` and `eventType`. The [configuration](/reference/configuration/#attributeheaders) page describes the keys.
+
+The digest fallback deduplicates a redelivery of the same bytes. It also merges two different events that carry the same body.
+Give each message a key through the header, the body path or the broker identifier.
+
+QueueBox removes control characters from a correlation identifier and keeps at most 128 characters.
+Every received header also goes to the inbox `headers` column and to the header filter. The [inbox table](/reference/inbox-table/#headers) page gives the conversion rules of each broker.
+
+## Headers in a transform
+
+A source transform reads the received headers as `$headers`, one string value per name.
+A route or destination transform has no `$headers`. The [transforms](/reference/transforms/) page lists the variables of each stage.

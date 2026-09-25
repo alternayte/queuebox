@@ -4,7 +4,8 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 
 /**
- * The environment only example in `docs/configuration.md` must start.
+ * The environment only example in `site/src/content/docs/reference/environment-variables.mdx` must
+ * start.
  *
  * That section documents a container deployment that sets the QUEUEBOX_ variables and mounts no
  * file. Its `docker run` block and its Compose block carry the same variables, and this test

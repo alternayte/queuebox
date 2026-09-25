@@ -6,14 +6,17 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 /**
- * F-077. The state set in `docs/architecture.md` must equal the set of state literals that the
- * repositories write. The test reads both sides at run time, so a change on either side breaks it.
+ * The state set on the docs page `site/src/content/docs/concepts/how-queuebox-works.mdx` must equal
+ * the set of state literals that the repositories write. The test reads both sides at run time, so
+ * a change on either side breaks it.
  */
 class DocumentedStateSetTest {
 
     private val repositoryRoot: File = findRepositoryRoot()
 
-    private val architectureDocument: File = File(repositoryRoot, "docs/architecture.md")
+    private val statePagePath = "site/src/content/docs/concepts/how-queuebox-works.mdx"
+
+    private val architectureDocument: File = File(repositoryRoot, statePagePath)
 
     private val outboxRepositorySources = listOf(
         "postgres/src/main/kotlin/OutboxRepository.kt",
@@ -34,20 +37,24 @@ class DocumentedStateSetTest {
     )
 
     /**
-     * The documents that must NOT enumerate a state set.
+     * The documents that must NOT enumerate a state set: the README and every site page except the
+     * one that owns the list.
      *
-     * `docs/architecture.md` owns the list, and this test guards that document. A second document
-     * that repeats the list drifts in silence, which is how `docs/message-flow.md` came to state a
-     * `failed` outbox state that no repository writes.
+     * The state page owns the list, and this test guards that page. A second page that repeats the
+     * list drifts in silence, which is how an old guide came to state a `failed` outbox state that
+     * no repository writes. The walk covers a page that a later change adds, so no list here can
+     * fall behind the site.
      */
-    private val documentsThatMustNotListStates = listOf(
-        "README.md",
-        "docs/message-flow.md",
-        "docs/integration.md",
-        "docs/operations/runbook.md",
-        "docs/getting-started.md",
-        "docs/configuration.md"
-    )
+    private val documentsThatMustNotListStates: List<String> by lazy {
+        val pages = File(repositoryRoot, "site/src/content/docs").walkTopDown()
+            .filter { it.isFile && (it.extension == "md" || it.extension == "mdx") }
+            .map { it.relativeTo(repositoryRoot).invariantSeparatorsPath }
+            .filter { it != statePagePath }
+            .sorted()
+            .toList()
+        assertTrue(pages.isNotEmpty(), "No site page was found under site/src/content/docs.")
+        listOf("README.md") + pages
+    }
 
     @Test
     fun `documented outbox states equal the literals the outbox repositories write`() {
@@ -67,7 +74,7 @@ class DocumentedStateSetTest {
     fun `every written state maps to a MessageState variant`() {
         val variants = setOf("Pending", "Processing", "Sent", "Dead", "Failed")
         val mapped = MessageState::class.sealedSubclasses.mapNotNull { it.simpleName }.toSet()
-        assertEquals(variants, mapped, "MessageState changed. Correct docs/architecture.md too.")
+        assertEquals(variants, mapped, "MessageState changed. Correct $statePagePath too.")
         val written = writtenStates(outboxRepositorySources) + writtenStates(inboxRepositorySources)
         assertTrue(written.isNotEmpty(), "No state literal was found in the repository sources.")
     }
@@ -87,7 +94,7 @@ class DocumentedStateSetTest {
         }
         assertTrue(
             offenders.isEmpty(),
-            "Only docs/architecture.md enumerates the state set. These lines repeat it: $offenders"
+            "Only $statePagePath enumerates the state set. These lines repeat it: $offenders"
         )
     }
 
@@ -101,7 +108,7 @@ class DocumentedStateSetTest {
         val documentText = readDocument()
         assertTrue(
             documentText.contains("VARCHAR(50)"),
-            "docs/architecture.md must state the real column width VARCHAR(50)."
+            "$statePagePath must state the real column width VARCHAR(50)."
         )
     }
 
@@ -110,11 +117,11 @@ class DocumentedStateSetTest {
         val extra = documented - written
         assertTrue(
             undocumented.isEmpty(),
-            "The $name states $undocumented are written by the code and absent from docs/architecture.md."
+            "The $name states $undocumented are written by the code and absent from $statePagePath."
         )
         assertTrue(
             extra.isEmpty(),
-            "The $name states $extra are in docs/architecture.md and no repository writes them."
+            "The $name states $extra are in $statePagePath and no repository writes them."
         )
         assertEquals(written, documented, "The documented $name state set differs from the code.")
     }
@@ -122,9 +129,10 @@ class DocumentedStateSetTest {
     /** Reads the state names from the fenced block that carries the marker for [name]. */
     private fun documentedStates(name: String): Set<String> {
         val text = readDocument()
-        val marker = "<!-- states:$name -->"
+        // MDX has no HTML comment, so the marker is an MDX comment.
+        val marker = "{/* states:$name */}"
         val markerIndex = text.indexOf(marker)
-        assertTrue(markerIndex >= 0, "docs/architecture.md must contain the marker $marker.")
+        assertTrue(markerIndex >= 0, "$statePagePath must contain the marker $marker.")
         val afterMarker = text.substring(markerIndex + marker.length)
         val start = afterMarker.indexOf("```")
         assertTrue(start >= 0, "The marker $marker must be followed by a fenced block.")
@@ -150,7 +158,7 @@ class DocumentedStateSetTest {
     private fun readDocument(): String {
         assertTrue(
             architectureDocument.isFile,
-            "docs/architecture.md does not exist at ${architectureDocument.path}."
+            "$statePagePath does not exist at ${architectureDocument.path}."
         )
         return architectureDocument.readText()
     }

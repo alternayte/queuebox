@@ -85,7 +85,7 @@ class HttpPublisherTest {
 
     @Test
     fun `every 2xx status completes the delivery, including 202`() = runTest {
-        // A 202 transfers durable responsibility to the receiver. See docs/delivery-semantics.md.
+        // A 202 transfers durable responsibility to the receiver. See concepts/delivery-semantics.mdx of the docs site.
         val statuses = listOf(
             HttpStatusCode.OK,
             HttpStatusCode.Created,

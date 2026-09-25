@@ -125,15 +125,15 @@ class MetricsRoutesTest {
             .toSortedSet()
 
         val undocumented = emitted.filterNot { document.contains(it) }
-        assertTrue(undocumented.isEmpty(), "docs/operations/metrics.md misses: $undocumented")
+        assertTrue(undocumented.isEmpty(), "site/src/content/docs/reference/metrics.mdx misses: $undocumented")
     }
 
     private fun metricsDocumentText(): String {
         var dir = java.io.File(System.getProperty("user.dir")).absoluteFile
         while (true) {
-            val candidate = java.io.File(dir, "docs/operations/metrics.md")
+            val candidate = java.io.File(dir, "site/src/content/docs/reference/metrics.mdx")
             if (candidate.isFile) return candidate.readText()
-            dir = dir.parentFile ?: error("No docs/operations/metrics.md above the working directory.")
+            dir = dir.parentFile ?: error("No site/src/content/docs/reference/metrics.mdx above the working directory.")
         }
     }
 }

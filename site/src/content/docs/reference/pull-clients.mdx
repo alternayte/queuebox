@@ -1,0 +1,277 @@
+---
+title: Pull clients
+description: The Go, TypeScript and C# libraries that claim and complete pull inbox rows, with their install command, API surface and settings.
+sidebar:
+  order: 9
+---
+
+This page describes the three pull-inbox libraries: Go, TypeScript and C#. Each library claims the rows of one `consumption: pull` source, runs your handler in a transaction, and completes, retries or dead-letters the row.
+The README of each library holds the full text:
+[Go](https://github.com/alternayte/queuebox/blob/main/clients/go/README.md),
+[TypeScript](https://github.com/alternayte/queuebox/blob/main/clients/typescript/README.md) and
+[C#](https://github.com/alternayte/queuebox/blob/main/clients/csharp/README.md).
+[Consume the inbox](/how-to/consume-the-inbox/) shows a worker from start to end.
+
+## What every library does
+
+| Behaviour | Rule |
+| --- | --- |
+| Claim | One transaction holds the claim and nothing else, and it commits before a handler starts. |
+| Handler transaction | The handler receives an open transaction. The library runs the completion in that transaction, then commits. |
+| Lost lease | A completion that updates no row means that another worker owns the row. The library rolls the handler writes back. |
+| Renewal | The library renews the lease every third of the lease duration. |
+| Failure | A handler error rolls the transaction back. The retry policy then retries the row later or dead-letters it. |
+| Shutdown | A stop ends the claims at once. A handler that runs past the grace period is cancelled. The library completes nothing for it and spends no attempt, and the lease expires. |
+| Redaction | Every log line and every `last_error` value passes through the redaction that QueueBox uses. |
+| Schema | The library writes no schema. It needs the V10 schema or later, which adds the inbox `headers` column. |
+| Claim token | The handler never sees the token. |
+
+Rules for a handler, in every language:
+
+1. Write every change through the transaction that the handler receives.
+2. Do not commit and do not roll back. The library owns both.
+3. Fail the row with an error or an exception.
+4. Honour the cancellation. It fires when the lease is lost and when a shutdown runs out of grace.
+5. Deduplicate external work on the source and the idempotency key. A transaction cannot roll back a call to another system.
+
+## Message fields
+
+| Field | Meaning |
+| --- | --- |
+| id | The inbox row identifier. |
+| source | The source name. |
+| idempotency key | The deduplication key. The identity of the message is the source and this key together. |
+| aggregate id | Nullable. |
+| event type | Nullable. |
+| payload | The JSON body. |
+| headers | The stored headers, one string value per name. Empty when there are none. |
+| attempt | `0` on the first delivery. |
+| correlation id | Nullable. For logs. |
+
+## Go
+
+| | |
+| --- | --- |
+| Module | `github.com/alternayte/queuebox/clients/go`, package `queuebox` |
+| Go | 1.24 or later |
+| Drivers | `database/sql` with `pgx` for PostgreSQL or `go-mssqldb` for SQL Server. The application registers the driver. |
+| Release tag | `clients/go/vX.Y.Z` |
+
+```bash
+go get github.com/alternayte/queuebox/clients/go
+```
+
+```go
+worker, err := queuebox.NewInboxWorker(db, queuebox.Options{Source: "orders", BatchSize: 10, LeaseMS: 30_000})
+if err != nil {
+	log.Fatal(err)
+}
+
+err = worker.Run(ctx, func(ctx context.Context, message queuebox.Message, tx *sql.Tx) error {
+	var order struct {
+		ID    string `json:"id"`
+		Total int    `json:"total"`
+	}
+	if err := message.UnmarshalPayload(&order); err != nil {
+		return err
+	}
+	_, err := tx.ExecContext(ctx, "INSERT INTO orders (id, total) VALUES ($1, $2)", order.ID, order.Total)
+	return err
+})
+```
+
+### API
+
+| Name | Kind | Purpose |
+| --- | --- | --- |
+| `NewInboxWorker(db *sql.DB, options Options) (*InboxWorker, error)` | function | Builds a worker. It returns an error for a setting that cannot work. |
+| `(*InboxWorker).Run(ctx, handler) error` | method | Claims and handles rows until `ctx` is cancelled. |
+| `Handler` | type | `func(ctx context.Context, message Message, tx *sql.Tx) error` |
+| `Message` | struct | `ID`, `Source`, `IdempotencyKey`, `AggregateID`, `EventType`, `Payload`, `Attempt`, `CorrelationID`, `Headers`. |
+| `(Message).UnmarshalPayload(target any) error` | method | Parses the payload into `target`. |
+| `RetryPolicy` | interface | `Decide(message Message, failure error) FailureAction` |
+| `RetryPolicyFunc` | type | A function that satisfies `RetryPolicy`. |
+| `NewDefaultRetryPolicy(maxAttempts, baseDelay, maxDelay, jitter)` | function | The exponential policy with jitter. |
+| `RetryAfter(delay)`, `DeadLetter()` | functions | The two `FailureAction` values. |
+| `DefaultSchema() Schema` | function | The default table and column names, to change for a mapped schema. |
+| `DialectPostgreSQL`, `DialectSQLServer` | constants | The values of `Options.Dialect`. |
+| `Logger` | interface | `Info`, `Warn` and `Error`, each with a message and a map of fields. |
+| `Sanitize`, `SanitizeError` | functions | The redaction that the library applies. |
+
+### Options
+
+| Field | Default | Meaning |
+| --- | --- | --- |
+| `Source` | required | The source whose rows this worker takes. |
+| `BatchSize` | `10` | The largest number of rows in one claim. |
+| `LeaseMS` | `30000` | The lease duration in milliseconds. |
+| `MaxConcurrency` | `1` | The largest number of handlers at one time. |
+| `PollInterval` | 1 second | The wait after a claim that returned nothing. |
+| `ShutdownGrace` | 30 seconds | How long a stop waits for running handlers. |
+| `Dialect` | `DialectPostgreSQL` | The database dialect. |
+| `Schema` | the default names | A `*Schema` for a mapped table or mapped columns. |
+| `RetryPolicy` | 5 attempts, 1 second base, 5 minute ceiling, 0.2 jitter | What happens to a row whose handler failed. |
+| `Logger` | none | Without a logger, the library prints nothing. |
+
+On SQL Server, give each claim call a context deadline of at least 30 seconds.
+
+## TypeScript
+
+| | |
+| --- | --- |
+| Package | `@alternayte/queuebox-inbox` on npm, ESM and CJS |
+| Runtime | Node 22 or later, Bun, or Deno |
+| Drivers | `pg` for PostgreSQL or `mssql` for SQL Server, through an adapter. The package imports no driver. |
+| Release tag | `typescript-vX.Y.Z` |
+
+```bash
+npm install @alternayte/queuebox-inbox
+```
+
+```ts
+import pg from "pg";
+import { InboxWorker, fromPg } from "@alternayte/queuebox-inbox";
+
+const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
+const worker = new InboxWorker(fromPg(pool), { source: "orders", batchSize: 10, leaseMs: 30_000 });
+
+await worker.run(async (message, tx) => {
+  const payload = message.payload as { id: string; total: number };
+  await tx.query("INSERT INTO orders (id, total) VALUES ($1, $2)", [payload.id, payload.total]);
+});
+```
+
+### API
+
+| Name | Kind | Purpose |
+| --- | --- | --- |
+| `new InboxWorker(connection, options)` | class | Builds a worker. |
+| `worker.run(handler, signal?)` | method | Claims and handles rows until the signal aborts. |
+| `InboxHandler` | type | `(message, tx, signal) => Promise<void>` |
+| `fromPg(pool)` | function | The adapter for a `pg` pool. |
+| `fromMssql(mssql, pool)` | function | The adapter for an `mssql` pool. It takes the `mssql` module itself. |
+| `InboxMessage` | type | `id`, `source`, `idempotencyKey`, `aggregateId`, `eventType`, `payload`, `headers`, `attempt`, `correlationId`. |
+| `InboxRetryPolicy` | type | `(message, failure) => InboxFailureAction` |
+| `defaultRetryPolicy(options?)` | function | The exponential policy with jitter. |
+| `retryAfter(ms)`, `deadLetter()` | functions | The two `InboxFailureAction` values. |
+| `defaultSchema` | value | The default table and column names. |
+| `inboxSql` | function | The SQL statements for a dialect and a schema. |
+| `sanitize`, `sanitizeError`, `MAX_ERROR_LENGTH` | functions and value | The redaction that the library applies. |
+| `resolveOptions` | function | The options with their defaults filled in. |
+
+### Options
+
+| Field | Default | Meaning |
+| --- | --- | --- |
+| `source` | required | The source whose rows this worker takes. |
+| `batchSize` | `10` | The largest number of rows in one claim. |
+| `leaseMs` | `30000` | The lease duration in milliseconds. |
+| `maxConcurrency` | `1` | The largest number of handlers at one time. |
+| `pollIntervalMs` | `1000` | The wait after a claim that returned nothing. |
+| `shutdownGraceMs` | `30000` | How long a stop waits for running handlers. |
+| `dialect` | `"postgresql"` | `"postgresql"` or `"sqlserver"`. |
+| `schema` | `defaultSchema` | The names for a mapped table or mapped columns. |
+| `retryPolicy` | `defaultRetryPolicy()` | 5 attempts, 1000 ms base, 300000 ms ceiling, 0.2 jitter. |
+| `logger` | none | Without a logger, the library prints nothing. |
+
+On SQL Server, set the `mssql` request timeout to at least 30 seconds. Its default of 15 seconds is too short.
+
+## C#
+
+| | |
+| --- | --- |
+| Packages | `QueueBox.Inbox`, and `QueueBox.Inbox.DependencyInjection` for a hosted service, on NuGet |
+| Framework | .NET 8.0 or later |
+| Drivers | `Npgsql` for PostgreSQL or `Microsoft.Data.SqlClient` for SQL Server, through `System.Data.Common`. The package depends on no driver. |
+| Release tag | `csharp-vX.Y.Z` |
+
+```bash
+dotnet add package QueueBox.Inbox
+```
+
+```csharp
+await using var dataSource = NpgsqlDataSource.Create(connectionString);
+
+var worker = new InboxWorker(
+    InboxConnections.From(dataSource),
+    new InboxOptions { Source = "orders", BatchSize = 10, LeaseMs = 30_000 });
+
+await worker.RunAsync(async (message, transaction, cancellationToken) =>
+{
+    await using var command = transaction.CreateCommand();
+    command.CommandText = "INSERT INTO orders (id, total) VALUES (@id, @total)";
+    command
+        .WithParameter("@id", message.Payload.GetProperty("id").GetString())
+        .WithParameter("@total", message.Payload.GetProperty("total").GetInt32());
+    await command.ExecuteNonQueryAsync(cancellationToken);
+});
+```
+
+### API
+
+| Name | Kind | Purpose |
+| --- | --- | --- |
+| `InboxWorker(connections, options, logger?)` | class | Builds a worker. `logger` is an `ILogger<InboxWorker>`. |
+| `InboxWorker.RunAsync(handler, cancellationToken)` | method | Claims and handles rows until the token fires. |
+| `InboxHandler` | delegate | `(InboxMessage message, DbTransaction transaction, CancellationToken token) => Task` |
+| `InboxConnections.From(DbDataSource)` | method | A connection source for a data source, for example Npgsql. |
+| `InboxConnections.From(DbProviderFactory, string)` | method | A connection source for a factory and a connection string, for example `SqlClientFactory.Instance`. |
+| `InboxConnections.From(Func<CancellationToken, ValueTask<DbConnection>>)` | method | A connection source for your own open function. |
+| `IInboxConnectionSource` | interface | The connection source that a worker uses. |
+| `InboxMessage` | class | `Id`, `Source`, `IdempotencyKey`, `AggregateId`, `EventType`, `Payload` as `JsonElement`, `Attempt`, `CorrelationId`, `Headers`. |
+| `IInboxRetryPolicy` | interface | `InboxFailureAction Decide(InboxMessage message, Exception failure)` |
+| `DefaultRetryPolicy(maxAttempts, baseDelay, maxDelay, jitter)` | class | The exponential policy with jitter. |
+| `InboxFailureAction.Retry(TimeSpan)`, `InboxFailureAction.DeadLetter()` | methods | The two failure actions. |
+| `InboxSchema.Default` | record | The default names. Change them with a `with` expression. |
+| `SqlDialect` | enum | `PostgreSql` or `SqlServer`. |
+| `transaction.CreateCommand()`, `command.WithParameter(name, value)` | extension methods | Helpers for a command on the handler transaction. |
+| `services.AddQueueBoxInbox(name, options, handler, connections?)` | extension method | `QueueBox.Inbox.DependencyInjection`. Registers a named worker as a hosted service. |
+| `InboxDbContextFactory.CreateOn(transaction, build)` | method | `QueueBox.Inbox.DependencyInjection`. Builds an Entity Framework Core context on the handler transaction. |
+
+### Options
+
+| Property | Default | Meaning |
+| --- | --- | --- |
+| `Source` | required | The source whose rows this worker takes. |
+| `BatchSize` | `10` | The largest number of rows in one claim. |
+| `LeaseMs` | `30000` | The lease duration in milliseconds. |
+| `MaxConcurrency` | `1` | The largest number of handlers at one time. |
+| `PollInterval` | 1 second | The wait after a claim that returned nothing. |
+| `ShutdownGrace` | 30 seconds | How long a stop waits for running handlers. |
+| `Dialect` | `PostgreSql` | `PostgreSql` or `SqlServer`. |
+| `Schema` | `InboxSchema.Default` | The names for a mapped table or mapped columns. |
+| `RetryPolicy` | `DefaultRetryPolicy` | 5 attempts, 1 second base, 5 minute ceiling, 0.2 jitter. |
+
+On SQL Server, keep the `Microsoft.Data.SqlClient` command timeout at 30 seconds or more. The default is 30 seconds.
+Entity Framework Core opens its own connection by default. Build the context through `InboxDbContextFactory.CreateOn`, so the application write and the completion share one transaction.
+
+## The retry policy
+
+The default policy of each library retries while `attempt` is below the ceiling of 5, and dead-letters after that.
+The delay is the base delay times `2^attempt`, at most the ceiling delay, with a random jitter of 20 percent.
+The row starts at attempt `0`, so the default allows six deliveries.
+Write your own policy when an error must never retry, for example a payload that does not parse.
+
+## The SQL contract
+
+A language without a library can use the SQL statements in [`examples/pull/sql`](https://github.com/alternayte/queuebox/tree/main/examples/pull/sql) directly.
+The [pull example README](https://github.com/alternayte/queuebox/blob/main/examples/pull/README.md) holds the full rules.
+
+| File | Parameters | Effect |
+| --- | --- | --- |
+| `claim.sql` | `:source`, `:batch`, `:lease_ms`, `:cand_limit` | Claims up to `batch` rows of the source, one per aggregate. Returns the rows with their claim token. |
+| `renew.sql` | `:id`, `:token`, `:lease_ms` | Extends the lease. |
+| `complete.sql` | `:id`, `:token` | Marks the row processed. Run it in the transaction of the business writes. |
+| `retry.sql` | `:id`, `:token`, `:delay_ms`, `:error` | Returns the row to pending after the delay, and raises `attempt` by one. |
+| `dead.sql` | `:id`, `:token`, `:error` | Marks the row dead. |
+
+- Bind every value as a parameter. Do not build the SQL text from values.
+- Compute `cand_limit` as `LEAST(GREATEST(3 * batch, 50), 500)`, and bind it on every call.
+- Renew, complete, retry and dead-letter must each update exactly one row. Zero rows means that the claim was lost. Stop the work.
+- Remove secrets from `error` and cut its length before you bind it.
+
+On SQL Server, the claim takes an application lock per source with a 10 second lock timeout.
+A lock failure raises Msg 51000. Treat it as a transient error, and wait before the next claim.
+Set the driver timeout to at least 30 seconds, so the server raises Msg 51000 before the driver aborts the call.
+An aborted call leaves the lock held until the connection resets.
+A SQL Server claim needs READ COMMITTED isolation. It also works with READ_COMMITTED_SNAPSHOT ON.

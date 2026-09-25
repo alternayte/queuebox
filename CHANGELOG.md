@@ -31,7 +31,7 @@ column; see Breaking.
   a retry let the later rows of its key pass it. The claim now takes a row of a non-empty key only
   when no earlier row of that key is `pending` or `processing`, and it orders one key by the new
   `sequence` column. A dead row releases its key. Rows with an empty `key` keep parallel delivery.
-  See [delivery semantics](docs/delivery-semantics.md#order-and-the-key). Fixes #58.
+  See [ordering](https://queuebox-docs.pages.dev/concepts/ordering/#order-and-the-key). Fixes #58.
 
 ### Security
 

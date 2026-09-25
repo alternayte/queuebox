@@ -53,8 +53,8 @@ its `env_file` block. `--env-file .env.example` is therefore optional above, and
 without it. Copy `.env.example` to your own file and point `env_file` at it for a real
 deployment.
 
-[docs/getting-started.md](docs/getting-started.md) holds the full walkthrough, and
-[docs/integration.md](docs/integration.md) holds the contract your application writes against.
+[Deliver your first message](https://queuebox-docs.pages.dev/tutorials/first-outbox-message/) holds the full walkthrough, and
+[Write outbox rows](https://queuebox-docs.pages.dev/how-to/write-outbox-rows/) holds the contract your application writes against.
 
 ## Guarantees
 
@@ -69,7 +69,7 @@ Proved by `HttpPublisherTest` and `E2EOutboxFlowTest`.
 **Ordering holds for one key, at any concurrency.** The outbox delivers the rows that share a
 non-empty `key` in insert order, one row of a key at a time. A row that waits for a retry holds back
 the later rows of its key, and a dead row releases its key. Rows with an empty `key` and rows of
-different keys have no order. See [delivery semantics](docs/delivery-semantics.md#order-and-the-key).
+different keys have no order. See [ordering](https://queuebox-docs.pages.dev/concepts/ordering/#order-and-the-key).
 Proved by `OrderingGuaranteeTest.the outbox delivers the rows of one key in insert order at any
 concurrency`, `OutboxKeyOrderTest.concurrent claimers deliver each key in insert order` and
 `SqlServerOutboxKeyOrderTest.concurrent claimers deliver each key in insert order`.
@@ -103,22 +103,20 @@ each outcome.
 
 ## Documentation
 
-| Document | What it holds |
-|----------|---------------|
-| [docs/getting-started.md](docs/getting-started.md) | The full quick start, the HTTP API, and the usage patterns. |
-| [docs/integration.md](docs/integration.md) | The outbox insert contract. Read this before you write code. |
-| [docs/configuration.md](docs/configuration.md) | The full configuration reference and the database support. |
-| [docs/architecture.md](docs/architecture.md) | The module graph, the message lifecycle, and the state diagrams. |
-| [docs/message-flow.md](docs/message-flow.md) | The message flow, the inbox relay, aggregate ordering, and the schema. |
-| [docs/delivery-semantics.md](docs/delivery-semantics.md) | Push and pull sources, message identity, the HTTP contract, and retention. |
-| [docs/capture.md](docs/capture.md) | Change data capture: setup, state, recovery, and failover. |
-| [docs/transforms.md](docs/transforms.md) | The JSONata transforms and the routing key templates. |
-| [docs/authentication.md](docs/authentication.md) | The authentication of a destination and of a source. |
-| [docs/operations/runbook.md](docs/operations/runbook.md) | The operations runbook. |
-| [docs/operations/metrics.md](docs/operations/metrics.md) | Every metric that `/metrics` exposes. |
-| [docs/operations/dead-letter.md](docs/operations/dead-letter.md) | How to inspect and replay a dead message. |
-| [docs/operations/security.md](docs/operations/security.md) | The deployment hardening notes. |
+The docs live at **[queuebox-docs.pages.dev](https://queuebox-docs.pages.dev)**: tutorials, how-to guides, concepts, the
+configuration reference and the operations runbook.
+
+- Coding agents read [`/llms.txt`](https://queuebox-docs.pages.dev/llms.txt) or [`/llms-full.txt`](https://queuebox-docs.pages.dev/llms-full.txt), and
+  every page is also Markdown at its URL plus `.md`.
+- The QueueBox agent skill lives in [skills/queuebox](skills/queuebox/SKILL.md). Install it with
+  `npx skills add alternayte/queuebox`, or in Claude Code with
+  `/plugin marketplace add alternayte/queuebox` and `/plugin install queuebox@queuebox`.
+  [Use QueueBox with coding agents](https://queuebox-docs.pages.dev/how-to/use-coding-agents/) holds the detail.
+
+| In this repository | What it holds |
+|--------------------|---------------|
 | [docs/adr/](docs/adr) | The architecture decision records. |
+| [docs/development/](docs/development) | Building, migrations and releasing QueueBox itself. |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | How to build, test and submit a change. |
 | [TESTING.md](TESTING.md) | The test strategy and the coverage gates. |
 | [CHANGELOG.md](CHANGELOG.md) | What changed in each release. |
@@ -126,7 +124,8 @@ each outcome.
 ## Database support
 
 QueueBox runs on PostgreSQL and on SQL Server.
-[docs/configuration.md](docs/configuration.md) holds the supported versions and the column mapping.
+[The deploy page](https://queuebox-docs.pages.dev/operations/deploy/) holds the supported versions, and
+[Use custom tables](https://queuebox-docs.pages.dev/how-to/use-custom-tables/) holds the column mapping.
 
 ## Roadmap
 
@@ -135,12 +134,10 @@ date.
 
 | Feature | Target | Note |
 |---------|--------|------|
-| OpenTelemetry tracing | 1.1 | 1.0 correlates a message with the `X-Correlation-Id` header, the `correlation_id` column, and the `correlationId` field of every log line. See [docs/operations/runbook.md](docs/operations/runbook.md). |
-| Message replay from the dead-letter state | 1.1 | 1.0 documents the SQL. See [docs/operations/dead-letter.md](docs/operations/dead-letter.md). |
-| Kafka destination | 1.2 | |
+| OpenTelemetry tracing | 1.1 | 1.0 correlates a message with the `X-Correlation-Id` header, the `correlation_id` column, and the `correlationId` field of every log line. See [the runbook](https://queuebox-docs.pages.dev/operations/runbook/). |
 | Rate limit per destination | 1.2 | 1.0 rate limits an inbox source. |
 | Admin user interface | not scheduled | |
-| Kubernetes Helm chart | not scheduled | The deployment examples in [docs/operations/security.md](docs/operations/security.md) cover the same ground. |
+| Kubernetes Helm chart | not scheduled | The Kubernetes section of [the deploy page](https://queuebox-docs.pages.dev/operations/deploy/#kubernetes) covers the same ground. |
 
 A row with a version number is work that a maintainer intends to do. A row that says
 "not scheduled" is work that nobody has committed to. Do not plan a deployment around a row of the

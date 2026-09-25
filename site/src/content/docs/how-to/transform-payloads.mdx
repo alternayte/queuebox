@@ -1,0 +1,190 @@
+---
+title: Transform payloads
+description: Reshape a payload with JSONata at ingestion, on a route or at a destination, choose what a failed transform does, and build RabbitMQ routing keys from the row.
+sidebar:
+  order: 6
+---
+
+import { Aside } from "@astrojs/starlight/components";
+
+This guide shows how to reshape a payload with a [JSONata](https://jsonata.org/) expression, and how to build a RabbitMQ routing key from the row. [Transforms](/reference/transforms/) lists every context variable and every setting.
+
+## Choose where the transform runs
+
+A transform can run at three places. Each one sees the output of the one before it.
+
+| Place | Runs | Typical use |
+|-------|------|-------------|
+| `sources.<name>.transform` | Once, when the inbox stores the message | Normalise a webhook before anything else reads it |
+| `routes[n].transform` | Before delivery, for the rows of that route | Shape one kind of event |
+| `destinations.<name>.transform` | Before delivery, after the route transform | Fit the format that one endpoint expects |
+
+A source transform changes the stored payload. A route or destination transform changes only what the destination receives. The outbox row keeps its original payload, so a retry transforms it again.
+
+## Reshape a payload at a destination
+
+This destination wraps every payload in an envelope:
+
+```yaml
+destinations:
+  partner-api:
+    type: http
+    baseUrl: https://api.partner.example
+    path: /events
+    transform:
+      expression: '{ "id": $messageId, "type": $topic, "data": $ }'
+      timeoutMs: 100
+      onError: Fail
+
+routes:
+  - topicPattern: "order.*"
+    destination: partner-api
+```
+
+A row with topic `order.created` and payload `{"orderId":"1001"}` arrives as:
+
+```json
+{ "id": "6b1f0c1e-9a7d-4f0e-8a1c-2f3d4e5f6a7b", "type": "order.created", "data": { "orderId": "1001" } }
+```
+
+`$` is the payload. `$messageId`, `$topic`, `$attempt` and `$timestamp` are context variables. An inbox transform also reads `$source` and `$headers`.
+
+## Shape one kind of event on a route
+
+A route transform runs only for the rows that the route matches:
+
+```yaml
+destinations:
+  billing:
+    type: http
+    baseUrl: https://billing.internal
+    path: /orders
+
+routes:
+  - topicPattern: "order.*"
+    destination: billing
+    transform:
+      expression: |
+        {
+          "orderId": id,
+          "customer": customer.name,
+          "total": items.(price * quantity) ~> $sum()
+        }
+      timeoutMs: 150
+      onError: Fail
+```
+
+The payload `{"id":"1001","customer":{"name":"Ada"},"items":[{"price":10,"quantity":2},{"price":5,"quantity":3}]}` becomes `{"orderId":"1001","customer":"Ada","total":35}`.
+
+## Normalise a webhook at the source
+
+A source transform runs once, before QueueBox stores the row. It can read the received headers through `$headers`:
+
+```yaml
+sources:
+  github:
+    type: http
+    path: /github
+    idempotencyKeyPath: $.delivery
+    eventTypePath: $.action
+    transform:
+      expression: '{ "action": action, "repository": repository.full_name, "event": $headers."x-github-event" }'
+      onError: Skip
+```
+
+- Quote a header name that holds a hyphen: `$headers."x-github-event"`.
+- A header name matches exactly, so use the letter case that the stored row shows.
+- An HTTP source stores no `Authorization`, `Proxy-Authorization` or `Cookie` header, and no header that the source authentication reads.
+- QueueBox reads the idempotency key and the event type from the original body, before the transform runs.
+
+## More expressions
+
+Remove secret fields:
+
+```text
+$ ~> |$|{}, ['password', 'secret', 'token']|
+```
+
+Choose an action from a field:
+
+```text
+status = 'paid' ? { "action": "fulfill", "orderId": id } : { "action": "remind", "orderId": id }
+```
+
+Add the time of the delivery:
+
+```text
+$merge([$, { "deliveredAt": $timestamp }])
+```
+
+## Choose what a failed transform does
+
+`onError` decides what happens when the expression fails or runs past `timeoutMs`. Write the value with the exact case shown. `fail` in lower case does not load.
+
+| `onError` | At a route or a destination | At a source |
+|-----------|-----------------------------|-------------|
+| `Fail` | The default. The row goes back to the retry path. | QueueBox rejects the message. |
+| `Skip` | The original payload goes to the destination. | QueueBox stores the original payload. |
+| `Dead` | The row goes to `dead` at once. | Same as `Fail`. |
+
+A rejected message at a source follows the source type:
+
+- An HTTP source answers `422` and stores no row. The sender still holds the message.
+- A RabbitMQ, Kafka or NATS source stores the row with the original payload, marks it `dead`, and acknowledges the message. The message is never lost.
+
+`Skip` on a route transform delivers the payload as it was before that transform, and the destination transform does not run. `Skip` on a destination transform delivers the output of the route transform.
+
+`timeoutMs` defaults to `100`. `maxDepth` defaults to `100` and bounds the recursion of one expression.
+
+## Test an expression
+
+The admin endpoint runs an expression against a sample payload, so you can check it before you deploy it. Turn the endpoint on with authentication, as [Authenticate requests](/how-to/authenticate-requests/#protect-the-admin-endpoint) shows. Then send the expression:
+
+```bash
+curl -X POST http://localhost:8080/admin/transform/test \
+  -H "Authorization: Bearer the-admin-token" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "expression": "{ \"total\": items.(price * qty) ~> $sum() }",
+    "payload": {"items": [{"price": 10, "qty": 2}, {"price": 5, "qty": 3}]},
+    "mockTopic": "order.created"
+  }'
+```
+
+## Build a RabbitMQ routing key
+
+A RabbitMQ destination publishes each row with a routing key. A route sets it with `routingKeyTemplate`:
+
+```yaml
+destinations:
+  events-exchange:
+    type: rabbitmq
+    url: amqp://guest:guest@rabbitmq:5672
+    exchange: events
+
+routes:
+  - topicPattern: "order.*"
+    destination: events-exchange
+    routingKeyTemplate: "{{ payload.region }}.{{ payload.priority }}.{{ topic }}"
+    routingKeyMissingFieldDefault: "default"
+```
+
+A row with topic `order.created` and payload `{"region":"eu","priority":"high"}` gets the routing key `eu.high.order.created`. Without a `priority` field, it gets `eu.default.order.created`.
+
+A template can read these placeholders:
+
+| Placeholder | Value |
+|-------------|-------|
+| `{{ topic }}` | The `topic` of the row |
+| `{{ key }}` | The `key` of the row |
+| `{{ aggregateType }}` | The `aggregate_type` of the row |
+| `{{ payload.field }}` | A field of the payload. Nested fields work: `{{ payload.customer.region }}` |
+| `{{ data.field }}` | The same as `{{ payload.field }}` |
+
+A missing field and any other placeholder render as `routingKeyMissingFieldDefault`. The default of that setting is an empty string.
+
+When the route sets no `routingKeyTemplate`, QueueBox renders the `routingKeyTemplate` of the destination instead. Its default is `{{ topic }}`.
+
+<Aside>
+A route `routingKeyTemplate` sets the RabbitMQ routing key only. A Kafka destination sets its record key with `keyTemplate`. A NATS destination sets its subject with `subject` or `subjectFrom`. See [Bridge a broker](/how-to/bridge-a-broker/#choose-the-address-from-the-row).
+</Aside>

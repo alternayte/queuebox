@@ -1,0 +1,256 @@
+---
+title: Bridge a broker
+description: Read RabbitMQ, Kafka or NATS JetStream into the inbox, and publish outbox rows to them.
+sidebar:
+  order: 3
+---
+
+import { Tabs, TabItem, Aside } from "@astrojs/starlight/components";
+
+This guide shows how to connect QueueBox to RabbitMQ, Kafka or NATS JetStream. A broker can feed the inbox as a source, and it can receive outbox rows as a destination. Each broker has a runnable example in the repository: `examples/rabbitmq-bridge`, `examples/kafka-bridge` and `examples/nats-bridge`.
+
+| Broker | As a source | As a destination |
+|--------|-------------|------------------|
+| RabbitMQ | One queue per source | One exchange per destination |
+| Kafka | One consumer group per source | One topic per destination |
+| NATS | JetStream only | JetStream by default |
+
+## Read a broker into the inbox
+
+A broker source stores each message as an inbox row, and then acknowledges it. A crash between the two replays the message. The unique constraint on `(source, idempotency_key)` then rejects the repeat, so the inbox holds one row.
+
+A message whose body is not JSON is stored as a `dead` row and acknowledged. No consumer can read such a body, and a message that the source never acknowledges blocks the queue or the partition.
+
+<Tabs syncKey="broker">
+<TabItem label="RabbitMQ">
+
+```yaml
+sources:
+  orders-queue:
+    type: rabbitmq
+    queueName: incoming-orders
+    connectionUrl: amqp://guest:guest@rabbitmq:5672
+    idempotencyKeyPath: $.messageId
+    aggregateIdPath: $.orderId
+    eventTypePath: $.type
+    topic: "orders.{{ eventType }}"
+    prefetchCount: 10
+```
+
+- The source acknowledges after the inbox row commits, and it requeues the message when the store fails.
+- The source does not declare its queue. A missing queue stops the source with an error that names it. A declared queue with a typo in its name receives nothing and looks healthy. Set `declareQueue: true` only when QueueBox must create the queue.
+- `prefetchCount` limits the unacknowledged messages per consumer. The default is `10`.
+
+</TabItem>
+<TabItem label="Kafka">
+
+```yaml
+sources:
+  orders-topic:
+    type: kafka
+    bootstrapServers: broker-1:9092,broker-2:9092
+    topics: [orders, orders-retry]
+    groupId: queuebox-orders
+    idempotencyKeyPath: $.id
+    aggregateIdPath: $.customerId
+    eventTypePath: $.type
+    autoOffsetReset: earliest
+    maxPollRecords: 100
+```
+
+- The source commits an offset only after the inbox row commits. It commits the unbroken run of stored records, and it seeks back to the first record that failed.
+- Every replica shares `groupId`, so the replicas divide the partitions between them.
+- `autoOffsetReset` is `earliest` or `latest`. It applies when the group has no committed offset.
+- `securityProtocol` is `PLAINTEXT`, `SSL`, `SASL_PLAINTEXT` or `SASL_SSL`. A SASL protocol needs `saslMechanism`, `saslUsername` and `saslPassword`.
+
+</TabItem>
+<TabItem label="NATS">
+
+```yaml
+sources:
+  orders-stream:
+    type: nats
+    servers: nats://nats:4222
+    stream: ORDERS
+    durable: queuebox-orders
+    filterSubject: orders.>
+    idempotencyKeyPath: $.id
+    aggregateIdPath: $.customerId
+    eventTypePath: $.type
+    ackWaitMs: 30000
+    batchSize: 100
+```
+
+- The source reads JetStream only. Core NATS acknowledges nothing, so an inbox on it loses every message that arrives during a restart.
+- Create the stream before QueueBox starts. QueueBox never creates a stream, because the retention and the replication of a stream are your decisions.
+- `durable` names the durable consumer, which keeps its position across a restart.
+- The source acknowledges after the inbox row commits. It sends a negative acknowledgement when the store fails, so JetStream returns the message at once. After a crash, JetStream returns the message after `ackWaitMs`.
+- `servers` takes several servers, separated by commas. `username` with `password`, or `token`, sets the credentials.
+
+</TabItem>
+</Tabs>
+
+### Give every message an idempotency key
+
+A broker source reads the idempotency key from the first of these that gives a value:
+
+| Order | RabbitMQ | Kafka | NATS |
+|-------|----------|-------|------|
+| 1 | Header `x-idempotency-key` | Header `x-idempotency-key` | Header `x-idempotency-key` |
+| 2 | `idempotencyKeyPath` in the body | `idempotencyKeyPath` in the body | `idempotencyKeyPath` in the body |
+| 3 | AMQP `messageId` property | Record key | Header `Nats-Msg-Id` |
+| 4 | SHA-256 digest of the body | SHA-256 digest of the body | SHA-256 digest of the body |
+
+`idempotencyKeyPath` defaults to `$.id`. The digest deduplicates a redelivery correctly. It also merges two different events that carry the same body, and QueueBox then drops the second one. Give every message a key.
+
+### Set the topic of a relayed message
+
+A push source forwards each row into the outbox. The `topic` template of the source sets the outbox topic. It can read `{{ source }}` and `{{ eventType }}`, and the default for a broker source is `{{ source }}`.
+
+The event type comes from `eventTypePath` in the body first. When the body gives nothing, it comes from the header `x-event-type`. A message with no event type renders `{{ eventType }}` as an empty string, and the relay then marks it `dead`. QueueBox refuses to start when a broker source template reads `{{ eventType }}` and the source sets neither `eventTypePath` nor `eventTypeFromHeader: true`. Set `eventTypeFromHeader: true` only when every publisher sets the header.
+
+The aggregate identifier comes from `aggregateIdPath` first, then from the header `x-aggregate-id`. A Kafka source then falls back to the record key.
+
+### Rename the attribute headers
+
+`attributeHeaders` renames the three headers that a broker source reads. The defaults are `x-idempotency-key`, `x-aggregate-id` and `x-event-type`. A Debezium producer, for example, sends `id`, `aggregateId` and `eventType`:
+
+```yaml
+sources:
+  outbox-events:
+    type: kafka
+    bootstrapServers: broker-1:9092
+    topics: [outbox.event.orders]
+    groupId: queuebox-orders
+    attributeHeaders:
+      idempotencyKey: id
+      aggregateId: aggregateId
+      eventType: eventType
+```
+
+The setting changes the header names only. It does not change the order in the table above.
+
+### Filter on headers
+
+A `filter` block drops a message before QueueBox stores it. A dropped message is acknowledged, and no row is stored.
+
+```yaml
+sources:
+  orders:
+    type: rabbitmq
+    queueName: incoming-orders
+    connectionUrl: amqp://guest:guest@rabbitmq:5672
+    idempotencyKeyPath: $.messageId
+    filter:
+      require:
+        - header: x-tenant
+          equals: acme
+      exclude:
+        - header: x-test
+          exists: true
+```
+
+A message must match every `require` rule and no `exclude` rule. Each rule sets exactly one of `equals`, `in`, `matches` or `exists: true`. [Configuration](/reference/configuration/) lists the full rules.
+
+## Publish outbox rows to a broker
+
+A route sends a row to a broker destination. The destination marks the row `sent` only after the broker confirms the publish.
+
+<Tabs syncKey="broker">
+<TabItem label="RabbitMQ">
+
+```yaml
+destinations:
+  events-exchange:
+    type: rabbitmq
+    url: amqp://guest:guest@rabbitmq:5672
+    exchange: queuebox-events
+    exchangeType: topic
+    deliveryMode: persistent
+
+routes:
+  - topicPattern: "order.**"
+    destination: events-exchange
+    routingKeyTemplate: "{{ topic }}"
+```
+
+- The publisher declares its exchange. `exchangeType` is `topic` by default.
+- The routing key comes from the `routingKeyTemplate` of the route. When the route sets none, it comes from the destination field of the same name, which defaults to `{{ topic }}`.
+- `deliveryMode: persistent` is the default. A persistent message in a durable queue survives a broker restart. `transient` does not.
+- The publisher waits for one broker confirm per message, on one channel per destination. More `outbox.concurrency` raises the throughput across destinations, not inside one.
+
+</TabItem>
+<TabItem label="Kafka">
+
+```yaml
+destinations:
+  orders-processed:
+    type: kafka
+    bootstrapServers: broker-1:9092,broker-2:9092
+    topic: orders-processed
+    keyTemplate: "{{ key }}"
+    timeoutMs: 30000
+
+routes:
+  - topicPattern: "order.**"
+    destination: orders-processed
+```
+
+- The producer publishes with `acks=all` and idempotence. A row is `sent` only after every in-sync replica holds the record.
+- `keyTemplate` sets the record key. The default `{{ key }}` uses the outbox `key`, so the rows of one key land in one partition. An empty result sends no record key.
+- `timeoutMs` is the whole publish budget. It must be at least `2000`.
+- `headers` adds static record headers. The row headers travel as record headers too.
+
+</TabItem>
+<TabItem label="NATS">
+
+```yaml
+destinations:
+  orders-processed:
+    type: nats
+    servers: nats://nats:4222
+    subject: processed.orders
+    jetStream: true
+    timeoutMs: 30000
+
+routes:
+  - topicPattern: "order.**"
+    destination: orders-processed
+```
+
+- `jetStream: true` is the default. The publish waits for the JetStream acknowledgement, so a stream must hold the subject.
+- `jetStream: false` publishes on core NATS with no acknowledgement. QueueBox then marks a row `sent` without proof that anything received it.
+- A route `routingKeyTemplate` does not change the subject. Use the `subject` template or `subjectFrom`.
+
+</TabItem>
+</Tabs>
+
+### Choose the address from the row
+
+The RabbitMQ `exchange`, the Kafka `topic` and the NATS `subject` can each be a template. A template can read `{{ topic }}`, `{{ key }}`, `{{ aggregateType }}`, and a payload field through `{{ payload.field }}` or `{{ data.field }}`.
+
+```yaml
+destinations:
+  domain-events:
+    type: kafka
+    bootstrapServers: broker-1:9092
+    topic: "public.{{ aggregateType }}.v1"
+
+routes:
+  - topicPattern: "**"
+    destination: domain-events
+```
+
+A row with `aggregate_type` set to `order` goes to the Kafka topic `public.order.v1`.
+
+`exchangeFrom`, `topicFrom` and `subjectFrom` read a row column instead, and they win over the template. The permitted columns are `aggregate_type`, `topic` and `key`, spelled with the underscore. QueueBox refuses to start when a template or a column name falls outside these sets. The error names the value and the destination.
+
+<Aside>
+A column or a template that gives an empty address fails the publish. The row then follows the retry path, and it goes to `dead` at its retry ceiling.
+</Aside>
+
+## Next steps
+
+- [Write outbox rows](/how-to/write-outbox-rows/) shows how an application sets `key`, `headers` and `aggregate_type`.
+- [Transform payloads](/how-to/transform-payloads/) reshapes a payload on its way in or out.
+- [Delivery semantics](/concepts/delivery-semantics/) states what each broker path promises.

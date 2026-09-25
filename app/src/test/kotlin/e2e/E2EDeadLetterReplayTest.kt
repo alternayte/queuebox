@@ -23,12 +23,16 @@ import kotlin.test.fail
 /**
  * F-055.
  *
- * Takes the requeue SQL out of `docs/operations/dead-letter.md` and runs it against a
- * dead-lettered message. Asserts the destination then receives the message.
+ * Takes the requeue SQL out of the docs page `site/src/content/docs/operations/dead-letters.mdx`
+ * and runs it against a dead-lettered message. Asserts the destination then receives the message.
  *
- * The SQL is never pasted into this test. The document is the single source.
+ * The SQL is never pasted into this test. The page is the single source.
  */
 class E2EDeadLetterReplayTest : E2ETestBase() {
+
+    private companion object {
+        const val DEAD_LETTER_PAGE = "site/src/content/docs/operations/dead-letters.mdx"
+    }
 
     private var poller: OutboxPoller? = null
 
@@ -40,20 +44,23 @@ class E2EDeadLetterReplayTest : E2ETestBase() {
 
     private fun deadLetterDocument(): File {
         var dir = File(System.getProperty("user.dir")).absoluteFile
-        while (!File(dir, "docs/operations/dead-letter.md").isFile) {
-            dir = dir.parentFile ?: fail("docs/operations/dead-letter.md not found")
+        while (!File(dir, DEAD_LETTER_PAGE).isFile) {
+            dir = dir.parentFile ?: fail("$DEAD_LETTER_PAGE not found")
         }
-        return File(dir, "docs/operations/dead-letter.md")
+        return File(dir, DEAD_LETTER_PAGE)
     }
 
-    /** Reads the named fenced sql block. The document states the `sql-id` convention. */
+    /**
+     * Reads the named fenced sql block. The page states the `sql-id` convention. MDX has no HTML
+     * comment, so the name is an MDX comment: {/* sql-id: name */}.
+     */
     private fun namedSqlBlock(id: String): String {
         val pattern = Regex(
-            "<!--\\s*sql-id:\\s*$id\\s*-->\\s*```sql\\n(.*?)```",
+            "\\{/\\*\\s*sql-id:\\s*$id\\s*\\*/\\}\\s*```sql\\n(.*?)```",
             RegexOption.DOT_MATCHES_ALL
         )
         val match = pattern.find(deadLetterDocument().readText())
-            ?: fail("No sql block named '$id' in dead-letter.md")
+            ?: fail("No sql block named '$id' in $DEAD_LETTER_PAGE")
         return match.groupValues[1].trim().removeSuffix(";").trim()
     }
 

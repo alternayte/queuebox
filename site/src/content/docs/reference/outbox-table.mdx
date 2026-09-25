@@ -1,0 +1,184 @@
+---
+title: Outbox table
+description: Every column of the outbox table on PostgreSQL and SQL Server, with its type, nullability, default and writer.
+sidebar:
+  order: 3
+---
+
+import { Tabs, TabItem } from "@astrojs/starlight/components";
+
+This page describes every column of the `outbox` table that the bundled migrations create, on PostgreSQL and on SQL Server.
+The migrations live in [`postgres/src/main/resources/db/postgresql`](https://github.com/alternayte/queuebox/blob/main/postgres/src/main/resources/db/postgresql) and [`sqlserver/src/main/resources/db/sqlserver`](https://github.com/alternayte/queuebox/blob/main/sqlserver/src/main/resources/db/sqlserver).
+`database.outboxTableName` and `database.columnMapping.outbox` rename the table and its columns. See the [configuration](/reference/configuration/#databasecolumnmappingoutbox) page.
+
+## Columns
+
+| Column | PostgreSQL type | SQL Server type | Null | Default | Written by |
+| --- | --- | --- | --- | --- | --- |
+| `id` | `UUID` | `UNIQUEIDENTIFIER` | no | `gen_random_uuid()` / `NEWID()` | The application, or the default |
+| `topic` | `VARCHAR(255)` | `NVARCHAR(255)` | no | none | The application. Required. |
+| `key` | `VARCHAR(255)` | `NVARCHAR(255)` | yes | none | The application. Optional. |
+| `payload` | `JSONB` | `NVARCHAR(MAX)` | no | none | The application. Required. |
+| `headers` | `JSONB` | `NVARCHAR(MAX)` | no | `'{}'` | The application. Optional. |
+| `aggregate_type` | `VARCHAR(255)` | `NVARCHAR(255)` | yes | none | The application. Optional. |
+| `state` | `VARCHAR(50)` | `NVARCHAR(50)` | no | `'pending'` | QueueBox |
+| `attempt` | `INTEGER` | `INT` | no | `0` | QueueBox |
+| `max_attempts` | `INTEGER` | `INT` | no | `5` | The application, or the default. The relay writes `outbox.maxAttempts`. |
+| `scheduled_at` | `TIMESTAMP WITH TIME ZONE` | `DATETIME2` | no | `CURRENT_TIMESTAMP` / `GETUTCDATE()` | The application, or the default. QueueBox on a retry. |
+| `created_at` | `TIMESTAMP WITH TIME ZONE` | `DATETIME2` | no | `CURRENT_TIMESTAMP` / `GETUTCDATE()` | The default |
+| `updated_at` | `TIMESTAMP WITH TIME ZONE` | `DATETIME2` | no | `CURRENT_TIMESTAMP` / `GETUTCDATE()` | QueueBox |
+| `claimed_at` | `TIMESTAMP WITH TIME ZONE` | `DATETIME2` | yes | none | QueueBox |
+| `claim_token` | `UUID` | `UNIQUEIDENTIFIER` | yes | none | QueueBox |
+| `lease_expires_at` | `TIMESTAMPTZ` | `DATETIME2` | yes | none | QueueBox |
+| `last_error` | `TEXT` | `NVARCHAR(MAX)` | yes | none | QueueBox |
+| `sequence` | `BIGINT` | `BIGINT` | no | `nextval('outbox_sequence_seq')` / `NEXT VALUE FOR outbox_sequence_seq` | The default. Do not write it. |
+
+An insert needs two columns only: `topic` and `payload`. Every other column has a default or accepts null.
+On SQL Server, `key` is a reserved word, so an insert writes it as `[key]`.
+
+## Columns the application writes
+
+### id
+
+The row identifier. QueueBox sends it as `X-Message-Id` on an HTTP delivery, and as the message identifier on a broker.
+It stays the same on every retry of the row. A replay of a row keeps the identifier.
+
+### topic
+
+The routing input. QueueBox matches it against the `topicPattern` of each route, in list order, and the first match wins.
+A row whose topic matches no route goes dead. At most 255 characters.
+
+### key
+
+The unit of order. The rows of one non-empty key reach the destination in insert order, at any concurrency and with any number of replicas.
+A null or empty key takes part in no order.
+The relay writes the inbox `aggregate_id` here.
+[Ordering](/concepts/ordering/) states the rules.
+
+### payload
+
+The message body, as one JSON document. An HTTP destination receives it as the request body. Write a JSON object or array, not a JSON string of JSON text.
+
+### headers
+
+A JSON object of string values. A destination sends each entry as a message header.
+The column is `NOT NULL`. Omit the column, or write a JSON object. An explicit `NULL` fails the insert.
+The [headers](/reference/headers/) page lists the headers that QueueBox adds.
+
+### aggregate_type
+
+The kind of business entity, for example `order`. A RabbitMQ, Kafka or NATS destination can build its address from it, through `{{ aggregateType }}` or `exchangeFrom: aggregate_type`.
+
+### max_attempts
+
+The dead-letter ceiling of this row. QueueBox reads this column, not the configuration, when a delivery fails:
+
+- A failed delivery with `attempt` below `max_attempts` schedules a retry and raises `attempt` by one.
+- A failed delivery with `attempt` equal to `max_attempts` marks the row dead.
+
+The ceiling comes from the first of these that sets it:
+
+1. The insert of the application.
+2. `inbox.relay.maxAttempts`, or else `outbox.maxAttempts`, for a row that the relay creates.
+3. The column default `5`.
+
+### scheduled_at
+
+The earliest time of the next delivery. The poller claims a row only when `scheduled_at` has passed.
+Set it in the future to delay a message. A retry moves it forward by the backoff.
+
+## Columns that QueueBox writes
+
+Do not write these columns. A row that the application creates with another state or a claim can stall, or can deliver twice.
+
+### state
+
+The position of the row in its life cycle. An insert takes the default.
+[How QueueBox works](/concepts/how-queuebox-works/) lists the states and the transitions between them.
+
+### attempt
+
+The number of failed deliveries. It is `0` on the first delivery. QueueBox sends it as `X-Attempt`, and a transform reads it as `$attempt`.
+A replay resets it to `0`.
+
+### created_at and updated_at
+
+`created_at` is the insert time. `updated_at` is the time of the last state change.
+The retention age policy of the outbox measures from `updated_at`.
+
+### claimed_at, claim_token and lease_expires_at
+
+A claim sets all three: the claim time, a new random token and the end of the lease.
+Every terminal write matches the token, so a replica that lost its claim cannot complete the row.
+The lease length is `outbox.claimTimeoutMs`, and the poller renews the lease while a publish runs.
+A row whose lease has passed returns to the claimable state.
+[Claims and leases](/concepts/claims-and-leases/) explains the model.
+
+### last_error
+
+The reason of the last failed delivery. QueueBox removes secret values and cuts the text to `http.maxErrorBodyBytes` before it writes the column.
+A replay clears it.
+
+### sequence
+
+The insert order. The database fills it from the sequence `outbox_sequence_seq`.
+The claim orders the rows of one key by `sequence`, not by `created_at`, because rows of one transaction share a `created_at`.
+Migration V11 adds the column and numbers the rows that exist, in `created_at` order.
+
+## Indexes
+
+<Tabs>
+  <TabItem label="PostgreSQL">
+
+| Index | Columns | Filter |
+| --- | --- | --- |
+| Primary key | `id` | none |
+| `idx_outbox_pending_scheduled` | `state`, `scheduled_at` | pending rows |
+| `idx_outbox_topic` | `topic` | none |
+| `idx_outbox_processing_claimed` | `claimed_at` | processing rows |
+| `idx_outbox_key_sequence` | `key`, `sequence` | pending and processing rows |
+
+  </TabItem>
+  <TabItem label="SQL Server">
+
+| Index | Columns | Filter |
+| --- | --- | --- |
+| Primary key | `id` | none |
+| `idx_outbox_pending_scheduled` | `state`, `scheduled_at` | pending rows |
+| `idx_outbox_state_updated` | `state`, `updated_at` | none |
+| `idx_outbox_processing_claimed` | `claimed_at` | processing rows |
+| `idx_outbox_key_sequence` | `[key]`, `sequence` | pending and processing rows |
+
+  </TabItem>
+</Tabs>
+
+## Example insert
+
+The insert runs in the transaction of the business write. [Write outbox rows](/how-to/write-outbox-rows/) gives the full procedure.
+
+<Tabs>
+  <TabItem label="PostgreSQL">
+```sql
+INSERT INTO outbox (topic, key, payload, headers, aggregate_type)
+VALUES (
+    'order.created',
+    'cust-42',
+    '{"orderId":"11111111-1111-1111-1111-111111111111","amount":99.99}'::jsonb,
+    '{"X-Tenant":"acme"}'::jsonb,
+    'order'
+);
+```
+  </TabItem>
+  <TabItem label="SQL Server">
+```sql
+INSERT INTO outbox (topic, [key], payload, headers, aggregate_type)
+VALUES (
+    N'order.created',
+    N'cust-42',
+    N'{"orderId":"11111111-1111-1111-1111-111111111111","amount":99.99}',
+    N'{"X-Tenant":"acme"}',
+    N'order'
+);
+```
+  </TabItem>
+</Tabs>

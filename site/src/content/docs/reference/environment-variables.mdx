@@ -1,0 +1,359 @@
+---
+title: Environment variables
+description: How a QUEUEBOX_ environment variable maps to a configuration key, which source wins, and the variable of every key.
+sidebar:
+  order: 2
+---
+
+This page describes how a `QUEUEBOX_` environment variable sets a configuration key, and lists the variable of every key.
+The [configuration](/reference/configuration/) page gives the type, the default and the meaning of each key.
+
+## Precedence
+
+QueueBox reads three sources. For each key, the first source in this list that sets the key wins.
+
+1. The `QUEUEBOX_` environment variables.
+2. The YAML file that `QUEUEBOX_CONFIG_FILE` names. When the variable is absent, QueueBox reads `/etc/queuebox/queuebox.yml`.
+3. The `queuebox.yml` resource in the image.
+
+Source 2 and source 3 do not merge. When the file exists, QueueBox does not read the resource.
+When the file is absent and any `QUEUEBOX_` variable is set, QueueBox does not read the resource either.
+A deployment that uses variables only therefore gets no source, destination or route from the image.
+
+`QUEUEBOX_CONFIG_FILE` is not a configuration key. It only names the file.
+
+A variable merges with the file key by key inside a map.
+`QUEUEBOX_DESTINATIONS_ORDERS_TIMEOUTMS` changes the timeout of the `orders` destination, and the other keys of that destination stay as the file sets them.
+A list does not merge. A variable that sets one element of a list replaces the whole list of the file.
+Set every key of every element, or set the list in the file only.
+
+When no source holds a configuration, the start fails. The error names the three sources.
+
+## Naming rule
+
+`EnvConfigLoader.envKeyToYamlPath` turns a variable name into a key path:
+
+1. It removes the `QUEUEBOX_` prefix.
+2. It turns a double underscore `__` into a literal `_`.
+3. It turns every other `_` into a `.` between two levels.
+4. It writes the path in lower case. The loader matches a key name in any letter case.
+
+The leaf name therefore has no underscore inside it. `outbox.pollIntervalMs` is `QUEUEBOX_OUTBOX_POLLINTERVALMS`.
+A variable that ends in `OUTBOX_POLL_INTERVAL_MS` sets the path `outbox.poll.interval.ms`, which does not exist. QueueBox reports no error for it, and the value has no effect.
+
+| Part of the path | How to write it | Example variable | Key |
+| --- | --- | --- | --- |
+| A level | One `_` | `QUEUEBOX_DATABASE_URL` | `database.url` |
+| A camel case name | The name in upper case, with no `_` | `QUEUEBOX_SERVER_HTTPPORT` | `server.httpPort` |
+| A map key | The key in upper case | `QUEUEBOX_SOURCES_STRIPE_PATH` | `sources.stripe.path` |
+| A `_` inside a map key | `__` | `QUEUEBOX_DESTINATIONS_MY__API_BASEURL` | `destinations.my_api.baseUrl` |
+| A list index | The number | `QUEUEBOX_ROUTES_0_TOPICPATTERN` | `routes[0].topicPattern` |
+| A list of values | One index per value | `QUEUEBOX_SOURCES_ORDERS_TOPICS_0` | `sources.orders.topics[0]` |
+
+A map key that a variable sets is always lower case. A variable cannot set a map key that holds a `-` in most shells.
+Give a destination or a source a lower case name without `-` when a variable must reach it.
+
+Every validation error prints the variable name of the key, through `EnvConfigLoader.yamlPathToEnvKey`.
+
+## Example
+
+This set of variables configures one HTTP destination, one route and one HTTP source, with no file.
+
+```bash
+QUEUEBOX_DATABASE_URL=jdbc:postgresql://db:5432/queuebox
+QUEUEBOX_DATABASE_USERNAME=queuebox
+QUEUEBOX_DATABASE_PASSWORD=secret
+QUEUEBOX_DESTINATIONS_WEBHOOK_TYPE=http
+QUEUEBOX_DESTINATIONS_WEBHOOK_BASEURL=https://api.example.com
+QUEUEBOX_ROUTES_0_TOPICPATTERN=order.*
+QUEUEBOX_ROUTES_0_DESTINATION=webhook
+QUEUEBOX_SOURCES_STRIPE_TYPE=http
+QUEUEBOX_SOURCES_STRIPE_PATH=/stripe
+QUEUEBOX_SOURCES_STRIPE_IDEMPOTENCYKEYPATH=$.id
+QUEUEBOX_SOURCES_STRIPE_EVENTTYPEPATH=$.type
+```
+
+A header filter uses list indexes at two levels:
+
+```bash
+QUEUEBOX_SOURCES_ORDERS_FILTER_REQUIRE_0_HEADER=x-region
+QUEUEBOX_SOURCES_ORDERS_FILTER_REQUIRE_0_IN_0=eu
+QUEUEBOX_SOURCES_ORDERS_FILTER_REQUIRE_0_IN_1=uk
+QUEUEBOX_SOURCES_ORDERS_FILTER_EXCLUDE_0_HEADER=x-test
+QUEUEBOX_SOURCES_ORDERS_FILTER_EXCLUDE_0_EXISTS=true
+```
+
+The three database variables are the minimum. Every other key has a default or is optional.
+
+## Every variable
+
+The tables use `orders` as the map key of a destination or a source, and `0` as a list index.
+Replace them with your own name and index.
+A key of a destination or a source applies only to the kinds that the [configuration](/reference/configuration/) page lists for it.
+
+### server
+
+| Key | Variable |
+| --- | --- |
+| `server.httpPort` | `QUEUEBOX_SERVER_HTTPPORT` |
+| `server.managementPort` | `QUEUEBOX_SERVER_MANAGEMENTPORT` |
+
+### database
+
+| Key | Variable |
+| --- | --- |
+| `database.type` | `QUEUEBOX_DATABASE_TYPE` |
+| `database.url` | `QUEUEBOX_DATABASE_URL` |
+| `database.username` | `QUEUEBOX_DATABASE_USERNAME` |
+| `database.password` | `QUEUEBOX_DATABASE_PASSWORD` |
+| `database.poolSize` | `QUEUEBOX_DATABASE_POOLSIZE` |
+| `database.connectionTimeoutMs` | `QUEUEBOX_DATABASE_CONNECTIONTIMEOUTMS` |
+| `database.outboxTableName` | `QUEUEBOX_DATABASE_OUTBOXTABLENAME` |
+| `database.inboxTableName` | `QUEUEBOX_DATABASE_INBOXTABLENAME` |
+| `database.migrate` | `QUEUEBOX_DATABASE_MIGRATE` |
+| `database.startupTimeoutMs` | `QUEUEBOX_DATABASE_STARTUPTIMEOUTMS` |
+
+### database.columnMapping
+
+| Key | Variable |
+| --- | --- |
+| `database.columnMapping.outbox.id` | `QUEUEBOX_DATABASE_COLUMNMAPPING_OUTBOX_ID` |
+| `database.columnMapping.outbox.topic` | `QUEUEBOX_DATABASE_COLUMNMAPPING_OUTBOX_TOPIC` |
+| `database.columnMapping.outbox.key` | `QUEUEBOX_DATABASE_COLUMNMAPPING_OUTBOX_KEY` |
+| `database.columnMapping.outbox.aggregateType` | `QUEUEBOX_DATABASE_COLUMNMAPPING_OUTBOX_AGGREGATETYPE` |
+| `database.columnMapping.outbox.payload` | `QUEUEBOX_DATABASE_COLUMNMAPPING_OUTBOX_PAYLOAD` |
+| `database.columnMapping.outbox.headers` | `QUEUEBOX_DATABASE_COLUMNMAPPING_OUTBOX_HEADERS` |
+| `database.columnMapping.outbox.state` | `QUEUEBOX_DATABASE_COLUMNMAPPING_OUTBOX_STATE` |
+| `database.columnMapping.outbox.attempt` | `QUEUEBOX_DATABASE_COLUMNMAPPING_OUTBOX_ATTEMPT` |
+| `database.columnMapping.outbox.maxAttempts` | `QUEUEBOX_DATABASE_COLUMNMAPPING_OUTBOX_MAXATTEMPTS` |
+| `database.columnMapping.outbox.scheduledAt` | `QUEUEBOX_DATABASE_COLUMNMAPPING_OUTBOX_SCHEDULEDAT` |
+| `database.columnMapping.outbox.createdAt` | `QUEUEBOX_DATABASE_COLUMNMAPPING_OUTBOX_CREATEDAT` |
+| `database.columnMapping.outbox.updatedAt` | `QUEUEBOX_DATABASE_COLUMNMAPPING_OUTBOX_UPDATEDAT` |
+| `database.columnMapping.outbox.claimedAt` | `QUEUEBOX_DATABASE_COLUMNMAPPING_OUTBOX_CLAIMEDAT` |
+| `database.columnMapping.outbox.claimToken` | `QUEUEBOX_DATABASE_COLUMNMAPPING_OUTBOX_CLAIMTOKEN` |
+| `database.columnMapping.outbox.leaseExpiresAt` | `QUEUEBOX_DATABASE_COLUMNMAPPING_OUTBOX_LEASEEXPIRESAT` |
+| `database.columnMapping.outbox.lastError` | `QUEUEBOX_DATABASE_COLUMNMAPPING_OUTBOX_LASTERROR` |
+| `database.columnMapping.outbox.sequence` | `QUEUEBOX_DATABASE_COLUMNMAPPING_OUTBOX_SEQUENCE` |
+| `database.columnMapping.inbox.id` | `QUEUEBOX_DATABASE_COLUMNMAPPING_INBOX_ID` |
+| `database.columnMapping.inbox.source` | `QUEUEBOX_DATABASE_COLUMNMAPPING_INBOX_SOURCE` |
+| `database.columnMapping.inbox.idempotencyKey` | `QUEUEBOX_DATABASE_COLUMNMAPPING_INBOX_IDEMPOTENCYKEY` |
+| `database.columnMapping.inbox.aggregateId` | `QUEUEBOX_DATABASE_COLUMNMAPPING_INBOX_AGGREGATEID` |
+| `database.columnMapping.inbox.eventType` | `QUEUEBOX_DATABASE_COLUMNMAPPING_INBOX_EVENTTYPE` |
+| `database.columnMapping.inbox.payload` | `QUEUEBOX_DATABASE_COLUMNMAPPING_INBOX_PAYLOAD` |
+| `database.columnMapping.inbox.state` | `QUEUEBOX_DATABASE_COLUMNMAPPING_INBOX_STATE` |
+| `database.columnMapping.inbox.createdAt` | `QUEUEBOX_DATABASE_COLUMNMAPPING_INBOX_CREATEDAT` |
+| `database.columnMapping.inbox.processedAt` | `QUEUEBOX_DATABASE_COLUMNMAPPING_INBOX_PROCESSEDAT` |
+| `database.columnMapping.inbox.claimedAt` | `QUEUEBOX_DATABASE_COLUMNMAPPING_INBOX_CLAIMEDAT` |
+| `database.columnMapping.inbox.claimToken` | `QUEUEBOX_DATABASE_COLUMNMAPPING_INBOX_CLAIMTOKEN` |
+| `database.columnMapping.inbox.leaseExpiresAt` | `QUEUEBOX_DATABASE_COLUMNMAPPING_INBOX_LEASEEXPIRESAT` |
+| `database.columnMapping.inbox.correlationId` | `QUEUEBOX_DATABASE_COLUMNMAPPING_INBOX_CORRELATIONID` |
+| `database.columnMapping.inbox.consumption` | `QUEUEBOX_DATABASE_COLUMNMAPPING_INBOX_CONSUMPTION` |
+| `database.columnMapping.inbox.scheduledAt` | `QUEUEBOX_DATABASE_COLUMNMAPPING_INBOX_SCHEDULEDAT` |
+| `database.columnMapping.inbox.attempt` | `QUEUEBOX_DATABASE_COLUMNMAPPING_INBOX_ATTEMPT` |
+| `database.columnMapping.inbox.lastError` | `QUEUEBOX_DATABASE_COLUMNMAPPING_INBOX_LASTERROR` |
+| `database.columnMapping.inbox.headers` | `QUEUEBOX_DATABASE_COLUMNMAPPING_INBOX_HEADERS` |
+
+### outbox
+
+| Key | Variable |
+| --- | --- |
+| `outbox.capture.mode` | `QUEUEBOX_OUTBOX_CAPTURE_MODE` |
+| `outbox.capture.enabled` | `QUEUEBOX_OUTBOX_CAPTURE_ENABLED` |
+| `outbox.capture.identity` | `QUEUEBOX_OUTBOX_CAPTURE_IDENTITY` |
+| `outbox.capture.stateDirectory` | `QUEUEBOX_OUTBOX_CAPTURE_STATEDIRECTORY` |
+| `outbox.capture.schema` | `QUEUEBOX_OUTBOX_CAPTURE_SCHEMA` |
+| `outbox.capture.publication` | `QUEUEBOX_OUTBOX_CAPTURE_PUBLICATION` |
+| `outbox.capture.slot` | `QUEUEBOX_OUTBOX_CAPTURE_SLOT` |
+| `outbox.capture.reconciliationIntervalMs` | `QUEUEBOX_OUTBOX_CAPTURE_RECONCILIATIONINTERVALMS` |
+| `outbox.capture.connection.hostname` | `QUEUEBOX_OUTBOX_CAPTURE_CONNECTION_HOSTNAME` |
+| `outbox.capture.connection.port` | `QUEUEBOX_OUTBOX_CAPTURE_CONNECTION_PORT` |
+| `outbox.capture.connection.database` | `QUEUEBOX_OUTBOX_CAPTURE_CONNECTION_DATABASE` |
+| `outbox.capture.connection.username` | `QUEUEBOX_OUTBOX_CAPTURE_CONNECTION_USERNAME` |
+| `outbox.capture.connection.password` | `QUEUEBOX_OUTBOX_CAPTURE_CONNECTION_PASSWORD` |
+| `outbox.capture.connection.encrypt` | `QUEUEBOX_OUTBOX_CAPTURE_CONNECTION_ENCRYPT` |
+| `outbox.capture.connection.trustServerCertificate` | `QUEUEBOX_OUTBOX_CAPTURE_CONNECTION_TRUSTSERVERCERTIFICATE` |
+| `outbox.pollIntervalMs` | `QUEUEBOX_OUTBOX_POLLINTERVALMS` |
+| `outbox.batchSize` | `QUEUEBOX_OUTBOX_BATCHSIZE` |
+| `outbox.retryBaseDelayMs` | `QUEUEBOX_OUTBOX_RETRYBASEDELAYMS` |
+| `outbox.maxAttempts` | `QUEUEBOX_OUTBOX_MAXATTEMPTS` |
+| `outbox.claimTimeoutMs` | `QUEUEBOX_OUTBOX_CLAIMTIMEOUTMS` |
+| `outbox.concurrency` | `QUEUEBOX_OUTBOX_CONCURRENCY` |
+| `outbox.pendingGaugeIntervalMs` | `QUEUEBOX_OUTBOX_PENDINGGAUGEINTERVALMS` |
+| `outbox.shutdownTimeoutMs` | `QUEUEBOX_OUTBOX_SHUTDOWNTIMEOUTMS` |
+
+### inbox
+
+| Key | Variable |
+| --- | --- |
+| `inbox.basePath` | `QUEUEBOX_INBOX_BASEPATH` |
+| `inbox.relay.enabled` | `QUEUEBOX_INBOX_RELAY_ENABLED` |
+| `inbox.relay.pollIntervalMs` | `QUEUEBOX_INBOX_RELAY_POLLINTERVALMS` |
+| `inbox.relay.batchSize` | `QUEUEBOX_INBOX_RELAY_BATCHSIZE` |
+| `inbox.relay.claimTimeoutMs` | `QUEUEBOX_INBOX_RELAY_CLAIMTIMEOUTMS` |
+| `inbox.relay.pendingGaugeIntervalMs` | `QUEUEBOX_INBOX_RELAY_PENDINGGAUGEINTERVALMS` |
+| `inbox.relay.maxAttempts` | `QUEUEBOX_INBOX_RELAY_MAXATTEMPTS` |
+| `inbox.maxBodyBytes` | `QUEUEBOX_INBOX_MAXBODYBYTES` |
+
+### http
+
+| Key | Variable |
+| --- | --- |
+| `http.maxErrorBodyBytes` | `QUEUEBOX_HTTP_MAXERRORBODYBYTES` |
+| `http.blockPrivateAddresses` | `QUEUEBOX_HTTP_BLOCKPRIVATEADDRESSES` |
+
+### admin
+
+| Key | Variable |
+| --- | --- |
+| `admin.enabled` | `QUEUEBOX_ADMIN_ENABLED` |
+| `admin.insecure` | `QUEUEBOX_ADMIN_INSECURE` |
+| `admin.auth.type` | `QUEUEBOX_ADMIN_AUTH_TYPE` |
+| `admin.auth.headerName` | `QUEUEBOX_ADMIN_AUTH_HEADERNAME` |
+| `admin.auth.key` | `QUEUEBOX_ADMIN_AUTH_KEY` |
+| `admin.auth.token` | `QUEUEBOX_ADMIN_AUTH_TOKEN` |
+| `admin.auth.secret` | `QUEUEBOX_ADMIN_AUTH_SECRET` |
+| `admin.auth.algorithm` | `QUEUEBOX_ADMIN_AUTH_ALGORITHM` |
+| `admin.auth.signaturePrefix` | `QUEUEBOX_ADMIN_AUTH_SIGNATUREPREFIX` |
+| `admin.auth.timestampHeader` | `QUEUEBOX_ADMIN_AUTH_TIMESTAMPHEADER` |
+| `admin.auth.timestampTolerance` | `QUEUEBOX_ADMIN_AUTH_TIMESTAMPTOLERANCE` |
+| `admin.auth.signaturePayloadFormat` | `QUEUEBOX_ADMIN_AUTH_SIGNATUREPAYLOADFORMAT` |
+| `admin.maxTransformTimeoutMs` | `QUEUEBOX_ADMIN_MAXTRANSFORMTIMEOUTMS` |
+| `admin.maxPayloadBytes` | `QUEUEBOX_ADMIN_MAXPAYLOADBYTES` |
+
+### destinations
+
+| Key | Variable |
+| --- | --- |
+| `destinations.<name>.type` | `QUEUEBOX_DESTINATIONS_ORDERS_TYPE` |
+| `destinations.<name>.baseUrl` | `QUEUEBOX_DESTINATIONS_ORDERS_BASEURL` |
+| `destinations.<name>.path` | `QUEUEBOX_DESTINATIONS_ORDERS_PATH` |
+| `destinations.<name>.timeoutMs` | `QUEUEBOX_DESTINATIONS_ORDERS_TIMEOUTMS` |
+| `destinations.<name>.headers.<name>` | `QUEUEBOX_DESTINATIONS_ORDERS_HEADERS_XTEAM` |
+| `destinations.<name>.transform.expression` | `QUEUEBOX_DESTINATIONS_ORDERS_TRANSFORM_EXPRESSION` |
+| `destinations.<name>.transform.timeoutMs` | `QUEUEBOX_DESTINATIONS_ORDERS_TRANSFORM_TIMEOUTMS` |
+| `destinations.<name>.transform.maxDepth` | `QUEUEBOX_DESTINATIONS_ORDERS_TRANSFORM_MAXDEPTH` |
+| `destinations.<name>.transform.onError` | `QUEUEBOX_DESTINATIONS_ORDERS_TRANSFORM_ONERROR` |
+| `destinations.<name>.auth.type` | `QUEUEBOX_DESTINATIONS_ORDERS_AUTH_TYPE` |
+| `destinations.<name>.auth.username` | `QUEUEBOX_DESTINATIONS_ORDERS_AUTH_USERNAME` |
+| `destinations.<name>.auth.password` | `QUEUEBOX_DESTINATIONS_ORDERS_AUTH_PASSWORD` |
+| `destinations.<name>.auth.headerName` | `QUEUEBOX_DESTINATIONS_ORDERS_AUTH_HEADERNAME` |
+| `destinations.<name>.auth.headerValue` | `QUEUEBOX_DESTINATIONS_ORDERS_AUTH_HEADERVALUE` |
+| `destinations.<name>.auth.clientId` | `QUEUEBOX_DESTINATIONS_ORDERS_AUTH_CLIENTID` |
+| `destinations.<name>.auth.clientSecret` | `QUEUEBOX_DESTINATIONS_ORDERS_AUTH_CLIENTSECRET` |
+| `destinations.<name>.auth.tokenUrl` | `QUEUEBOX_DESTINATIONS_ORDERS_AUTH_TOKENURL` |
+| `destinations.<name>.auth.scope` | `QUEUEBOX_DESTINATIONS_ORDERS_AUTH_SCOPE` |
+| `destinations.<name>.auth.extraParams.<name>` | `QUEUEBOX_DESTINATIONS_ORDERS_AUTH_EXTRAPARAMS_AUDIENCE` |
+| `destinations.<name>.bootstrapServers` | `QUEUEBOX_DESTINATIONS_ORDERS_BOOTSTRAPSERVERS` |
+| `destinations.<name>.topic` | `QUEUEBOX_DESTINATIONS_ORDERS_TOPIC` |
+| `destinations.<name>.keyTemplate` | `QUEUEBOX_DESTINATIONS_ORDERS_KEYTEMPLATE` |
+| `destinations.<name>.securityProtocol` | `QUEUEBOX_DESTINATIONS_ORDERS_SECURITYPROTOCOL` |
+| `destinations.<name>.saslMechanism` | `QUEUEBOX_DESTINATIONS_ORDERS_SASLMECHANISM` |
+| `destinations.<name>.saslUsername` | `QUEUEBOX_DESTINATIONS_ORDERS_SASLUSERNAME` |
+| `destinations.<name>.saslPassword` | `QUEUEBOX_DESTINATIONS_ORDERS_SASLPASSWORD` |
+| `destinations.<name>.topicFrom` | `QUEUEBOX_DESTINATIONS_ORDERS_TOPICFROM` |
+| `destinations.<name>.servers` | `QUEUEBOX_DESTINATIONS_ORDERS_SERVERS` |
+| `destinations.<name>.subject` | `QUEUEBOX_DESTINATIONS_ORDERS_SUBJECT` |
+| `destinations.<name>.jetStream` | `QUEUEBOX_DESTINATIONS_ORDERS_JETSTREAM` |
+| `destinations.<name>.username` | `QUEUEBOX_DESTINATIONS_ORDERS_USERNAME` |
+| `destinations.<name>.password` | `QUEUEBOX_DESTINATIONS_ORDERS_PASSWORD` |
+| `destinations.<name>.token` | `QUEUEBOX_DESTINATIONS_ORDERS_TOKEN` |
+| `destinations.<name>.subjectFrom` | `QUEUEBOX_DESTINATIONS_ORDERS_SUBJECTFROM` |
+| `destinations.<name>.url` | `QUEUEBOX_DESTINATIONS_ORDERS_URL` |
+| `destinations.<name>.exchange` | `QUEUEBOX_DESTINATIONS_ORDERS_EXCHANGE` |
+| `destinations.<name>.exchangeType` | `QUEUEBOX_DESTINATIONS_ORDERS_EXCHANGETYPE` |
+| `destinations.<name>.routingKeyTemplate` | `QUEUEBOX_DESTINATIONS_ORDERS_ROUTINGKEYTEMPLATE` |
+| `destinations.<name>.exchangeFrom` | `QUEUEBOX_DESTINATIONS_ORDERS_EXCHANGEFROM` |
+| `destinations.<name>.deliveryMode` | `QUEUEBOX_DESTINATIONS_ORDERS_DELIVERYMODE` |
+
+### routes
+
+| Key | Variable |
+| --- | --- |
+| `routes.<i>.topicPattern` | `QUEUEBOX_ROUTES_0_TOPICPATTERN` |
+| `routes.<i>.destination` | `QUEUEBOX_ROUTES_0_DESTINATION` |
+| `routes.<i>.routingKeyTemplate` | `QUEUEBOX_ROUTES_0_ROUTINGKEYTEMPLATE` |
+| `routes.<i>.routingKeyMissingFieldDefault` | `QUEUEBOX_ROUTES_0_ROUTINGKEYMISSINGFIELDDEFAULT` |
+| `routes.<i>.transform.expression` | `QUEUEBOX_ROUTES_0_TRANSFORM_EXPRESSION` |
+| `routes.<i>.transform.timeoutMs` | `QUEUEBOX_ROUTES_0_TRANSFORM_TIMEOUTMS` |
+| `routes.<i>.transform.maxDepth` | `QUEUEBOX_ROUTES_0_TRANSFORM_MAXDEPTH` |
+| `routes.<i>.transform.onError` | `QUEUEBOX_ROUTES_0_TRANSFORM_ONERROR` |
+
+### sources
+
+| Key | Variable |
+| --- | --- |
+| `sources.<name>.type` | `QUEUEBOX_SOURCES_ORDERS_TYPE` |
+| `sources.<name>.path` | `QUEUEBOX_SOURCES_ORDERS_PATH` |
+| `sources.<name>.idempotencyKeyPath` | `QUEUEBOX_SOURCES_ORDERS_IDEMPOTENCYKEYPATH` |
+| `sources.<name>.aggregateIdPath` | `QUEUEBOX_SOURCES_ORDERS_AGGREGATEIDPATH` |
+| `sources.<name>.eventTypePath` | `QUEUEBOX_SOURCES_ORDERS_EVENTTYPEPATH` |
+| `sources.<name>.transform.expression` | `QUEUEBOX_SOURCES_ORDERS_TRANSFORM_EXPRESSION` |
+| `sources.<name>.transform.timeoutMs` | `QUEUEBOX_SOURCES_ORDERS_TRANSFORM_TIMEOUTMS` |
+| `sources.<name>.transform.maxDepth` | `QUEUEBOX_SOURCES_ORDERS_TRANSFORM_MAXDEPTH` |
+| `sources.<name>.transform.onError` | `QUEUEBOX_SOURCES_ORDERS_TRANSFORM_ONERROR` |
+| `sources.<name>.topic` | `QUEUEBOX_SOURCES_ORDERS_TOPIC` |
+| `sources.<name>.consumption` | `QUEUEBOX_SOURCES_ORDERS_CONSUMPTION` |
+| `sources.<name>.rateLimit.requestsPerMinute` | `QUEUEBOX_SOURCES_ORDERS_RATELIMIT_REQUESTSPERMINUTE` |
+| `sources.<name>.filter.require.<i>.header` | `QUEUEBOX_SOURCES_ORDERS_FILTER_REQUIRE_0_HEADER` |
+| `sources.<name>.filter.require.<i>.equals` | `QUEUEBOX_SOURCES_ORDERS_FILTER_REQUIRE_0_EQUALS` |
+| `sources.<name>.filter.require.<i>.in.<i>` | `QUEUEBOX_SOURCES_ORDERS_FILTER_REQUIRE_0_IN_0` |
+| `sources.<name>.filter.require.<i>.matches` | `QUEUEBOX_SOURCES_ORDERS_FILTER_REQUIRE_0_MATCHES` |
+| `sources.<name>.filter.require.<i>.exists` | `QUEUEBOX_SOURCES_ORDERS_FILTER_REQUIRE_0_EXISTS` |
+| `sources.<name>.filter.exclude.<i>.header` | `QUEUEBOX_SOURCES_ORDERS_FILTER_EXCLUDE_0_HEADER` |
+| `sources.<name>.filter.exclude.<i>.equals` | `QUEUEBOX_SOURCES_ORDERS_FILTER_EXCLUDE_0_EQUALS` |
+| `sources.<name>.filter.exclude.<i>.in.<i>` | `QUEUEBOX_SOURCES_ORDERS_FILTER_EXCLUDE_0_IN_0` |
+| `sources.<name>.filter.exclude.<i>.matches` | `QUEUEBOX_SOURCES_ORDERS_FILTER_EXCLUDE_0_MATCHES` |
+| `sources.<name>.filter.exclude.<i>.exists` | `QUEUEBOX_SOURCES_ORDERS_FILTER_EXCLUDE_0_EXISTS` |
+| `sources.<name>.auth.type` | `QUEUEBOX_SOURCES_ORDERS_AUTH_TYPE` |
+| `sources.<name>.auth.headerName` | `QUEUEBOX_SOURCES_ORDERS_AUTH_HEADERNAME` |
+| `sources.<name>.auth.key` | `QUEUEBOX_SOURCES_ORDERS_AUTH_KEY` |
+| `sources.<name>.auth.token` | `QUEUEBOX_SOURCES_ORDERS_AUTH_TOKEN` |
+| `sources.<name>.auth.secret` | `QUEUEBOX_SOURCES_ORDERS_AUTH_SECRET` |
+| `sources.<name>.auth.algorithm` | `QUEUEBOX_SOURCES_ORDERS_AUTH_ALGORITHM` |
+| `sources.<name>.auth.signaturePrefix` | `QUEUEBOX_SOURCES_ORDERS_AUTH_SIGNATUREPREFIX` |
+| `sources.<name>.auth.timestampHeader` | `QUEUEBOX_SOURCES_ORDERS_AUTH_TIMESTAMPHEADER` |
+| `sources.<name>.auth.timestampTolerance` | `QUEUEBOX_SOURCES_ORDERS_AUTH_TIMESTAMPTOLERANCE` |
+| `sources.<name>.auth.signaturePayloadFormat` | `QUEUEBOX_SOURCES_ORDERS_AUTH_SIGNATUREPAYLOADFORMAT` |
+| `sources.<name>.bootstrapServers` | `QUEUEBOX_SOURCES_ORDERS_BOOTSTRAPSERVERS` |
+| `sources.<name>.topics.<i>` | `QUEUEBOX_SOURCES_ORDERS_TOPICS_0` |
+| `sources.<name>.groupId` | `QUEUEBOX_SOURCES_ORDERS_GROUPID` |
+| `sources.<name>.eventTypeFromHeader` | `QUEUEBOX_SOURCES_ORDERS_EVENTTYPEFROMHEADER` |
+| `sources.<name>.autoOffsetReset` | `QUEUEBOX_SOURCES_ORDERS_AUTOOFFSETRESET` |
+| `sources.<name>.maxPollRecords` | `QUEUEBOX_SOURCES_ORDERS_MAXPOLLRECORDS` |
+| `sources.<name>.securityProtocol` | `QUEUEBOX_SOURCES_ORDERS_SECURITYPROTOCOL` |
+| `sources.<name>.saslMechanism` | `QUEUEBOX_SOURCES_ORDERS_SASLMECHANISM` |
+| `sources.<name>.saslUsername` | `QUEUEBOX_SOURCES_ORDERS_SASLUSERNAME` |
+| `sources.<name>.saslPassword` | `QUEUEBOX_SOURCES_ORDERS_SASLPASSWORD` |
+| `sources.<name>.attributeHeaders.idempotencyKey` | `QUEUEBOX_SOURCES_ORDERS_ATTRIBUTEHEADERS_IDEMPOTENCYKEY` |
+| `sources.<name>.attributeHeaders.aggregateId` | `QUEUEBOX_SOURCES_ORDERS_ATTRIBUTEHEADERS_AGGREGATEID` |
+| `sources.<name>.attributeHeaders.eventType` | `QUEUEBOX_SOURCES_ORDERS_ATTRIBUTEHEADERS_EVENTTYPE` |
+| `sources.<name>.servers` | `QUEUEBOX_SOURCES_ORDERS_SERVERS` |
+| `sources.<name>.stream` | `QUEUEBOX_SOURCES_ORDERS_STREAM` |
+| `sources.<name>.durable` | `QUEUEBOX_SOURCES_ORDERS_DURABLE` |
+| `sources.<name>.filterSubject` | `QUEUEBOX_SOURCES_ORDERS_FILTERSUBJECT` |
+| `sources.<name>.ackWaitMs` | `QUEUEBOX_SOURCES_ORDERS_ACKWAITMS` |
+| `sources.<name>.batchSize` | `QUEUEBOX_SOURCES_ORDERS_BATCHSIZE` |
+| `sources.<name>.username` | `QUEUEBOX_SOURCES_ORDERS_USERNAME` |
+| `sources.<name>.password` | `QUEUEBOX_SOURCES_ORDERS_PASSWORD` |
+| `sources.<name>.token` | `QUEUEBOX_SOURCES_ORDERS_TOKEN` |
+| `sources.<name>.queueName` | `QUEUEBOX_SOURCES_ORDERS_QUEUENAME` |
+| `sources.<name>.connectionUrl` | `QUEUEBOX_SOURCES_ORDERS_CONNECTIONURL` |
+| `sources.<name>.prefetchCount` | `QUEUEBOX_SOURCES_ORDERS_PREFETCHCOUNT` |
+| `sources.<name>.declareQueue` | `QUEUEBOX_SOURCES_ORDERS_DECLAREQUEUE` |
+
+### retention
+
+| Key | Variable |
+| --- | --- |
+| `retention.enabled` | `QUEUEBOX_RETENTION_ENABLED` |
+| `retention.outbox.policy` | `QUEUEBOX_RETENTION_OUTBOX_POLICY` |
+| `retention.outbox.maxAge` | `QUEUEBOX_RETENTION_OUTBOX_MAXAGE` |
+| `retention.outbox.maxCount` | `QUEUEBOX_RETENTION_OUTBOX_MAXCOUNT` |
+| `retention.outbox.cleanupInterval` | `QUEUEBOX_RETENTION_OUTBOX_CLEANUPINTERVAL` |
+| `retention.outbox.batchSize` | `QUEUEBOX_RETENTION_OUTBOX_BATCHSIZE` |
+| `retention.inbox.policy` | `QUEUEBOX_RETENTION_INBOX_POLICY` |
+| `retention.inbox.maxAge` | `QUEUEBOX_RETENTION_INBOX_MAXAGE` |
+| `retention.inbox.maxCount` | `QUEUEBOX_RETENTION_INBOX_MAXCOUNT` |
+| `retention.inbox.cleanupInterval` | `QUEUEBOX_RETENTION_INBOX_CLEANUPINTERVAL` |
+| `retention.inbox.batchSize` | `QUEUEBOX_RETENTION_INBOX_BATCHSIZE` |
+

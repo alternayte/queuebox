@@ -7,7 +7,7 @@ import kotlin.test.assertTrue
 /**
  * F-072, F-082 and F-085: the README is an entry point, not the manual.
  *
- * A reference section belongs in `docs/`. Every link from the README must resolve, or the
+ * A reference section belongs on the docs site. Every link from the README must resolve, or the
  * restructure has lost a section. Every roadmap item must carry a target version or an explicit
  * refusal, so an adopter can plan. The guarantees of an infrastructure component must be stated.
  */

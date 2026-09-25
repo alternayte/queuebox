@@ -1,0 +1,132 @@
+---
+title: Transforms and templates
+description: The JSONata variables of each transform stage, the error strategies, and the placeholders of every QueueBox template.
+sidebar:
+  order: 8
+---
+
+This page lists the variables that a JSONata transform reads at each stage, the error strategies, and the placeholders of the topic, address and routing key templates.
+[Transform payloads](/how-to/transform-payloads/) shows how to write a transform.
+
+## Stages
+
+QueueBox runs a [JSONata](https://jsonata.org/) expression at three stages. The [configuration](/reference/configuration/#transform) page lists the keys of a `transform` block.
+
+| Stage | Configured on | Runs | Input |
+| --- | --- | --- | --- |
+| Source | `sources.<name>.transform` | Once, when the message arrives, before the store and before the duplicate check | The received body |
+| Route | `routes[i].transform` | On every delivery attempt, before the destination transform | The outbox `payload` |
+| Destination | `destinations.<name>.transform` | On every delivery attempt, after the route transform | The output of the route stage |
+
+The source stage changes the stored inbox payload. The route and destination stages change only the delivered body. The outbox row keeps its payload.
+QueueBox compiles every expression at start. An expression that does not compile stops the start, and the error names the key path.
+
+## Variables
+
+A variable starts with `$`. `$` alone is the input document.
+
+| Variable | Source stage | Route and destination stages |
+| --- | --- | --- |
+| `$messageId` | The `id` of the new inbox row | The `id` of the outbox row |
+| `$topic` | The extracted event type, or an empty string | The `topic` of the outbox row |
+| `$attempt` | `0` | The `attempt` of the outbox row. It is `0` on the first delivery. |
+| `$timestamp` | The receipt time, as ISO-8601 text | The `created_at` of the outbox row, as ISO-8601 text |
+| `$source` | The source name | not bound |
+| `$headers` | The received headers, one string value per name | not bound |
+
+A header name with a `-` needs quotes: `$headers."x-tenant"`. A header name matches in its exact letter case, so use the case that the inbox row shows.
+An HTTP source omits the credential headers from `$headers`. The [inbox table](/reference/inbox-table/#headers) page lists them.
+
+`POST /admin/transform/test` binds `$messageId` to a random UUID, `$topic` to `mockTopic`, `$attempt` to `0`, `$timestamp` to the current time, and `$source` to `mockSource`.
+It binds no `$headers`.
+
+## Limits
+
+| Key | Default | Effect |
+| --- | --- | --- |
+| `timeoutMs` | `100` | An evaluation that runs longer fails. |
+| `maxDepth` | `100` | An evaluation that recurses deeper fails. |
+
+A failure of either limit is a transform error. The error strategy of the block decides what happens next.
+
+## Error strategies
+
+`onError` takes `Fail`, `Skip` or `Dead`, in this letter case. The default is `Fail`.
+
+| Strategy | Route or destination stage | Source stage, HTTP | Source stage, RabbitMQ, Kafka or NATS |
+| --- | --- | --- | --- |
+| `Fail` | The delivery fails. The row retries with backoff and counts an attempt. | `422`. QueueBox stores no row. | QueueBox stores the original payload as a dead inbox row and acknowledges the message. |
+| `Skip` | The stage passes its input on unchanged. The route stage passes the outbox payload. The destination stage passes the output of the route stage. | QueueBox stores the original body. | QueueBox stores the original body. |
+| `Dead` | QueueBox marks the row dead at once. | `422`. QueueBox stores no row. | The same as `Fail`. |
+
+A route or destination transform error increases `queuebox_transform_failures_total{strategy}` by one.
+A source rejection with `Fail` or `Dead` increases `queuebox_inbox_rejections_total{reason="transform_failed"}` by one.
+
+## Source topic template
+
+`sources.<name>.topic` sets the topic of the outbox row that the relay writes for a push row.
+
+| Placeholder | Value |
+| --- | --- |
+| `{{ source }}` | The source name. |
+| `{{ eventType }}` | The `event_type` of the inbox row, or an empty string. |
+
+Both placeholders also work without spaces: `{{source}}`. Any other text stays as it is.
+QueueBox trims the result. The relay marks the inbox row dead when the result is empty.
+
+| Source kind | Default |
+| --- | --- |
+| `http` | `{{ eventType }}` |
+| `rabbitmq`, `kafka`, `nats` | `{{ source }}` |
+
+## Address templates
+
+The RabbitMQ `exchange`, the Kafka `topic` and the NATS `subject` accept these placeholders:
+
+| Placeholder | Value |
+| --- | --- |
+| `{{ topic }}` | The `topic` of the outbox row. |
+| `{{ key }}` | The `key` of the row, or an empty string. |
+| `{{ aggregateType }}` | The `aggregate_type` of the row, or an empty string. |
+| `{{ payload.<field> }}` | A field of the payload. A dot separates nested fields. An object or an array renders as JSON text. |
+| `{{ data.<field> }}` | The same as `payload.<field>`. |
+
+Any other placeholder stops the start. The error names the field and the destination.
+An address that renders empty fails the publish of that row.
+`exchangeFrom`, `topicFrom` and `subjectFrom` take the value of the `aggregate_type`, `topic` or `key` column, and QueueBox renders no template.
+
+## Routing key templates
+
+A route `routingKeyTemplate` sets the RabbitMQ routing key or the Kafka record key. A RabbitMQ destination has its own `routingKeyTemplate`, with the default `{{ topic }}`.
+
+| Placeholder | Value |
+| --- | --- |
+| `{{ topic }}` | The `topic` of the outbox row. |
+| `{{ key }}` | The `key` of the row. |
+| `{{ aggregateType }}` | The `aggregate_type` of the row. |
+| `{{ payload.<field> }}` | A field of the payload. A dot separates nested fields. |
+| `{{ data.<field> }}` | The same as `payload.<field>`. |
+
+A placeholder works with or without the inner spaces: `{{topic}}` and `{{ topic }}` are the same.
+A placeholder with another name renders the missing-field default. A field that the row does not hold also renders the default.
+The default is `routingKeyMissingFieldDefault` of the route, or an empty string.
+A routing key template does not stop the start on an unknown name.
+
+The test [`RoutingKeyTemplateContractTest`](https://github.com/alternayte/queuebox/blob/main/outbox-service/src/test/kotlin/org/nxtspec/RoutingKeyTemplateContractTest.kt) pins these forms:
+
+| Template | Payload | Topic | Result |
+| --- | --- | --- | --- |
+| `{{ topic }}` | any | `orders.created` | `orders.created` |
+| `{{topic}}` | any | `orders.created` | `orders.created` |
+| `{{ payload.region }}` | `{"region":"eu"}` | any | `eu` |
+| `{{ data.customer.region }}` | `{"customer":{"region":"de"}}` | any | `de` |
+| `{{ payload.missingField }}` | `{"region":"eu"}` | any | the default |
+| `{{ region }}` | `{"region":"eu"}` | any | the default |
+
+### Which template sets the key
+
+| Destination | Route sets `routingKeyTemplate` | Route sets none |
+| --- | --- | --- |
+| RabbitMQ | The route template | The destination `routingKeyTemplate` |
+| Kafka | The route template | The destination `keyTemplate`. It renders `{{ key }}` and `{{ topic }}` only. An empty result sends no record key. |
+| HTTP, NATS | not used | not used |

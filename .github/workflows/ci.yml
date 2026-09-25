@@ -427,7 +427,7 @@ jobs:
     name: Compose quick start
     runs-on: ubuntu-latest
     # F-073 and F-074: the documented quick start must start a working instance. The job runs the
-    # exact commands that docs/getting-started.md gives a new user.
+    # exact commands that the first-outbox-message tutorial of the docs site gives a new user.
     steps:
       - name: Check out the repository
         uses: actions/checkout@v4
@@ -547,7 +547,7 @@ jobs:
     # `DocumentedExamplesTest` guards the document on every pull request, and the steps
     # change rarely.
     if: github.event_name != 'pull_request'
-    # F-075: the Manual Setup steps of docs/getting-started.md must work. This job runs them
+    # F-075: the "Run without a container" steps of site/src/content/docs/operations/deploy.mdx must work. This job runs them
     # verbatim. A change to that section that breaks a step fails this job.
     services:
       postgres:

@@ -1,0 +1,320 @@
+---
+title: Consume the inbox
+description: Choose between the push relay and a pull worker, configure a pull source, and write an idempotent handler in Go, TypeScript or C#.
+sidebar:
+  order: 2
+---
+
+import { Tabs, TabItem, Aside } from "@astrojs/starlight/components";
+
+This guide shows the two ways an application consumes a message that an inbox source stored: the push relay and a pull worker. It then shows how to write a handler that tolerates a repeat.
+
+## Choose push or pull
+
+Every source declares how its messages leave the inbox, with `consumption`. The value is `push` by default.
+
+| | `push` | `pull` |
+|---|---|---|
+| Who moves the message | The inbox relay inside QueueBox | Your worker |
+| Needs a topic, a route and a destination | Yes | No |
+| Where your code receives the message | At the destination, for example an HTTP endpoint | In a handler, with an open database transaction |
+| `state = 'processed'` means | QueueBox forwarded the row into the outbox | Your application finished the work |
+
+QueueBox stores the value on the row at receipt. A later change of the configuration does not change a message that the inbox already holds.
+
+Use push when the consumer is another service or a broker. Use pull when the consumer is your own application and its database write must commit together with the completion of the message.
+
+## Consume with the push relay
+
+The relay claims each stored push row, writes it into the outbox, and marks the inbox row `processed`. The outbox then routes, transforms and delivers it like any other row. Your code receives the message at the destination that the matching route names.
+
+```yaml
+sources:
+  stripe:
+    type: http
+    path: /stripe
+    idempotencyKeyPath: $.id
+    eventTypePath: $.type
+    aggregateIdPath: $.data.object.customer
+    topic: "stripe.{{ eventType }}"
+
+destinations:
+  payments-service:
+    type: http
+    baseUrl: https://payments.internal
+    path: /events
+
+routes:
+  - topicPattern: "stripe.**"
+    destination: payments-service
+```
+
+The relay builds the outbox row from the inbox row:
+
+- `topic` comes from the `topic` template of the source. The template can read `{{ source }}` and `{{ eventType }}`. An HTTP source defaults to `{{ eventType }}`. A RabbitMQ, Kafka or NATS source defaults to `{{ source }}`.
+- `key` is the aggregate identifier that `aggregateIdPath` reads. The rows of one aggregate therefore arrive in order.
+- `headers` holds the received headers, plus `x-inbox-id`, `x-source`, `x-idempotency-key` and `X-Correlation-Id`. These four replace a received header of the same name, so a sender cannot set them.
+- `max_attempts` is `inbox.relay.maxAttempts`, or `outbox.maxAttempts` when that is unset.
+
+A template that renders an empty topic sends the message to `dead`. This happens when the template reads `{{ eventType }}` and the message carries no event type. Set `eventTypePath`, or use `{{ source }}` in the template.
+
+The relay holds one message of an aggregate in flight at a time, across every push source together. It forwards the messages of one aggregate in the order of `created_at`. A row with no aggregate identifier takes part in no ordering.
+
+The relay has its own settings under `inbox.relay`:
+
+```yaml
+inbox:
+  relay:
+    enabled: true
+    pollIntervalMs: 100
+    batchSize: 100
+    claimTimeoutMs: 300000
+```
+
+`enabled: false` stops the relay. The inbox then keeps push rows as a write-only log.
+
+<Aside>
+Do not build a consumer that polls the inbox table for push rows. The relay owns those rows. Read the table to answer an operational question, for example whether a webhook arrived.
+</Aside>
+
+## Configure a pull source
+
+Set `consumption: pull` on the source. A pull source needs no `topic`, no route and no destination, because the relay never claims its rows.
+
+```yaml
+sources:
+  orders:
+    type: http
+    path: /orders
+    idempotencyKeyPath: $.id
+    aggregateIdPath: $.customerId
+    consumption: pull
+```
+
+Rows that existed before a source changed to `pull` stay push rows.
+
+`aggregateIdPath` sets the unit of order. A pull claim holds one message in state `processing` per source and aggregate identifier. The rule holds across every worker of that source. Two sources do not block each other, so a message of aggregate `A` on `orders` can run beside a message of aggregate `A` on `payments`.
+
+## Run a pull worker
+
+A client library holds the claim, the lease renewal, the completion, the retry and the dead letter. Your application writes only the handler.
+
+| Language | Package | Install |
+|----------|---------|---------|
+| Go | `github.com/alternayte/queuebox/clients/go` | `go get github.com/alternayte/queuebox/clients/go` |
+| TypeScript | `@alternayte/queuebox-inbox` | `npm install @alternayte/queuebox-inbox` |
+| C# | `QueueBox.Inbox` | `dotnet add package QueueBox.Inbox` |
+
+Each library needs the V10 schema or later. Each works with PostgreSQL and SQL Server through the driver your application already uses.
+
+The handler receives the message and an open transaction. The library works like this:
+
+1. It claims up to `BatchSize` messages of the source, in a transaction of its own, and commits that claim.
+2. It renews the lease of each claimed message every third of the lease duration.
+3. It calls the handler with the message and a new transaction.
+4. When the handler returns without an error, it marks the message `processed` in that transaction and commits.
+5. When the handler fails, it rolls the transaction back and asks the retry policy for a retry or a dead letter.
+
+If the completion finds no row, another worker owns the message. The library then rolls your writes back.
+
+<Tabs syncKey="lang">
+<TabItem label="Go">
+
+```go
+worker, err := queuebox.NewInboxWorker(db, queuebox.Options{
+	Source:    "orders",
+	BatchSize: 10,
+	LeaseMS:   30_000,
+})
+if err != nil {
+	log.Fatal(err)
+}
+
+ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+defer stop()
+
+err = worker.Run(ctx, func(ctx context.Context, message queuebox.Message, tx *sql.Tx) error {
+	var order struct {
+		ID    string `json:"id"`
+		Total int    `json:"total"`
+	}
+	if err := message.UnmarshalPayload(&order); err != nil {
+		return err
+	}
+
+	_, err := tx.ExecContext(ctx, "INSERT INTO orders (id, total) VALUES ($1, $2)", order.ID, order.Total)
+	return err
+})
+```
+
+Return an error to fail the message. Cancel the context to stop the worker.
+
+</TabItem>
+<TabItem label="TypeScript">
+
+```ts
+const worker = new InboxWorker(fromPg(pool), { source: "orders", batchSize: 10, leaseMs: 30_000 });
+
+const stopping = new AbortController();
+process.on("SIGTERM", () => stopping.abort());
+
+await worker.run(async (message, tx, signal) => {
+  const order = message.payload as { id: string; total: number };
+
+  await tx.query("INSERT INTO orders (id, total) VALUES ($1, $2)", [order.id, order.total]);
+}, stopping.signal);
+```
+
+Throw to fail the message. Abort the signal that you pass to `run` to stop the worker.
+
+</TabItem>
+<TabItem label="C#">
+
+```csharp
+var worker = new InboxWorker(
+    InboxConnections.From(dataSource),
+    new InboxOptions { Source = "orders", BatchSize = 10, LeaseMs = 30_000 });
+
+await worker.RunAsync(async (message, transaction, cancellationToken) =>
+{
+    await using var command = transaction.CreateCommand();
+
+    command.CommandText = "INSERT INTO orders (id, total) VALUES (@id, @total)";
+    command
+        .WithParameter("@id", message.Payload.GetProperty("id").GetString())
+        .WithParameter("@total", message.Payload.GetProperty("total").GetInt32());
+
+    await command.ExecuteNonQueryAsync(cancellationToken);
+}, stopping.Token);
+```
+
+Throw to fail the message. Cancel the token that you pass to `RunAsync` to stop the worker. `QueueBox.Inbox.DependencyInjection` runs a worker as an `IHostedService` through `AddQueueBoxInbox`.
+
+</TabItem>
+</Tabs>
+
+On a stop, the worker stops claiming at once. A running handler keeps the shutdown grace, 30 seconds by default. A handler that does not finish in that time is cancelled. The library completes nothing for it, spends no attempt on it, and lets the lease expire, so another worker takes the message.
+
+[Pull clients](/reference/pull-clients/) lists every setting and every message field of the three libraries.
+
+### Decide what a failure does
+
+The default policy retries with an exponential backoff and jitter, and moves the message to `dead` after five attempts. Write your own policy when some failures never succeed on a retry, for example a payload that does not parse.
+
+<Tabs syncKey="lang">
+<TabItem label="Go">
+
+```go
+policy := queuebox.RetryPolicyFunc(func(message queuebox.Message, failure error) queuebox.FailureAction {
+	var syntax *json.SyntaxError
+	if errors.As(failure, &syntax) {
+		return queuebox.DeadLetter()
+	}
+	if message.Attempt >= 5 {
+		return queuebox.DeadLetter()
+	}
+	return queuebox.RetryAfter(time.Duration(1<<message.Attempt) * time.Second)
+})
+
+worker, err := queuebox.NewInboxWorker(db, queuebox.Options{Source: "orders", RetryPolicy: policy})
+```
+
+</TabItem>
+<TabItem label="TypeScript">
+
+```ts
+import { deadLetter, retryAfter } from "@alternayte/queuebox-inbox";
+import type { InboxRetryPolicy } from "@alternayte/queuebox-inbox";
+
+const retryPolicy: InboxRetryPolicy = (message, failure) => {
+  if (failure instanceof SyntaxError) {
+    return deadLetter();
+  }
+  return message.attempt >= 5 ? deadLetter() : retryAfter(2 ** message.attempt * 1000);
+};
+
+const worker = new InboxWorker(fromPg(pool), { source: "orders", retryPolicy });
+```
+
+</TabItem>
+<TabItem label="C#">
+
+```csharp
+public sealed class OrdersRetryPolicy : IInboxRetryPolicy
+{
+    public InboxFailureAction Decide(InboxMessage message, Exception failure) => failure switch
+    {
+        JsonException => InboxFailureAction.DeadLetter(),
+        _ when message.Attempt >= 5 => InboxFailureAction.DeadLetter(),
+        _ => InboxFailureAction.Retry(TimeSpan.FromSeconds(Math.Pow(2, message.Attempt))),
+    };
+}
+
+var options = new InboxOptions { Source = "orders", RetryPolicy = new OrdersRetryPolicy() };
+```
+
+</TabItem>
+</Tabs>
+
+A retry raises `attempt` and delays the next claim. A dead letter moves the row to `dead`, and no worker claims it again.
+
+### Raise the concurrency
+
+`MaxConcurrency` is `1` by default, so one handler runs at a time. Raise it only when the handler is safe beside a message of another aggregate. The claim never gives two workers two messages of one aggregate at the same time.
+
+### Run on SQL Server
+
+Set the dialect option of the library to SQL Server. Then check two things:
+
+- Set the command or request timeout of the driver to at least 30 seconds. The claim waits up to 10 seconds for a lock and then raises Msg 51000. A shorter driver timeout aborts the call first, and the lock stays held until the connection resets. The `mssql` package for Node has a default of 15 seconds, so raise it.
+- The claim runs one at a time per source, behind an application lock. One source reaches about 110 to 140 claims per second, and more workers on that source do not raise it. Split a busy source into more sources.
+
+PostgreSQL has neither limit. Its claim uses `SKIP LOCKED`, so workers on one source divide the work.
+
+### Use another language
+
+`examples/pull/sql` in the repository holds the five statements that the libraries run: claim, renew, complete, retry and dead. Bind every value as a parameter. [The pull worker contract](https://github.com/alternayte/queuebox/blob/main/examples/pull/README.md) states the rules:
+
+- Run the claim alone in its own transaction, and commit it before a handler starts.
+- Renew every third of the lease. A renew, complete, retry or dead statement must change exactly one row. Zero rows means another worker owns the message, so stop the work.
+- Run the completion in the transaction of the business writes. If it changes no row, roll the whole transaction back.
+- On SQL Server, treat Msg 51000 as a temporary failure. Wait before the next claim.
+
+## Write an idempotent handler
+
+Delivery is at least once on both paths. A lease can expire while a handler runs, and a worker can stop after its work but before the commit. The message then runs again. Write every handler so that a second run changes nothing.
+
+### In a pull handler
+
+1. Write every application change through the transaction that the handler receives. The completion commits with it, so a repeat of the whole handler finds nothing done.
+2. Do not commit and do not roll back. The library owns both.
+3. Honour the cancellation signal. It fires when the lease is lost and when a shutdown runs out of grace.
+4. Make external work, such as an HTTP call, safe to repeat. A transaction cannot roll back a call to another system. Deduplicate it on the source and the idempotency key together.
+
+The identity of a message is `(source, idempotency_key)`. Two sources can send the same event ID for two different events, so always include the source.
+
+In C#, an Entity Framework Core context opens its own connection by default. Build the context on the handler transaction with `InboxDbContextFactory.CreateOn` from `QueueBox.Inbox.DependencyInjection`. A context on a second connection commits on its own, and a later failure then repeats a write that already exists.
+
+### At a push destination
+
+A destination receives each message with an `X-Message-Id` header. Store the identifier and the effect in one transaction. A repeat then finds the identifier and changes nothing.
+
+```sql
+BEGIN;
+
+INSERT INTO delivery_receipts (idempotency_key, received_at)
+VALUES ($1, now())
+ON CONFLICT (idempotency_key) DO NOTHING;
+
+-- Zero rows inserted: a repeat. Skip the business change.
+-- One row inserted: new work. Apply the business change here.
+
+COMMIT;
+```
+
+Choose the key by the path of the message:
+
+- For relay traffic, use the `x-idempotency-key` header. A replay of an inbox row makes a new outbox row with a new `X-Message-Id`, but the idempotency key stays the same.
+- For rows that your application wrote into the outbox, use `X-Message-Id`.
+
+Answer `2xx` only after the transaction commits. QueueBox marks the row `sent` on any `2xx`, including `202`, and never sends it again. [Delivery semantics](/concepts/delivery-semantics/) explains why.

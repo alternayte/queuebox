@@ -22,8 +22,8 @@ import kotlin.test.assertTrue
  * Item 10 of section 11 of `hardening-doc.md`. Every status code that a document states for an
  * endpoint must come out of a test.
  *
- * Two documented answers had no test. `docs/getting-started.md` states that `GET /` returns
- * "QueueBox is running!". The README quick start and `docs/getting-started.md` state that a ready
+ * Two documented answers had no test. `reference/http-api.mdx` of the docs site states that `GET /` returns
+ * "QueueBox is running!". The README quick start and the HTTP API reference state that a ready
  * instance answers `GET /health` with 200. The only alias test asserts the 503 answer, so the 200
  * answer of the alias was untested.
  */

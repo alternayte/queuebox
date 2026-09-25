@@ -10,8 +10,8 @@ import kotlin.test.assertNotNull
  *
  * `:sqlserver` was a test dependency only, so the published image held no SQL Server provider and
  * no driver. `DatabaseProviderFactory` loads a provider by reflection, so `type: sqlserver` threw
- * `MissingDatabaseProviderException` at startup, while `README.md`, `docs/configuration.md` and
- * `docs/getting-started.md` all promised the support. Reflection hides that kind of break from the
+ * `MissingDatabaseProviderException` at startup, while `README.md`, the configuration reference and
+ * the deploy page of the docs site all promised the support. Reflection hides that kind of break from the
  * compiler, so a test has to hold it.
  */
 class DatabaseProviderShippedTest {

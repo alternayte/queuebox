@@ -21,4 +21,4 @@ What the example demonstrates:
 - **The source is JetStream only.** Core NATS can acknowledge nothing, so an inbox on it would
   lose every message that arrives while QueueBox restarts.
 
-See [docs/delivery-semantics.md](../../docs/delivery-semantics.md) for the full contract.
+See [delivery semantics](https://queuebox-docs.pages.dev/concepts/delivery-semantics/) for the full contract.

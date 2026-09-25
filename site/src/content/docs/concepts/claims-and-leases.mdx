@@ -1,0 +1,140 @@
+---
+title: Claims and leases
+description: How QueueBox replicas and pull workers take a message, keep it, lose it, and recover it after a crash.
+sidebar:
+  order: 4
+---
+
+import { Aside } from "@astrojs/starlight/components";
+
+This page explains how a worker takes ownership of a row, and what happens when it loses that ownership.
+The same mechanism protects the outbox poller, the inbox relay and pull workers.
+
+## The claim
+
+A worker never works on a row that it has not claimed.
+A claim is one `UPDATE` that sets these columns:
+
+| Column | Value |
+| --- | --- |
+| `state` | `processing` |
+| `claim_token` | A new random UUID. |
+| `lease_expires_at` | The database clock plus the lease duration. |
+| `claimed_at` | The time of the claim. |
+
+The claim token names the owner.
+Only the worker that holds the token can complete the row.
+A new claim of the same row issues a new token, so an old owner cannot act on the row again.
+
+The lease is the time for which the claim is valid.
+The database clock computes it, so a clock difference between the application hosts and the database does not change it.
+
+| Worker | Lease duration | Default |
+| --- | --- | --- |
+| Outbox poller | `outbox.claimTimeoutMs` | 300000 ms |
+| Inbox relay | `inbox.relay.claimTimeoutMs` | 300000 ms |
+| Pull worker | The `lease_ms` that the client passes | Set per client |
+
+## Renewal
+
+A worker renews its lease every third of the lease duration while it works on the row.
+A renewal sets `lease_expires_at` to the database clock plus the lease duration again.
+A long publish or a long handler therefore keeps its claim.
+
+A renewal is fenced like every other write, as the next section describes.
+A renewal that updates zero rows, or that fails, means that the worker lost the claim.
+The worker then cancels its work on that row.
+
+## The claim fence
+
+Every write that finishes a claim is fenced.
+This covers the write that completes the row, the retry, the dead-letter write and the renewal.
+The `UPDATE` matches all of these conditions:
+
+- the row `id`,
+- the state `processing`,
+- the `claim_token` of the caller,
+- a `lease_expires_at` later than the database clock.
+
+The write reports whether it changed a row.
+A write that changed zero rows lost the claim, and the worker changes nothing more.
+
+A pull worker follows the same rule.
+A renewal, completion, retry or dead-letter statement must affect exactly one row.
+Zero rows means the worker lost ownership: stop work, and never retry with a different token.
+
+## Reclaim of stale claims
+
+A worker can crash, pause or lose its database connection while it holds a claim.
+Its lease then expires, because nothing renews it.
+
+- The outbox poller and the inbox relay run a reclaim step at most once per `claimTimeoutMs / 5`.
+  The step returns every row in state `processing` whose lease expired to state `pending`.
+  The next claim takes the row again with a new token.
+- A pull claim needs no separate step.
+  The pull claim statement takes a `pending` row or a `processing` row whose lease expired, in one statement.
+
+The reclaim step counts outbox rows in `queuebox_outbox_messages_reclaimed_total`.
+
+A shutdown uses the same path.
+QueueBox waits up to `outbox.shutdownTimeoutMs` for in-flight messages.
+A message that is still in flight after that time stays in state `processing`, and the reclaim step recovers it after its lease expires.
+
+## Lost claims and duplicates
+
+The reclaim step runs on a timer.
+It does not prove that the old owner died.
+A slow worker can outlive its own lease while another replica claims the same row.
+The claim fence decides what happens next.
+
+**Outbox poller.**
+The poller publishes first and marks `sent` after.
+When the mark loses the claim, the destination already holds the message, and the new owner publishes it again.
+QueueBox cannot undo a delivery.
+It logs an error, increments `queuebox_claims_lost_total{component="outbox"}`, and leaves the row to the new owner.
+A lost retry or a lost mark `dead` logs a warning and increments the same counter.
+The destination receives a duplicate, and an [idempotent receiver](/concepts/delivery-semantics/#an-idempotent-receiver) absorbs it.
+
+**Inbox relay.**
+The relay writes the outbox row and marks the inbox row `processed` in one transaction.
+When the mark loses the claim, the relay rolls the outbox insert back.
+The row therefore reaches the outbox once, and no second outbox row with a new `X-Message-Id` exists.
+The relay logs the loss and increments `queuebox_claims_lost_total{component="inbox"}`.
+
+**Pull worker.**
+Complete the row in the transaction of your business change.
+When the completion affects zero rows, roll back the whole transaction.
+External work outside that transaction can happen more than once.
+Deduplicate it on `(source, idempotency_key)`.
+
+<Aside type="tip">
+A moving `queuebox_claims_lost_total` means that work outlives its lease.
+Raise `outbox.claimTimeoutMs` or `inbox.relay.claimTimeoutMs` above the slowest publish or forward.
+</Aside>
+
+## The claim locks
+
+Row locks keep two concurrent claims off the same row.
+Some claims also take a lock that serializes the whole claim statement.
+
+| Claim | PostgreSQL | SQL Server |
+| --- | --- | --- |
+| Outbox poller | `FOR UPDATE SKIP LOCKED` on the rows. No claim lock. | An exclusive application lock `queuebox_outbox_claim_<table>`, plus `UPDLOCK, READPAST, ROWLOCK`. |
+| Inbox relay | A transaction advisory lock (`pg_advisory_xact_lock`) keyed on the table name, plus `FOR UPDATE SKIP LOCKED`. | An exclusive application lock `queuebox_inbox_claim_<table>`, plus `UPDLOCK, READPAST, ROWLOCK`. |
+| Pull worker | `FOR UPDATE SKIP LOCKED`. No claim lock. | An exclusive application lock on the source name, owned by the claim transaction. |
+
+The relay lock closes the window between two concurrent claims of one aggregate.
+Without it, two replicas can each see no `processing` row for an aggregate and each claim one.
+The lock is released when the claim transaction commits, so the relay holds it only for the claim, not for the forward.
+
+A SQL Server application lock waits up to 10 seconds.
+The relay and outbox locks belong to the database session and are released after the claim.
+The pull lock belongs to the claim transaction.
+See [Ordering](/concepts/ordering/#the-sql-server-pull-claim-serializes-per-source) for its throughput limit and its driver timeout rule.
+
+## Why a claim takes one row of a key or aggregate
+
+A claim returns at most one row of an outbox key, and at most one row of an inbox aggregate.
+Another row of that key or aggregate stays unclaimed until the first row is finished.
+The claim is therefore the place where QueueBox enforces [order](/concepts/ordering/).
+The reclaim and the fence keep that order across a crash: an old owner cannot finish a row that a new owner took.

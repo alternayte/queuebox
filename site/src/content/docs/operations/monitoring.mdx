@@ -1,0 +1,130 @@
+---
+title: Monitoring
+description: What to scrape, what to alert on, and which metric answers which question about a running QueueBox.
+sidebar:
+  order: 4
+---
+
+import { Aside } from "@astrojs/starlight/components";
+
+This page tells you what to watch on a running QueueBox and when to page someone.
+For every metric name, type and label, see [Metrics](/reference/metrics/).
+
+## Scrape the metrics
+
+QueueBox serves Prometheus metrics at `GET /metrics`.
+The endpoint is on the management port when `server.managementPort` is set, and on the data port otherwise.
+Scrape every replica, because each replica reports its own counters.
+
+```yaml
+scrape_configs:
+  - job_name: queuebox
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["queuebox-0.internal:9090", "queuebox-1.internal:9090"]
+```
+
+QueueBox binds no JVM metrics.
+No `jvm_`, `process_` or `system_` family appears in the scrape.
+Use another exporter for heap, threads and garbage collection.
+
+## Health endpoints
+
+| Endpoint | Answers | Use |
+| --- | --- | --- |
+| `/health/live` | 200 while the process runs | Liveness probe |
+| `/health/ready` | 200 when every component is up, 503 otherwise | Readiness probe and a basic alert |
+| `/health` | The same as `/health/ready` | Compatibility |
+
+The readiness body names each component and its status: `database`, `outbox-poller`, `inbox-relay`, each broker source, `retention-service` and `outbox-capture`.
+`outbox-capture` is advisory.
+Its fault shows in the body but never makes the answer 503, because delivery continues without capture.
+Read the body to see a capture fault.
+See [Deploy QueueBox](/operations/deploy/#health-probes).
+
+## What to alert on
+
+Each rule below names the metric, a starting threshold and the runbook scenario that answers it.
+Adjust the thresholds to your own delivery targets.
+
+| Alert | Condition | Runbook |
+| --- | --- | --- |
+| Outbox delivery is late | `queuebox_outbox_oldest_pending_age_seconds > 300` for 5 minutes | [Scenario 3](/operations/runbook/#scenario-3-the-pending-gauge-grows) |
+| Inbox is late | `queuebox_inbox_oldest_pending_age_seconds > 300` for 5 minutes | [Scenario 7](/operations/runbook/#scenario-7-the-inbox-backlog-grows) |
+| Messages go dead | `increase(queuebox_outbox_messages_total{status="dead"}[15m]) > 0` | [Scenario 1](/operations/runbook/#scenario-1-inspect-dead-lettered-messages) |
+| A destination fails | `rate(queuebox_outbox_destination_messages_total{outcome="failure"}[5m])` above 10% of all outcomes of that destination | [Scenario 5](/operations/runbook/#scenario-5-a-destination-is-slow) |
+| Claims are lost | `increase(queuebox_claims_lost_total[15m]) > 0` | [Scenario 6](/operations/runbook/#scenario-6-claims-are-lost) |
+| The pool is starved | `hikaricp_connections_pending > 0` for 5 minutes, or `increase(hikaricp_connections_timeout_total[5m]) > 0` | [Scenario 4](/operations/runbook/#scenario-4-size-the-pool-and-the-batch) |
+| The inbox cannot store | `increase(queuebox_inbox_rejections_total{reason="storage_failed"}[5m]) > 0` | Check the database. |
+| The relay fails | `increase(queuebox_inbox_relay_errors_total[15m]) > 0` | [Scenario 7](/operations/runbook/#scenario-7-the-inbox-backlog-grows) |
+| An instance is not ready | `/health/ready` answers 503 for 2 minutes | Read the component that is `down`. |
+
+### Why the age and not the count
+
+Alert on `queuebox_outbox_oldest_pending_age_seconds`, not on `queuebox_outbox_messages_pending`.
+A large count can be a busy but healthy poller.
+A small count can be a stopped poller.
+The age of the oldest pending row separates the two: it grows only when delivery falls behind.
+
+The age gauges refresh on the poll cycle, at most once per `outbox.pendingGaugeIntervalMs` or `inbox.relay.pendingGaugeIntervalMs` (default 5000 ms).
+A gauge can therefore lag by up to that interval.
+The gauge runs no query on a scrape.
+
+<Aside>
+The inbox relay refreshes `queuebox_inbox_oldest_pending_age_seconds`.
+With `inbox.relay.enabled: false`, the gauge stays at zero.
+Measure a pull-only inbox with SQL, or with the metrics of your pull workers.
+</Aside>
+
+### A retry is not a failure yet
+
+`queuebox_outbox_messages_total{status="failed"}` counts scheduled retries.
+A retry is normal when a destination has a short fault.
+Alert on `dead` messages and on the oldest-pending age, which show the effect on delivery.
+Use `failed` and `queuebox_http_publish_responses_total{status_class="5xx"}` on a dashboard to see a fault early.
+
+### A duplicate is always visible
+
+`queuebox_claims_lost_total{component="outbox"}` counts deliveries that a destination received twice because a claim expired during the publish.
+A value above zero is not data loss.
+It says that work outlives its lease.
+See [Claims and leases](/concepts/claims-and-leases/#lost-claims-and-duplicates).
+
+## Dashboards
+
+A delivery dashboard answers four questions:
+
+| Question | Metrics |
+| --- | --- |
+| Does delivery keep up? | `queuebox_outbox_oldest_pending_age_seconds`, `queuebox_outbox_messages_pending`, `queuebox_outbox_queue_depth` per destination |
+| Do destinations accept? | `queuebox_outbox_destination_messages_total` by `destination` and `outcome`, `queuebox_http_publish_responses_total` by `status_class` |
+| Is a destination slow? | `queuebox_outbox_publish_duration_seconds` by `destination_type`, and its `_max` gauge |
+| Does the inbox take traffic? | `queuebox_inbox_messages_total` by `status`, `queuebox_inbox_rejections_total` by `reason`, `queuebox_inbox_filtered_total` by `source` |
+
+Add `hikaricp_connections_active` and `hikaricp_connections_pending` for the pool, and `queuebox_transform_failures_total` when you use transforms.
+
+## Retention
+
+When retention is on, watch that the cleanup runs:
+
+- `queuebox_cleanup_last_run_timestamp` per `table` must advance once per `cleanupInterval`.
+  Alert when `time() - queuebox_cleanup_last_run_timestamp` exceeds twice the interval.
+- `queuebox_cleanup_messages_deleted_total` shows how many rows each run removes.
+
+A cleanup that stops lets `sent` and `dead` rows grow.
+The claim then scans a larger table.
+
+## Capture
+
+When change data capture is on, watch two more things:
+
+- The `outbox-capture` component of `/health/ready`.
+- On PostgreSQL, the replication slot.
+  A slot that capture does not read holds write-ahead log and fills the database disk.
+
+```sql
+SELECT slot_name, active, pg_size_pretty(pg_wal_lsn_diff(pg_current_wal_lsn(), restart_lsn)) AS retained
+FROM pg_replication_slots;
+```
+
+See [Change data capture](/concepts/capture/).

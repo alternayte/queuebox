@@ -1,0 +1,108 @@
+---
+title: Upgrade QueueBox
+description: Move a deployment to a new QueueBox image, apply the new migrations, and handle the releases that need every old worker stopped first.
+sidebar:
+  order: 9
+---
+
+import { Aside } from "@astrojs/starlight/components";
+
+This guide shows how to move a running deployment to a new QueueBox version. It covers the image tag, the database migrations, and the two migrations that need every worker of the old version stopped first.
+
+## Read the changelog first
+
+Read every entry of `CHANGELOG.md` between your version and the target version. A `Breaking` section names each change that needs action, and it states the step. The entry also names the migrations that the release ships.
+
+QueueBox follows Semantic Versioning. Below 1.0.0, a MINOR release can carry a breaking change. The changelog then lists it under `Breaking`.
+
+## Pin the image
+
+QueueBox ships as a container image for `linux/amd64` and `linux/arm64`. The registry carries three tags for each release:
+
+| Tag | Meaning |
+|-----|---------|
+| `ghcr.io/alternayte/queuebox:0.3.2` | The exact release. |
+| `ghcr.io/alternayte/queuebox:0.3` | The newest patch of that MINOR release. |
+| `ghcr.io/alternayte/queuebox:latest` | The newest release. |
+
+Pin the exact version in production. A published tag never moves, so a pinned deployment gets the same image on every pull.
+
+## Upgrade with the bundled migrations
+
+With `database.migrate: true`, which is the default, QueueBox applies each new migration at startup through Flyway.
+
+1. Check that the target release needs no stop of the old workers. See [Migrations that need a full stop](#migrations-that-need-a-full-stop).
+2. Change the image tag to the target version.
+3. Roll the replicas to the new image. The first new replica applies the migrations.
+4. Check each new replica. `GET /health/ready` answers `200`, and the `queuebox` metric carries the new version.
+
+```bash
+curl -s http://localhost:8080/health/ready
+curl -s http://localhost:8080/metrics | grep '^queuebox{'
+```
+
+The Prometheus exporter drops the `_info` suffix, so the metric `queuebox_info` appears as `queuebox` in a scrape. Its `version` label names the running release.
+
+## Upgrade with `database.migrate: false`
+
+A deployment that applies its own schema must apply each new migration before the new version starts.
+
+1. List the migration files that the target version adds. The changelog names them, and so does [Use custom tables](/how-to/use-custom-tables/#apply-the-default-schema-by-hand).
+2. Apply each new file in version order, with a privileged user.
+3. For a custom schema, apply the same change to your own tables with your own names. Add the new column to the column mapping when you renamed it.
+4. Roll the replicas to the new image.
+
+A new column is nullable or has a default, so the replicas of the previous version keep running against the new schema. Two migrations are exceptions, and the next section covers them.
+
+## Migrations that need a full stop
+
+A migration that changes how a worker claims a row needs a full stop. The old claim and the new claim must never run at the same time. Upgrade in this order:
+
+1. Stop every QueueBox replica of the old version.
+2. Apply the migration.
+3. Start the replicas of the new version.
+
+### V6: the claim token and the lease
+
+`V6__add_consumption_and_leases.sql` adds `claim_token` and `lease_expires_at` to both tables. It also adds `consumption`, `scheduled_at`, `attempt` and `last_error` to the inbox. An old worker fences a claim on a timestamp. A new worker fences it on a token and a lease. An old worker can therefore complete a row that a new worker owns.
+
+Stop every old worker, apply `V6__add_consumption_and_leases.sql` and then `V7__capture_state.sql`, and start the new workers. The existing inbox rows become `push` rows, which keeps their behaviour. A custom schema must add the new columns and map them.
+
+### V11: the key order
+
+`V11__add_outbox_sequence.sql` adds the outbox `sequence` column. The new claim delivers the rows of one key in `sequence` order, one row at a time. The old claim ignores the key, so it can deliver a later row of a key before an earlier one.
+
+Stop every old replica, and apply `V11__add_outbox_sequence.sql`. The migration numbers the existing rows in `created_at` order. Then start the new replicas. V11 changes the outbox claim only, so pull workers keep running.
+
+A custom outbox table must add a `BIGINT` column that the database fills on insert, and map it as `database.columnMapping.outbox.sequence`. QueueBox stops at startup without it, and it prints the `ALTER TABLE` statement.
+
+## Other migrations that need care
+
+- **V8, the pull claim indexes.** `V8__add_pull_claim_indexes.sql` uses a plain `CREATE INDEX`. On both databases, the build blocks inserts into the inbox until it ends. Plan a maintenance window for a populated inbox. Or build the two indexes online first: `CREATE INDEX CONCURRENTLY` on PostgreSQL, outside a transaction, or `CREATE INDEX ... WITH (ONLINE = ON)` on SQL Server Enterprise Edition and Azure SQL. On SQL Server, run `SET QUOTED_IDENTIFIER ON` first, because the indexes are filtered.
+- **V10, the inbox headers.** `V10__add_inbox_headers.sql` adds the inbox `headers` column. A custom inbox table must add it by hand. QueueBox stops at startup without it, and it prints the `ALTER TABLE` statement. The pull client libraries from 0.3.0 need this column.
+
+## Compatibility policy
+
+QueueBox keeps these promises for a MINOR release.
+
+For the configuration:
+
+- A MINOR release can add an optional field. The default keeps the previous behaviour.
+- A MINOR release can add a value to a field that takes a fixed set of values.
+- A MINOR release does not remove, rename or change the meaning of a field.
+- A field that QueueBox plans to remove is first marked deprecated in the changelog and in the configuration reference. The removal comes in the next MAJOR release. QueueBox prints no deprecation warning at startup.
+
+For the database schema:
+
+- A MINOR release can add a table, a column or an index. It does not drop a column or change the type of a column.
+- Every new column is nullable or has a default.
+- An instance of the previous MINOR release runs against the schema of the current MINOR release, except across V6 and V11.
+- A destructive change comes only in a MAJOR release. The changelog states the downtime that it needs.
+
+## Upgrade the pull clients
+
+The client libraries release on their own tags, `csharp-v*`, `typescript-v*` and `clients/go/v*`. A client release does not need a QueueBox release. Each client README states the oldest schema that it needs. Upgrade QueueBox and apply the schema before you move a client to a version that needs a newer schema.
+
+<Aside>
+Do not roll back by starting the old image against a schema that a newer version migrated past V11. The old claim ignores the key order. Correct the defect in a new patch release instead.
+</Aside>

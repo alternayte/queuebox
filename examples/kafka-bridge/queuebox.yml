@@ -1,5 +1,5 @@
 # Kafka in, Kafka out. QueueBox owns the inbox and the outbox; the application owns neither
-# broker code nor the tables. See docs/delivery-semantics.md.
+# broker code nor the tables. See https://queuebox-docs.pages.dev/concepts/delivery-semantics/.
 database:
   type: postgresql
   url: jdbc:postgresql://postgres:5432/queuebox

@@ -57,4 +57,4 @@ The maintainer credits the reporter in the advisory, unless the reporter asks fo
 - A missing hardening option that costs nothing to add. Open a normal feature request.
 - A vulnerability report from a scanner with no reachable code path and no proof of concept.
 - Plain HTTP or plain AMQP on a route that the operator configured without transport security.
-  See `docs/operations/security.md`.
+  See https://queuebox-docs.pages.dev/operations/security/.

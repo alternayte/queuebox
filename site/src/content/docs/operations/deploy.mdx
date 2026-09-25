@@ -1,0 +1,315 @@
+---
+title: Deploy QueueBox
+description: Run the published image with Docker, Compose or Kubernetes, against a PostgreSQL or SQL Server database.
+sidebar:
+  order: 1
+---
+
+import { Aside } from "@astrojs/starlight/components";
+
+This page tells you how to run QueueBox in production.
+It covers the image, the database, the configuration, the health probes and replicas.
+
+## The image
+
+QueueBox publishes a multi-architecture image for `linux/amd64` and `linux/arm64` to GitHub Container Registry.
+
+| Tag | Meaning |
+| --- | --- |
+| `ghcr.io/alternayte/queuebox:1.2.3` | The exact release. |
+| `ghcr.io/alternayte/queuebox:1.2` | The newest patch of that minor release. |
+| `ghcr.io/alternayte/queuebox:latest` | The newest release. |
+
+Pin the exact version in production.
+The registry also holds the software bill of materials and the build provenance of each image.
+
+The image runs Java 21 as the non-root user `queuebox`.
+It listens on port 8080.
+Its built-in `HEALTHCHECK` calls `http://localhost:8080/health`.
+
+Run the image against an existing database:
+
+```bash
+docker run --rm -p 8080:8080 \
+  -e QUEUEBOX_DATABASE_URL=jdbc:postgresql://db.internal:5432/queuebox \
+  -e QUEUEBOX_DATABASE_USERNAME=queuebox \
+  -e QUEUEBOX_DATABASE_PASSWORD=secret \
+  -v /etc/queuebox/queuebox.yml:/etc/queuebox/queuebox.yml:ro \
+  ghcr.io/alternayte/queuebox:1.2.3
+```
+
+## The database
+
+QueueBox needs one of these databases:
+
+- PostgreSQL 14, 15 or 16.
+- SQL Server 2019 or 2022.
+
+Set `database.type` to `postgresql` (the default) or `sqlserver`.
+
+At start, QueueBox waits up to `database.startupTimeoutMs` (default 60000) for the database.
+It exits when no database answers in that time.
+
+### Migrations
+
+By default, QueueBox applies its bundled Flyway migrations at start.
+The database account then needs the right to create and alter tables, indexes and sequences.
+
+Set `database.migrate: false` when the application account has no DDL rights.
+Apply the migration files by hand before each upgrade.
+The files are in [`postgres/src/main/resources/db/postgresql`](https://github.com/alternayte/queuebox/blob/main/postgres/src/main/resources/db/postgresql) and [`sqlserver/src/main/resources/db/sqlserver`](https://github.com/alternayte/queuebox/blob/main/sqlserver/src/main/resources/db/sqlserver).
+
+A custom table name or column name requires `database.migrate: false`.
+QueueBox refuses to start with a renamed table or column and `migrate: true`, because the bundled files name the default schema.
+See [Use custom tables](/how-to/use-custom-tables/).
+
+At start, QueueBox also checks that the tables have the columns it needs.
+A missing required column stops the start with a message that gives the `ALTER TABLE` statement.
+
+### Connections
+
+Each replica opens up to `database.poolSize` connections (default 10).
+The poller, the relay, the retention job and the HTTP routes share the pool.
+Keep `database.poolSize` larger than `outbox.concurrency`.
+Check that the database allows `poolSize` times the number of replicas, plus your other clients.
+
+## The configuration
+
+QueueBox reads its configuration from three places.
+The first place that holds a key wins.
+
+1. An environment variable that starts with `QUEUEBOX_`.
+2. The YAML file that `QUEUEBOX_CONFIG_FILE` names, or `/etc/queuebox/queuebox.yml` when the variable is not set.
+3. The YAML file packaged in the image.
+
+An external file **replaces** the packaged file.
+It does not add to it.
+Write a complete configuration, and copy [`examples/queuebox.yml`](https://github.com/alternayte/queuebox/blob/main/examples/queuebox.yml) as the start point.
+QueueBox reads the packaged file only when you supply no external file and set no `QUEUEBOX_` variable.
+
+These three variables are the minimum:
+
+```bash
+QUEUEBOX_DATABASE_URL=jdbc:postgresql://db.internal:5432/queuebox
+QUEUEBOX_DATABASE_USERNAME=queuebox
+QUEUEBOX_DATABASE_PASSWORD=secret
+```
+
+The name after the prefix is the configuration path in upper case.
+One underscore separates two levels of the path.
+A leaf name of more than one word has no underscore inside it: `QUEUEBOX_OUTBOX_POLLINTERVALMS` sets `outbox.pollIntervalMs`.
+A variable with an extra underscore sets nothing, and the start reports no error.
+See [Environment variables](/reference/environment-variables/) and [Configuration](/reference/configuration/).
+
+A configuration change needs a restart.
+It does not need a new image.
+
+Keep secrets out of the YAML file and out of plain environment values.
+See [Security](/operations/security/#secrets).
+
+## Docker Compose
+
+The repository holds a Compose stack with QueueBox, PostgreSQL and a test receiver:
+
+```bash
+git clone https://github.com/alternayte/queuebox.git
+cd queuebox
+docker compose -f docker-compose.yml --env-file .env.example up -d --build
+```
+
+- `-f docker-compose.yml` selects the shipped stack.
+  Without it, Compose also reads `docker-compose.override.yml`, which runs a development loop from the source tree.
+- The stack mounts `examples/queuebox.yml` at `/etc/queuebox/queuebox.yml`.
+  Edit that file and restart the container.
+- `--env-file .env.example` supplies the database variables.
+  Without it, the start fails with a message that names the variables to set.
+- `docker compose --profile rabbitmq up -d` also starts RabbitMQ.
+
+The stack builds the image from the source.
+To run a released image with it, add `docker-compose.release.yml`:
+
+```bash
+RELEASE_IMAGE=ghcr.io/alternayte/queuebox:1.2.3 \
+  docker compose -f docker-compose.yml -f docker-compose.release.yml --env-file .env.example up -d
+```
+
+Use this stack to learn and to test.
+For production, run the image against a database that you back up and monitor.
+
+## Run without a container
+
+This section runs QueueBox from the source against a PostgreSQL database on the same host. It needs a Java Development Kit, version 21. CI runs these steps on every push to `main`.
+
+1. Create the database:
+
+   ```sql
+   CREATE DATABASE queuebox;
+   ```
+
+   QueueBox creates its tables at startup with the bundled migrations.
+
+2. Copy the example configuration. Do not edit `config/src/main/resources/queuebox.yml`, because the image packages that file.
+
+   ```bash
+   sudo mkdir -p /etc/queuebox
+   sudo cp examples/queuebox.yml /etc/queuebox/queuebox.yml
+   ```
+
+3. Set the database variables. An environment variable wins over every file.
+
+   ```bash
+   export QUEUEBOX_DATABASE_URL=jdbc:postgresql://localhost:5432/queuebox
+   export QUEUEBOX_DATABASE_USERNAME=postgres
+   export QUEUEBOX_DATABASE_PASSWORD=secret
+   ```
+
+4. Build and run:
+
+   ```bash
+   ./gradlew run
+   ```
+
+5. Confirm that the instance is ready. `GET /health` answers `200` when every component is up.
+
+   ```bash
+   curl http://localhost:8080/health
+   ```
+
+## Health probes
+
+| Endpoint | Use | Answer |
+| --- | --- | --- |
+| `GET /health/live` | Liveness probe | Always 200 while the process runs. It touches no dependency. |
+| `GET /health/ready` | Readiness probe | 200 when every component is up. 503 when one component is down. |
+| `GET /health` | Compatibility | The same answer as `/health/ready`. |
+
+The readiness body names each component:
+
+- `database`,
+- `outbox-poller`,
+- `inbox-relay`, when `inbox.relay.enabled` is true,
+- `rabbitmq.<source>`, `kafka.<source>` and `nats.<source>` for each broker source,
+- `retention-service`, when `retention.enabled` is true,
+- `outbox-capture`, when capture is enabled.
+  This component is advisory: a capture fault never makes the answer 503.
+
+Each check has a 3-second limit.
+A check that does not answer in time counts as down, so a slow database gives 503 and not a probe timeout.
+
+Use `/health/live` for liveness.
+A liveness probe on `/health/ready` restarts the pod when the database is slow, and a restart does not repair the database.
+
+### The management port
+
+Set `server.managementPort` to move `/health/*`, `/metrics` and `/admin` to a separate port.
+The data port then answers 404 for those paths and carries only the inbox routes.
+Bind the management port to an internal network, because the metrics reveal traffic volumes and destination names.
+
+<Aside type="caution">
+The image `HEALTHCHECK` calls `/health` on port 8080.
+With a management port, that call gets 404 and Docker marks the container unhealthy.
+Override the health check to call the management port.
+</Aside>
+
+## Kubernetes
+
+QueueBox has no Helm chart.
+A plain Deployment and Service are enough.
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: queuebox
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: queuebox
+  template:
+    metadata:
+      labels:
+        app: queuebox
+    spec:
+      terminationGracePeriodSeconds: 75
+      containers:
+        - name: queuebox
+          image: ghcr.io/alternayte/queuebox:1.2.3
+          ports:
+            - name: http
+              containerPort: 8080
+            - name: management
+              containerPort: 9090
+          env:
+            - name: QUEUEBOX_CONFIG_FILE
+              value: /etc/queuebox/queuebox.yml
+            - name: QUEUEBOX_DATABASE_URL
+              value: jdbc:postgresql://postgres.db.svc:5432/queuebox
+            - name: QUEUEBOX_DATABASE_USERNAME
+              value: queuebox
+            - name: QUEUEBOX_DATABASE_PASSWORD
+              value: file:/run/secrets/db-password
+            - name: QUEUEBOX_SERVER_MANAGEMENTPORT
+              value: "9090"
+          livenessProbe:
+            httpGet:
+              path: /health/live
+              port: management
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: management
+          volumeMounts:
+            - name: config
+              mountPath: /etc/queuebox
+              readOnly: true
+            - name: secrets
+              mountPath: /run/secrets
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: queuebox-config
+        - name: secrets
+          secret:
+            secretName: queuebox-secrets
+```
+
+- Put the complete `queuebox.yml` in the ConfigMap.
+- Mount secrets as files and reference them with `file:`.
+  See [Security](/operations/security/#the-kubernetes-secret-pattern).
+- Publish only `/inbox` through the ingress, and terminate TLS there.
+  See [Security](/operations/security/#transport-security).
+- Scrape `/metrics` on the management port.
+  See [Monitoring](/operations/monitoring/).
+
+### Shutdown
+
+On `SIGTERM`, QueueBox stops in this order:
+
+1. The HTTP server refuses new requests and waits up to 5 seconds for the requests in flight.
+2. The broker consumers, capture, the outbox poller and the inbox relay stop.
+   The poller waits up to `outbox.shutdownTimeoutMs` (default 30000) for the messages in flight.
+3. The publishers and the database pool close.
+
+A message still in flight after the timeout stays in state `processing`.
+Another replica reclaims it when its lease expires.
+Set `terminationGracePeriodSeconds` above 5 seconds plus twice `outbox.shutdownTimeoutMs`.
+With the defaults, that is above 65 seconds.
+
+## Replicas
+
+Run as many replicas as you need.
+Every replica runs the outbox poller and the inbox relay against the same tables.
+Claims, leases and the claim fence keep two replicas off the same message, and the order of a key or an aggregate holds across replicas.
+See [Claims and leases](/concepts/claims-and-leases/).
+
+- Every replica needs the same configuration.
+  A replica with a different route set routes the same topic differently.
+- Enable capture on one replica only.
+  Set `outbox.capture.enabled: false` on the others.
+  See [Change data capture](/concepts/capture/#one-owner).
+- A broker source consumes on every replica.
+  The broker spreads the messages, and the inbox unique index rejects a repeat.
+- Stop every old replica before a migration that the upgrade notes mark as breaking.
+  See [Upgrade QueueBox](/how-to/upgrade/).
