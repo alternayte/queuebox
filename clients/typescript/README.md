@@ -194,4 +194,4 @@ git tag typescript-v0.1.1 && git push origin typescript-v0.1.1
 
 ## License
 
-Apache-2.0.
+MIT. See [LICENSE](https://github.com/alternayte/queuebox/blob/main/LICENSE).

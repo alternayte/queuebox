@@ -288,4 +288,4 @@ runtime.
 
 ## License
 
-Apache-2.0.
+MIT. See [LICENSE](https://github.com/alternayte/queuebox/blob/main/LICENSE).
