@@ -23,6 +23,8 @@ import org.nxtspec.InboxAuthConfig
 import org.nxtspec.Secret
 import org.nxtspec.auth.InboxAuthValidator
 import org.nxtspec.transform.TransformEngine
+import javax.crypto.Mac
+import javax.crypto.spec.SecretKeySpec
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -38,6 +40,11 @@ class AdminRoutesTest {
     private val bearerAdmin = AdminConfig(
         enabled = true,
         auth = InboxAuthConfig.Bearer(token = Secret(TOKEN))
+    )
+
+    private val hmacAdmin = AdminConfig(
+        enabled = true,
+        auth = InboxAuthConfig.HmacSignature(secret = Secret(HMAC_SECRET))
     )
 
     private fun ApplicationTestBuilder.setupApp(
@@ -376,6 +383,56 @@ class AdminRoutesTest {
     }
 
     @Test
+    fun `should accept a correctly signed request under HMAC auth`() = testApplication {
+        setupApp(hmacAdmin)
+        val body = """{"expression": "name", "payload": {"name": "Alice"}}"""
+
+        val response = client.post("/admin/transform/test") {
+            contentType(ContentType.Application.Json)
+            header("X-Signature", sign(body))
+            setBody(body)
+        }
+
+        assertEquals(HttpStatusCode.OK, response.status)
+        val json = Json.parseToJsonElement(response.bodyAsText()).jsonObject
+        assertEquals("Alice", json["result"]?.jsonPrimitive?.content)
+    }
+
+    @Test
+    fun `should accept a correctly signed replay under HMAC auth`() = testApplication {
+        setupApp(hmacAdmin)
+        val body = """{"topic": "orders.created"}"""
+
+        val response = client.post("/admin/replay") {
+            contentType(ContentType.Application.Json)
+            header("X-Signature", sign(body))
+            setBody(body)
+        }
+
+        assertEquals(HttpStatusCode.OK, response.status)
+    }
+
+    @Test
+    fun `should return 401 for a wrongly signed request under HMAC auth`() = testApplication {
+        setupApp(hmacAdmin)
+        val body = """{"expression": "name", "payload": {"name": "Alice"}}"""
+
+        val response = client.post("/admin/transform/test") {
+            contentType(ContentType.Application.Json)
+            header("X-Signature", sign(body, secret = "wrong-secret"))
+            setBody(body)
+        }
+
+        assertEquals(HttpStatusCode.Unauthorized, response.status)
+    }
+
+    private fun sign(body: String, secret: String = HMAC_SECRET): String {
+        val mac = Mac.getInstance("HmacSHA256")
+        mac.init(SecretKeySpec(secret.toByteArray(Charsets.UTF_8), "HmacSHA256"))
+        return "sha256=" + mac.doFinal(body.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }
+    }
+
+    @Test
     fun `should not register the route when admin is disabled`() = testApplication {
         setupApp(AdminConfig())
 
@@ -434,3 +491,4 @@ class AdminRoutesTest {
 }
 
 private const val TOKEN = "admin-secret-token"
+private const val HMAC_SECRET = "admin-hmac-secret"
