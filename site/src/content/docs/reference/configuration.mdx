@@ -31,7 +31,7 @@ Do not edit `config/src/main/resources/queuebox.yml`, because a change there nee
 | Retention duration | `retention.*.maxAge`, `retention.*.cleanupInterval` | A whole number and one suffix: `s`, `m`, `h` or `d`. For example `7d`. |
 | Secret | Every password, token, key and client secret | A string, or `file:` and a path. QueueBox reads the file once at load time and removes the trailing newline. A log line prints `Secret(***)`. |
 | Placeholder | Any value | `${NAME}` reads the environment variable or JVM system property `NAME`. `${NAME:-fallback}` gives a fallback value. |
-| Enumeration | `transform.onError`, `retention.*.policy`, `auth.signaturePayloadFormat` | Write the value in the exact letter case that the tables below show. `onError: fail` does not load. |
+| Enumeration | `transform.onError`, `retention.*.policy`, `auth.signaturePayloadFormat` | Write the value in the exact letter case that the tables below show. `onError: fail` does not load. `signaturePayloadFormat` also accepts `body` and `timestamp-dot-body`. |
 
 ## How QueueBox selects the kind of an entry
 
@@ -560,7 +560,7 @@ The same block configures `admin.auth`. A request that fails the check gets `401
 | `hmac` | `signaturePrefix` | string | `sha256=` | The text before the hexadecimal signature in the header. |
 | `hmac` | `timestampHeader` | string | none | A header that carries the request time in Unix milliseconds. |
 | `hmac` | `timestampTolerance` | milliseconds | `300000` | The largest difference between the request time and the clock. It must be above 0. |
-| `hmac` | `signaturePayloadFormat` | enumeration | see below | `BODY` signs the body. `TIMESTAMP_DOT_BODY` signs the timestamp, a dot and the body. |
+| `hmac` | `signaturePayloadFormat` | enumeration | see below | `body` (or `BODY`) signs the body. `timestamp-dot-body` (or `TIMESTAMP_DOT_BODY`) signs the timestamp, a dot and the body. QueueBox 0.4.0 and earlier load only the upper-case names. |
 
 When `timestampHeader` is set, `signaturePayloadFormat` defaults to `TIMESTAMP_DOT_BODY`. Otherwise it defaults to `BODY`.
 `TIMESTAMP_DOT_BODY` without a `timestampHeader` stops the start.

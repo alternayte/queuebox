@@ -33,6 +33,10 @@ A variable starts with `$`. `$` alone is the input document.
 | `$timestamp` | The receipt time, as ISO-8601 text | The `created_at` of the outbox row, as ISO-8601 text |
 | `$source` | The source name | not bound |
 | `$headers` | The received headers, one string value per name | not bound |
+| `$idempotencyKey` | The extracted idempotency key, or `null` | not bound |
+| `$eventType` | The extracted event type, or `null` | not bound |
+
+QueueBox 0.4.0 and earlier do not bind `$idempotencyKey` and `$eventType`. On those versions, read the event type from `$topic`.
 
 A header name with a `-` needs quotes: `$headers."x-tenant"`. A header name matches in its exact letter case, so use the case that the inbox row shows.
 An HTTP source omits the credential headers from `$headers`. The [inbox table](/reference/inbox-table/#headers) page lists them.
