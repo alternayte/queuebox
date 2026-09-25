@@ -56,8 +56,25 @@ By default, QueueBox applies its bundled Flyway migrations at start.
 The database account then needs the right to create and alter tables, indexes and sequences.
 
 Set `database.migrate: false` when the application account has no DDL rights.
-Apply the migration files by hand before each upgrade.
-The files are in [`postgres/src/main/resources/db/postgresql`](https://github.com/alternayte/queuebox/blob/main/postgres/src/main/resources/db/postgresql) and [`sqlserver/src/main/resources/db/sqlserver`](https://github.com/alternayte/queuebox/blob/main/sqlserver/src/main/resources/db/sqlserver).
+Before each upgrade, run the `migrate` command of the new image with a privileged account:
+
+```bash
+docker run --rm \
+  -e QUEUEBOX_DATABASE_URL=jdbc:postgresql://db.internal:5432/queuebox \
+  -e QUEUEBOX_DATABASE_USERNAME=queuebox_admin \
+  -e QUEUEBOX_DATABASE_PASSWORD=secret \
+  ghcr.io/alternayte/queuebox:1.2.3 migrate
+```
+
+The command reads the same configuration as the service and ignores `database.migrate`.
+It applies the migrations that the database does not have, logs their versions, and exits.
+It exits with 0 after success and with a non-zero code after a failure, so a Kubernetes `Job` or an init container can run it.
+
+A database that holds QueueBox tables and no Flyway history stops the start and the command.
+This happens when somebody applied the migration files by hand.
+Run `migrate --baseline <version>` once, with the last version that was applied by hand.
+The command records that version and the earlier ones as applied, then applies the later files.
+It refuses a database that already has a history.
 
 A custom table name or column name requires `database.migrate: false`.
 QueueBox refuses to start with a renamed table or column and `migrate: true`, because the bundled files name the default schema.
