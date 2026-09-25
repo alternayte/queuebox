@@ -176,9 +176,7 @@ curl -X POST http://localhost:8080/admin/transform/test \
   -d '{"expression":"$.amount * 2","payload":{"amount":21}}'
 ```
 
-<Aside type="caution">
-Do not use `hmac` for the admin endpoint. The admin route does not keep the raw request body, so the HMAC check answers `500` to every request.
-</Aside>
+The admin endpoint also accepts `hmac`. Sign the raw request body in the same way as for a source. QueueBox 0.4.0 and earlier answer `500` to every HMAC request on the admin endpoint, so use `bearer` or `api-key` there on those versions.
 
 `admin.insecure: true` allows the endpoint with no authentication. Use it on a local machine only.
 

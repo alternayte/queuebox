@@ -1,0 +1,193 @@
+---
+title: Use QueueBox from an EF Core app
+description: Write outbox rows with SaveChanges and consume the inbox with a DbContext that shares the handler transaction.
+sidebar:
+  order: 2
+---
+
+import { Aside, Tabs, TabItem } from "@astrojs/starlight/components";
+
+This guide shows you how an Entity Framework Core application writes outbox rows and consumes inbox messages. Both sides follow one rule: the QueueBox row and the business write share one transaction on one connection.
+
+## Map the outbox table
+
+QueueBox owns and migrates the `outbox` table. Map an entity to it, but do not generate a migration from the entity.
+
+```csharp
+public class OutboxMessage
+{
+    public Guid Id { get; set; }
+    public string Topic { get; set; } = default!;
+    public string? Key { get; set; }
+    public string Payload { get; set; } = default!;
+    public string Headers { get; set; } = "{}";
+    public string? AggregateType { get; set; }
+}
+```
+
+<Tabs syncKey="database">
+<TabItem label="PostgreSQL">
+
+```csharp
+public class OutboxMessageConfiguration : IEntityTypeConfiguration<OutboxMessage>
+{
+    public void Configure(EntityTypeBuilder<OutboxMessage> builder)
+    {
+        builder.ToTable("outbox", t => t.ExcludeFromMigrations());
+        builder.Property(m => m.Id).HasColumnName("id");
+        builder.Property(m => m.Topic).HasColumnName("topic");
+        builder.Property(m => m.Key).HasColumnName("key");
+        builder.Property(m => m.Payload).HasColumnName("payload").HasColumnType("jsonb");
+        builder.Property(m => m.Headers).HasColumnName("headers").HasColumnType("jsonb");
+        builder.Property(m => m.AggregateType).HasColumnName("aggregate_type");
+    }
+}
+```
+
+</TabItem>
+<TabItem label="SQL Server">
+
+```csharp
+public class OutboxMessageConfiguration : IEntityTypeConfiguration<OutboxMessage>
+{
+    public void Configure(EntityTypeBuilder<OutboxMessage> builder)
+    {
+        builder.ToTable("outbox", t => t.ExcludeFromMigrations());
+        builder.Property(m => m.Id).HasColumnName("id");
+        builder.Property(m => m.Topic).HasColumnName("topic");
+        builder.Property(m => m.Key).HasColumnName("key");
+        builder.Property(m => m.Payload).HasColumnName("payload").HasColumnType("nvarchar(max)");
+        builder.Property(m => m.Headers).HasColumnName("headers").HasColumnType("nvarchar(max)");
+        builder.Property(m => m.AggregateType).HasColumnName("aggregate_type").HasColumnType("nvarchar(255)");
+    }
+}
+```
+
+</TabItem>
+</Tabs>
+
+- Name every column. The default convention does not turn `AggregateType` into `aggregate_type`.
+- Map only the columns that the application writes. The database fills `state`, `attempt`, `scheduled_at`, `created_at`, `updated_at` and `sequence` with their defaults. See [the outbox table](/reference/outbox-table/).
+- Set `Headers` to a JSON object string, never to `null`. The column is `NOT NULL`.
+
+## Write a row with the business change
+
+Add the business entity and the outbox row to one context, then call `SaveChanges` once. `SaveChanges` wraps both inserts in one transaction, so they commit together or not at all.
+
+```csharp
+public async Task CreateOrder(ShopContext db, Guid orderId, string customerId, decimal amount, CancellationToken token)
+{
+    db.Orders.Add(new Order { Id = orderId, CustomerId = customerId, Amount = amount });
+    db.OutboxMessages.Add(new OutboxMessage
+    {
+        Id = Guid.NewGuid(),
+        Topic = "order.created",
+        Key = customerId,
+        Payload = JsonSerializer.Serialize(new { orderId, amount }),
+        Headers = """{"X-Tenant":"acme"}""",
+        AggregateType = "order",
+    });
+
+    await db.SaveChangesAsync(token);
+}
+```
+
+When the work needs more than one `SaveChanges`, open the transaction yourself with `db.Database.BeginTransactionAsync` and commit it after the last call.
+
+Set `Key` to the ID of the thing whose messages must arrive in order, for example the customer or the order. QueueBox delivers the rows of one key in insert order, one at a time. See [ordering](/concepts/ordering/#order-and-the-key).
+
+<Aside>
+An event-sourced application on [Deedbox](https://deedbox-docs.pages.dev) does not need this entity. The `Deedbox.QueueBox` package writes the outbox row in the transaction of each append and sets `key` to the stream ID. See [Wire QueueBox](https://deedbox-docs.pages.dev/how-to/wire-queuebox/).
+</Aside>
+
+## Consume the inbox with a DbContext
+
+A pull worker from `QueueBox.Inbox.DependencyInjection` claims inbox messages and gives each handler an open transaction. The handler writes through that transaction. The library completes the message in the same transaction and commits it.
+
+```sh
+dotnet add package QueueBox.Inbox.DependencyInjection
+```
+
+Build the context with `InboxDbContextFactory.CreateOn`. It hands the handler connection to your `build` delegate and enlists the context in the handler transaction.
+
+<Tabs syncKey="database">
+<TabItem label="PostgreSQL">
+
+```csharp
+using Npgsql;
+using QueueBox.Inbox;
+using QueueBox.Inbox.DependencyInjection;
+
+var builder = Host.CreateApplicationBuilder(args);
+
+builder.Services.AddSingleton<IInboxConnectionSource>(
+    InboxConnections.From(NpgsqlDataSource.Create(builder.Configuration.GetConnectionString("Queuebox"))));
+
+builder.Services.AddQueueBoxInbox("payments", new InboxOptions { Source = "payments" }, async (message, transaction, token) =>
+{
+    await using var db = InboxDbContextFactory.CreateOn(
+        transaction,
+        connection => new ShopContext(new DbContextOptionsBuilder<ShopContext>().UseNpgsql(connection).Options));
+
+    var orderId = message.Payload.GetProperty("orderId").GetGuid();
+    var order = await db.Orders.SingleAsync(o => o.Id == orderId, token);
+    order.PaidAt = DateTimeOffset.UtcNow;
+
+    await db.SaveChangesAsync(token);
+});
+
+await builder.Build().RunAsync();
+```
+
+</TabItem>
+<TabItem label="SQL Server">
+
+```csharp
+using Microsoft.Data.SqlClient;
+using QueueBox.Inbox;
+using QueueBox.Inbox.DependencyInjection;
+
+var builder = Host.CreateApplicationBuilder(args);
+
+builder.Services.AddSingleton<IInboxConnectionSource>(
+    InboxConnections.From(SqlClientFactory.Instance, builder.Configuration.GetConnectionString("Queuebox")!));
+
+builder.Services.AddQueueBoxInbox(
+    "payments",
+    new InboxOptions { Source = "payments", Dialect = SqlDialect.SqlServer },
+    async (message, transaction, token) =>
+    {
+        await using var db = InboxDbContextFactory.CreateOn(
+            transaction,
+            connection => new ShopContext(new DbContextOptionsBuilder<ShopContext>().UseSqlServer(connection).Options));
+
+        var orderId = message.Payload.GetProperty("orderId").GetGuid();
+        var order = await db.Orders.SingleAsync(o => o.Id == orderId, token);
+        order.PaidAt = DateTimeOffset.UtcNow;
+
+        await db.SaveChangesAsync(token);
+    });
+
+await builder.Build().RunAsync();
+```
+
+</TabItem>
+</Tabs>
+
+The inbox source must use pull consumption. See [Consume the inbox](/how-to/consume-the-inbox/) for the source configuration.
+
+Follow these rules in a handler:
+
+1. Build every `DbContext` through `InboxDbContextFactory.CreateOn`. A context from dependency injection or from `new` opens its own connection. Its write then commits on its own, and a later failure makes QueueBox deliver the message again after the write already exists.
+2. Do not call `BeginTransaction`, `Commit` or `Rollback`. The library owns the transaction.
+3. Throw to fail the message. The library rolls back every write of the handler.
+4. Pass the cancellation token on. It fires when the lease is lost.
+5. Make a call to another system safe to repeat. Deduplicate it on the source and the idempotency key.
+
+`InboxDbContextFactory` references only `Microsoft.EntityFrameworkCore.Relational`. Add the provider package that your `build` delegate uses: `Npgsql.EntityFrameworkCore.PostgreSQL` or `Microsoft.EntityFrameworkCore.SqlServer`.
+
+## Next steps
+
+- [Write outbox rows](/how-to/write-outbox-rows/) holds the SQL contract that the entity above writes.
+- [Pull clients](/reference/pull-clients/#c) lists every option of the C# client.
+- [Delivery semantics](/concepts/delivery-semantics/) states what QueueBox promises for each message.

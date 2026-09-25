@@ -433,6 +433,8 @@ public class OutboxMessageConfiguration : IEntityTypeConfiguration<OutboxMessage
 - Map `AggregateType` even when no destination reads it today. An unmapped property leaves the column empty for a destination that reads it later.
 - QueueBox owns and migrates the `outbox` table. Do not generate an Entity Framework Core migration from this entity.
 
+[Use QueueBox from an EF Core app](/how-to/use-entity-framework-core/) shows the SQL Server mapping, and the inbox side with `InboxDbContextFactory`.
+
 ## Next steps
 
 - [Fan out over HTTP](/how-to/fan-out-over-http/) routes the rows to HTTP endpoints.
