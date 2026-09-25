@@ -98,7 +98,8 @@ QUEUEBOX_DATABASE_PASSWORD=secret
 The name after the prefix is the configuration path in upper case.
 One underscore separates two levels of the path.
 A leaf name of more than one word has no underscore inside it: `QUEUEBOX_OUTBOX_POLLINTERVALMS` sets `outbox.pollIntervalMs`.
-A variable with an extra underscore sets nothing, and the start reports no error.
+A variable with an extra underscore sets no setting, so it stops the start.
+The error names the variable.
 See [Environment variables](/reference/environment-variables/) and [Configuration](/reference/configuration/).
 
 A configuration change needs a restart.
@@ -282,6 +283,22 @@ spec:
   See [Security](/operations/security/#transport-security).
 - Scrape `/metrics` on the management port.
   See [Monitoring](/operations/monitoring/).
+
+### Kubernetes Service link variables
+
+Kubernetes gives each pod variables for every Service in its namespace.
+A Service with the name `queuebox-db` gives the pod `QUEUEBOX_DB_SERVICE_HOST`, `QUEUEBOX_DB_SERVICE_PORT` and `QUEUEBOX_DB_PORT`.
+These names start with `QUEUEBOX_`, but they are not configuration.
+
+QueueBox ignores a `QUEUEBOX_` variable that sets no setting and ends in one of these forms:
+
+- `_SERVICE_HOST`
+- `_SERVICE_PORT`, or `_SERVICE_PORT_` and a port name
+- `_PORT`
+- `_PORT_`, a port number and `_TCP`, `_UDP` or `_SCTP`, with or without a suffix such as `_ADDR`
+
+Every other `QUEUEBOX_` variable that sets no setting stops the start.
+To keep these variables out of the pod, set `enableServiceLinks: false` in the pod spec.
 
 ### Shutdown
 

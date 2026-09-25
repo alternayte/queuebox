@@ -33,13 +33,39 @@ Do not edit `config/src/main/resources/queuebox.yml`, because a change there nee
 | Placeholder | Any value | `${NAME}` reads the environment variable or JVM system property `NAME`. `${NAME:-fallback}` gives a fallback value. |
 | Enumeration | `transform.onError`, `retention.*.policy`, `auth.signaturePayloadFormat` | Write the value in the exact letter case that the tables below show. `onError: fail` does not load. `signaturePayloadFormat` also accepts `body` and `timestamp-dot-body`. |
 
+## Unknown keys stop the start
+
+QueueBox does not start when the configuration holds a key that sets no setting.
+The rule applies to the file, to the packaged resource and to the `QUEUEBOX_` variables.
+One error lists every path that fails.
+For a key that is near a known key, the error gives the known key:
+
+```text
+The configuration has 3 errors. Fix each one and start QueueBox again.
+  - outbox.batchSzie: unknown key; did you mean batchSize?
+  - destinations.orders.baseUrl: unknown key for type rabbitmq; type http takes it
+  - destinations.billing: missing type; set one of http, kafka, nats, rabbitmq
+```
+
+The error names a variable that sets no setting by its variable name.
+Two kinds of variable are not configuration, and QueueBox ignores them:
+
+- `QUEUEBOX_CONFIG_FILE`, which names the file.
+- A Kubernetes Service link variable that sets no setting. See [Deploy](/operations/deploy/#kubernetes-service-link-variables).
+
+The loader matches a key name in any letter case, and ignores `-` and `_` in it.
+
 ## How QueueBox selects the kind of an entry
 
-A destination, a source and an `auth` block each have several kinds. Write `type` on every entry, so a reader sees the kind.
-The loader does not check `type`. It selects the kind from the required keys that the entry sets.
-An entry with `type: rabbitmq` and the keys of an HTTP destination loads as an HTTP destination.
+A destination, a source and an `auth` block each have several kinds. The `type` key selects the kind.
 
-| Block | Kind | Required keys that select the kind |
+- Every destination and every `auth` block must have `type`.
+- A source without `type` is an `http` source.
+- A key that the selected kind does not take stops the start. An entry with `type: rabbitmq` and `baseUrl` does not load.
+
+QueueBox does not select a kind from the keys of an entry.
+
+| Block | Kind | Required keys |
 | --- | --- | --- |
 | `destinations.<name>` | `http` | `baseUrl` |
 | `destinations.<name>` | `rabbitmq` | `url`, `exchange` |
@@ -408,7 +434,7 @@ QueueBox refuses to start when `admin.enabled` is `true`, `admin.auth` is absent
 
 | Key | Type | Default | Meaning |
 | --- | --- | --- | --- |
-| `type` | string | none | `http`, `rabbitmq`, `kafka` or `nats`. See [how QueueBox selects the kind](#how-queuebox-selects-the-kind-of-an-entry). |
+| `type` | string | required | `http`, `rabbitmq`, `kafka` or `nats`. See [how QueueBox selects the kind](#how-queuebox-selects-the-kind-of-an-entry). |
 | `headers` | map of strings | empty | Static headers on every message to this destination. A header of the outbox row wins over a static header of the same name. |
 | `transform` | block | none | A JSONata transform that runs before the publish. See [transform](#transform). |
 
@@ -520,7 +546,7 @@ The permitted names are `aggregate_type`, `topic` and `key`, with the underscore
 
 | Key | Type | Default | Meaning |
 | --- | --- | --- | --- |
-| `type` | string | none | `http`, `rabbitmq`, `kafka` or `nats`. See [how QueueBox selects the kind](#how-queuebox-selects-the-kind-of-an-entry). |
+| `type` | string | `http` | `http`, `rabbitmq`, `kafka` or `nats`. See [how QueueBox selects the kind](#how-queuebox-selects-the-kind-of-an-entry). |
 | `consumption` | string | `push` | `push`: the relay copies the row into the outbox. `pull`: a pull client claims the row. QueueBox stores the value on the row at receipt. |
 | `topic` | string | `{{ eventType }}` for HTTP, `{{ source }}` for the others | The outbox topic that the relay writes. `{{ source }}` and `{{ eventType }}` render. It must not be blank on a push source. |
 | `idempotencyKeyPath` | string | required for HTTP, `$.id` for the others | The JSONPath of the idempotency key in the body. |
