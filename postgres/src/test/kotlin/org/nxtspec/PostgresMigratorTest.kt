@@ -8,10 +8,14 @@ import org.junit.jupiter.api.AfterAll
 import org.junit.jupiter.api.Tag
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.TestInstance
+import org.nxtspec.repository.MigrationHistoryExistsException
+import org.nxtspec.repository.MigrationHistoryMissingException
 import org.testcontainers.containers.PostgreSQLContainer
 import org.testcontainers.containers.wait.strategy.Wait
 import java.time.Duration
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /**
@@ -47,11 +51,11 @@ class PostgresMigratorTest {
         )
         val dataSource = DatabaseFactory.create(config)
 
-        val applied = PostgresMigrator().migrate(dataSource)
-        assertTrue(applied >= 4, "Every bundled migration must run. Applied $applied")
+        val applied = PostgresMigrator().migrate(dataSource, QUEUEBOX_TABLES)
+        assertEquals(bundledVersions(), applied, "Every bundled migration must run, in order")
 
         // A second run must be a no-op.
-        assertEquals(0, PostgresMigrator().migrate(dataSource))
+        assertEquals(emptyList(), PostgresMigrator().migrate(dataSource, QUEUEBOX_TABLES))
 
         DatabaseFactory.init(dataSource)
 
@@ -84,50 +88,148 @@ class PostgresMigratorTest {
         DatabaseFactory.close(dataSource)
     }
 
+    /**
+     * Issue #66. A baseline at version 0 replays every file over a hand-applied schema, and a
+     * guessed version can skip a file without a sign. The migration therefore stops and names
+     * the baseline command, and it leaves the database as it found it.
+     */
     @Test
-    fun `migrate succeeds against a schema that an operator already created`() = runBlocking {
-        // The Compose file and the manual procedure both create the tables outside Flyway.
-        // Flyway then baselines the database and replays every file, so every file must be
-        // safe to run twice.
-        val databaseName = "queuebox_existing"
-        java.sql.DriverManager.getConnection(
-            container.jdbcUrl,
-            container.username,
-            container.password
-        ).use { connection ->
-            connection.createStatement().use { it.execute("CREATE DATABASE $databaseName") }
+    fun `hand-applied files without a history stop the migration`() {
+        val dataSource = newDatabase("queuebox_hand_applied")
+        try {
+            applyByHand(dataSource, bundledVersions().filter { it.toInt() <= 10 })
+
+            val error = assertFailsWith<MigrationHistoryMissingException> {
+                PostgresMigrator().migrate(dataSource, QUEUEBOX_TABLES)
+            }
+            assertEquals(
+                "QueueBox tables exist without a migration history. Run `queuebox migrate --baseline <version>` " +
+                    "with the last version you applied by hand.",
+                error.message
+            )
+            assertFalse(hasTable(dataSource, "flyway_schema_history"), "The stop must write no history")
+            assertFalse(hasColumn(dataSource, "outbox", "sequence"), "The stop must apply no file")
+        } finally {
+            DatabaseFactory.close(dataSource)
         }
+    }
 
-        val url = container.jdbcUrl.substringBeforeLast('/') + "/" + databaseName
-        val config = DatabaseConfig(
-            url = url,
-            username = container.username,
-            password = Secret(container.password),
-            poolSize = 5
+    @Test
+    fun `baseline 10 records the hand-applied files and applies V11`() {
+        val dataSource = newDatabase("queuebox_baseline")
+        try {
+            applyByHand(dataSource, bundledVersions().filter { it.toInt() <= 10 })
+
+            assertEquals(listOf("11"), PostgresMigrator().baseline(dataSource, "10"))
+            assertTrue(hasColumn(dataSource, "outbox", "sequence"), "V11 must run after the baseline")
+            assertEquals(listOf("10", "11"), historyVersions(dataSource))
+
+            // The database is a normal one now.
+            assertEquals(emptyList(), PostgresMigrator().migrate(dataSource, QUEUEBOX_TABLES))
+        } finally {
+            DatabaseFactory.close(dataSource)
+        }
+    }
+
+    @Test
+    fun `baseline refuses a database that has a history and changes nothing`() {
+        val dataSource = newDatabase("queuebox_baseline_refused")
+        try {
+            PostgresMigrator().migrate(dataSource, QUEUEBOX_TABLES)
+            val before = historyVersions(dataSource)
+
+            assertFailsWith<MigrationHistoryExistsException> {
+                PostgresMigrator().baseline(dataSource, "5")
+            }
+            assertEquals(before, historyVersions(dataSource))
+        } finally {
+            DatabaseFactory.close(dataSource)
+        }
+    }
+
+    @Test
+    fun `baseline refuses a version that no bundled file carries`() {
+        val dataSource = newDatabase("queuebox_baseline_unknown")
+        try {
+            listOf("99", "abc").forEach { version ->
+                val error = assertFailsWith<IllegalArgumentException> {
+                    PostgresMigrator().baseline(dataSource, version)
+                }
+                assertTrue(error.message!!.contains("'$version'"), error.message)
+            }
+            assertFalse(hasTable(dataSource, "flyway_schema_history"), "A refused baseline must write no history")
+        } finally {
+            DatabaseFactory.close(dataSource)
+        }
+    }
+
+    /** QueueBox shares the application database, so an application table must not stop it. */
+    @Test
+    fun `a database with application tables only baselines at 0 and migrates`() {
+        val dataSource = newDatabase("queuebox_app_tables")
+        try {
+            dataSource.connection.use { connection ->
+                connection.createStatement().use { it.execute("CREATE TABLE orders (id INT PRIMARY KEY)") }
+                connection.commit()
+            }
+
+            assertEquals(bundledVersions(), PostgresMigrator().migrate(dataSource, QUEUEBOX_TABLES))
+            assertEquals(listOf("0") + bundledVersions(), historyVersions(dataSource))
+        } finally {
+            DatabaseFactory.close(dataSource)
+        }
+    }
+
+    private fun newDatabase(name: String): com.zaxxer.hikari.HikariDataSource {
+        java.sql.DriverManager.getConnection(container.jdbcUrl, container.username, container.password)
+            .use { connection -> connection.createStatement().use { it.execute("CREATE DATABASE $name") } }
+        return DatabaseFactory.create(
+            DatabaseConfig(
+                url = container.jdbcUrl.substringBeforeLast('/') + "/" + name,
+                username = container.username,
+                password = Secret(container.password),
+                poolSize = 5
+            )
         )
-        val dataSource = DatabaseFactory.create(config)
+    }
 
-        // The operator applies the shipped SQL by hand first.
+    /** The versions of the bundled files, in version order. */
+    private fun bundledVersions(): List<String> =
+        java.io.File(requireNotNull(javaClass.getResource("/db/postgresql")).toURI())
+            .list()!!
+            .map { it.removePrefix("V").substringBefore("__") }
+            .sortedBy { it.toInt() }
+
+    /** The operator applies the shipped SQL by hand, with no Flyway. */
+    private fun applyByHand(dataSource: javax.sql.DataSource, versions: List<String>) {
+        val directory = java.io.File(requireNotNull(javaClass.getResource("/db/postgresql")).toURI())
         dataSource.connection.use { connection ->
-            listOf(
-                "V1__create_outbox.sql",
-                "V2__create_inbox.sql",
-                "V3__add_claimed_at.sql",
-                "V4__add_last_error.sql"
-            ).forEach { name ->
-                val sql = requireNotNull(
-                    javaClass.getResourceAsStream("/db/postgresql/$name")
-                ) { "Migration $name must be on the classpath" }.bufferedReader().readText()
-                connection.createStatement().use { it.execute(sql) }
+            versions.forEach { version ->
+                val file = directory.listFiles()!!.single { it.name.startsWith("V${version}__") }
+                connection.createStatement().use { it.execute(file.readText()) }
+            }
+            connection.commit()
+        }
+    }
+
+    private fun historyVersions(dataSource: javax.sql.DataSource): List<String> =
+        dataSource.connection.use { connection ->
+            connection.createStatement().use { stmt ->
+                stmt.executeQuery(
+                    "SELECT version FROM flyway_schema_history WHERE version IS NOT NULL ORDER BY installed_rank"
+                ).use { rs -> buildList { while (rs.next()) add(rs.getString(1)) } }
             }
         }
 
-        // Flyway must not fail on the replay.
-        val applied = PostgresMigrator().migrate(dataSource)
-        assertTrue(applied >= 4, "Flyway records every file. Applied $applied")
+    private fun hasTable(dataSource: javax.sql.DataSource, table: String): Boolean =
+        dataSource.connection.use { connection ->
+            connection.metaData.getTables(null, "public", table, arrayOf("TABLE")).use { it.next() }
+        }
 
-        DatabaseFactory.close(dataSource)
-    }
+    private fun hasColumn(dataSource: javax.sql.DataSource, table: String, column: String): Boolean =
+        dataSource.connection.use { connection ->
+            connection.metaData.getColumns(null, "public", table, column).use { it.next() }
+        }
 
     /**
      * Covers F-090's DoD requirement: the migration must apply to a database that already holds
@@ -180,8 +282,8 @@ class PostgresMigratorTest {
                 connection.commit()
             }
 
-            val applied = PostgresMigrator().migrate(dataSource)
-            assertTrue(applied >= 1, "V9 must run against the already-populated database")
+            val applied = PostgresMigrator().migrate(dataSource, QUEUEBOX_TABLES)
+            assertTrue(applied.isNotEmpty(), "V9 must run against the already-populated database")
 
             dataSource.connection.use { connection ->
                 connection.createStatement().use { stmt ->
@@ -244,7 +346,7 @@ class PostgresMigratorTest {
                 connection.commit()
             }
 
-            PostgresMigrator().migrate(dataSource)
+            PostgresMigrator().migrate(dataSource, QUEUEBOX_TABLES)
 
             fun sequenceByTopic(): Map<String, Long> = dataSource.connection.use { connection ->
                 connection.createStatement().use { stmt ->
@@ -281,5 +383,9 @@ class PostgresMigratorTest {
         } finally {
             DatabaseFactory.close(dataSource)
         }
+    }
+
+    private companion object {
+        val QUEUEBOX_TABLES = listOf("outbox", "inbox")
     }
 }

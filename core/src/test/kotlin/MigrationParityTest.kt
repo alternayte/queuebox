@@ -94,7 +94,7 @@ class MigrationParityTest {
     }
 
     /**
-     * The manual schema procedure must name every file that ships.
+     * The version table of the migration document must name every file that ships.
      *
      * Fourth review gate, defect B3. `docs/development/migrations.md` listed V1 to V4 while V5
      * shipped. An operator who followed the document built a schema with no `correlation_id`

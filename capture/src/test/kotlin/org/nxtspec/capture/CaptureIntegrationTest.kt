@@ -44,7 +44,7 @@ class CaptureIntegrationTest {
                 user = db.username
                 setPassword(db.password)
             }
-            PostgresMigrator().migrate(source)
+            PostgresMigrator().migrate(source, listOf("outbox", "inbox"))
             source.connection.use {
                 it.createStatement().use { stmt -> stmt.execute("CREATE PUBLICATION queuebox_outbox FOR TABLE outbox") }
             }
@@ -72,7 +72,7 @@ class CaptureIntegrationTest {
                         username = db.username,
                         password = Secret(db.password)
                     )
-                SqlServerMigrator().migrate(source)
+                SqlServerMigrator().migrate(source, listOf("outbox", "inbox"))
                 source.connection.use {
                     it.createStatement().use { stmt ->
                         stmt.execute("EXEC sys.sp_cdc_enable_db")
