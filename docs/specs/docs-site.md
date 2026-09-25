@@ -36,7 +36,7 @@ The QueueBox user docs move to an Astro Starlight site in `site/`, hosted on Clo
 - `cd site && npm ci && npx astro build` writes `site/dist` with no error.
 - `site/dist/llms.txt` lists every page. `site/dist/concepts/delivery-semantics.md` is Markdown.
 - The landing page shows in light and dark themes in a browser.
-- A config sample with an unknown key in a site page fails `./gradlew check`.
+- A config sample with an invalid value in a site page fails `./gradlew check`. The loader ignores an unknown key, so an unknown key cannot fail it.
 - A wrong metric name in the metrics page fails `./gradlew check`.
 - `vale site/src/content` passes.
 - `npx skills add ./` in a scratch directory lists the `queuebox` skill.
