@@ -82,7 +82,7 @@ class RabbitConsumerRejectedClaimRaceTest {
             )
         )
         DatabaseFactory.init(dataSource)
-        PostgresMigrator().migrate(dataSource)
+        PostgresMigrator().migrate(dataSource, listOf("outbox", "inbox"))
         repository = InboxRepository()
         connection = RabbitConnection(amqpUrl)
         declareTestQueue()

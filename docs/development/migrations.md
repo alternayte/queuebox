@@ -34,36 +34,38 @@ Each version number describes the same logical change on both databases.
 3. **Add the same version number to both databases.** If a change applies to one database only,
    still add a file with that version number to the other set, and write a comment that says the
    change does not apply there.
-4. **Write every file so it can run twice safely.** This is mandatory, not a preference. An
-   operator can create the schema by hand with the files below. Flyway then
-   baselines the database at version 0 and replays every file. Use `CREATE TABLE IF NOT EXISTS`
-   and `ADD COLUMN IF NOT EXISTS` on PostgreSQL. Use `IF OBJECT_ID(...) IS NULL` and
-   `IF COL_LENGTH(...) IS NULL` on SQL Server. `PostgresMigratorTest` and `SqlServerMigratorTest`
-   both replay every file against a schema that already exists.
-5. **Do not use `GO`.** `GO` is a sqlcmd batch separator, not T-SQL. Use `EXEC('...')` when a
+4. **Do not use `GO`.** `GO` is a sqlcmd batch separator, not T-SQL. Use `EXEC('...')` when a
    statement must run after a schema change in the same file.
 
-## Manual application
+## Installs without DDL rights
 
-Set `database.migrate` to false and apply the SQL files by hand, in version order, with a
-privileged user, in two cases.
+`queuebox migrate` is the one path for an install whose application user has no DDL rights. It
+applies the bundled migrations with the same image, configuration and Flyway history as the
+startup migration, logs the versions it applied, and exits. It exits 0 after success and
+non-zero after a failure.
 
-1. The application user has no DDL rights.
-2. The configuration renames a table or a column. The bundled files name the default schema, so
-   QueueBox refuses to run them against a renamed schema and fails at startup with a named
-   error. See `MigrationGuardTest`.
+1. Run `queuebox migrate` with a privileged user before each upgrade, for example
+   `docker run --rm -e QUEUEBOX_DATABASE_URL=... ghcr.io/alternayte/queuebox:<version> migrate`.
+2. Run the service with `database.migrate: false` and the application user.
 
-```bash
-psql -f postgres/src/main/resources/db/postgresql/V1__create_outbox.sql
-psql -f postgres/src/main/resources/db/postgresql/V2__create_inbox.sql
-psql -f postgres/src/main/resources/db/postgresql/V3__add_claimed_at.sql
-psql -f postgres/src/main/resources/db/postgresql/V4__add_last_error.sql
-psql -f postgres/src/main/resources/db/postgresql/V5__add_correlation_id.sql
+The command ignores `database.migrate`. It refuses a configuration that renames a table or a
+column, as the startup migration does. The bundled files name the default schema, so a renamed
+schema keeps its own SQL and the startup schema guards. See `MigrationGuardTest`.
+
+## A database without a migration history
+
+An empty database, or one that holds only application tables, baselines at version 0 and
+migrates. A database that holds an `outbox` or an `inbox` table and no Flyway history stops the
+startup migration and `queuebox migrate` with this message:
+
+```text
+QueueBox tables exist without a migration history. Run `queuebox migrate --baseline <version>` with the last version you applied by hand.
 ```
 
-Apply EVERY file. An incomplete set does not fail at startup. It fails on the first insert, because
-the row names a column the table does not hold. `MigrationParityTest` asserts that this document
-lists every file that ships.
+`queuebox migrate --baseline <version>` records `<version>` as applied without running it or an
+earlier file. It then applies the later files. It refuses a database that already has a history,
+because a second baseline would hide the real state. `PostgresMigratorTest` and
+`SqlServerMigratorTest` cover the stop and the baseline.
 
 ## History note
 

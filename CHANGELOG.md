@@ -9,6 +9,31 @@ the configuration schema and for the database schema.
 
 ## [Unreleased]
 
+### Breaking
+
+- **An unknown configuration key or `QUEUEBOX_*` variable stops the start.** QueueBox used to
+  ignore both, so a misspelled key ran with its default without a sign. One error now lists every
+  offending path, with a suggestion for a near miss. A `QUEUEBOX_*` name in a Kubernetes
+  service-link form that binds no setting, such as `QUEUEBOX_DB_SERVICE_HOST`, is ignored.
+  Migration: fix each path that the error lists. Fixes #65.
+- **`type` selects the kind of a destination, a source and an auth block.** QueueBox used to infer
+  the kind from the keys and ignore `type`, so `type: rabbitmq` with a `baseUrl` ran as an HTTP
+  destination. `type` is now required on every destination and every auth block. A source without
+  `type` is `http`, as before. A key that the kind does not take stops the start. Migration: add
+  `type` to each destination and auth block that lacks it. Fixes #65.
+- **A database with QueueBox tables but no migration history stops the start.** Flyway used to
+  baseline such a database at version 0 and replay every file, which failed at V6 on a schema an
+  operator applied by hand. The start now names the fix: run
+  `queuebox migrate --baseline <version>` once with the last version applied by hand. Fixes #66.
+
+### Added
+
+- **`queuebox migrate`** applies the bundled migrations and exits, with the same image,
+  configuration and history as the startup migration. A privileged operator runs it, and the
+  service runs with `database.migrate: false` and no DDL rights. `migrate --baseline <version>`
+  records the history of a hand-applied database. Exit codes: 0 success, 1 failure, 2 usage.
+  This replaces applying the migration files by hand. Fixes #66.
+
 ## [0.4.1] — 2026-09-26
 
 This release ships the server image as `v0.4.1`, and the three client libraries as 0.3.1:

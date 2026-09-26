@@ -1,6 +1,7 @@
 package docs
 
 import org.nxtspec.ConfigLoader
+import org.nxtspec.EnvConfigLoader
 import org.nxtspec.QueueBoxConfig
 import java.io.File
 import java.lang.reflect.Field
@@ -33,9 +34,14 @@ class DocumentedExamplesTest {
      * `docs/build/` holds the dated plan of each phase. A plan records the state of the code on
      * the day of the plan, so it is a historical record and not the manual. The checks that read
      * the code therefore skip it. The link check still covers it.
+     *
+     * `docs/specs/` holds the design of each feature, written before the code. A spec names wrong
+     * input on purpose, such as the misspelled variable that the strict configuration refuses, so
+     * the checks that read the code skip it as well.
      */
-    private fun isHistoricalRecord(file: File) =
-        file.canonicalPath.contains("${File.separator}docs${File.separator}build${File.separator}")
+    private fun isHistoricalRecord(file: File) = listOf("build", "specs").any { directory ->
+        file.canonicalPath.contains("${File.separator}docs${File.separator}$directory${File.separator}")
+    }
 
     /** The pages of the docs site. A site-absolute link like `/concepts/ordering/` names one. */
     private val siteContent = File(repositoryRoot, "site/src/content/docs")
@@ -128,7 +134,9 @@ class DocumentedExamplesTest {
                     val name = match.value
                     if (name in nonConfigurationVariables) return@forEach
                     val path = envKeyToYamlPath(name)
-                    if (patterns.none { matches(it, path) }) {
+                    // The deploy page names the Kubernetes Service link forms that the loader
+                    // ignores when they bind nothing.
+                    if (patterns.none { matches(it, path) } && !EnvConfigLoader.isServiceLink(name)) {
                         failures += "${relativeName(document)}:${index + 1} names $name, which binds " +
                             "'$path'. No such configuration property exists."
                     }
@@ -293,6 +301,40 @@ class DocumentedExamplesTest {
         "username" to "queuebox",
         "password" to "documented-example-password"
     )
+
+    /**
+     * The configuration is strict, so a key that an example misspells stops its start. Every
+     * example stack under `examples/` and the packaged fallback therefore load here.
+     */
+    @Test
+    fun `every example configuration and the packaged configuration load`() {
+        val examples = File(repositoryRoot, "examples").walkTopDown()
+            .filter { it.isFile && it.name == "queuebox.yml" }
+            .sortedBy { it.path }
+            .toList()
+        assertTrue(examples.isNotEmpty(), "no example configuration found")
+
+        // Some example stacks set the database in their compose file, not in the configuration.
+        val database = mapOf(
+            "QUEUEBOX_DATABASE_URL" to "jdbc:postgresql://postgres:5432/queuebox",
+            "QUEUEBOX_DATABASE_USERNAME" to "queuebox",
+            "QUEUEBOX_DATABASE_PASSWORD" to "queuebox"
+        )
+        val failures = mutableListOf<String>()
+        for (example in examples) {
+            try {
+                ConfigLoader.load(env = { database + ("QUEUEBOX_CONFIG_FILE" to example.absolutePath) })
+            } catch (e: Exception) {
+                failures += "${relativeName(example)} does not load: ${e.message}"
+            }
+        }
+        try {
+            ConfigLoader.load(env = { emptyMap() })
+        } catch (e: Exception) {
+            failures += "the packaged queuebox.yml does not load: ${e.message}"
+        }
+        assertTrue(failures.isEmpty(), "configurations that fail:\n" + failures.joinToString("\n"))
+    }
 
     @Test
     fun `every documented QueueBox YAML example loads and validates`() {

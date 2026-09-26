@@ -2,6 +2,7 @@ package org.nxtspec
 
 import com.sksamuel.hoplite.ConfigException
 import com.sksamuel.hoplite.ConfigLoaderBuilder
+import com.sksamuel.hoplite.ExperimentalHoplite
 import com.sksamuel.hoplite.addFileSource
 import com.sksamuel.hoplite.addResourceSource
 import com.sksamuel.hoplite.sources.MapPropertySource
@@ -27,6 +28,10 @@ import java.io.File
  * - QUEUEBOX_SERVER_HTTPPORT → server.httpPort. A leaf name carries no underscore, because every
  *   single underscore becomes a level separator.
  * - QUEUEBOX_ROUTES_0_TOPICPATTERN → routes[0].topicPattern
+ *
+ * The configuration is strict. A key or a QUEUEBOX_* variable that binds no setting, and a key
+ * that the `type` of its entry does not take, stop the load with one error that lists them all.
+ * See [StrictConfigCheck].
  *
  * @see EnvConfigLoader for environment variable transformation utilities
  */
@@ -62,8 +67,49 @@ object ConfigLoader {
      * message prints through `EnvConfigLoader.yamlPathToEnvKey`. This source makes that one
      * convention the convention that works.
      */
-    private fun createEnvSource(env: () -> Map<String, String>) =
-        MapPropertySource(EnvConfigLoader.loadNestedFromEnv(env))
+    private fun createEnvSource(variables: Map<String, String>) =
+        MapPropertySource(EnvConfigLoader.loadNestedFromEnv { variables })
+
+    /**
+     * The `QUEUEBOX_` variables that configure QueueBox.
+     *
+     * [CONFIG_FILE_ENV] names the file and binds no setting. A Kubernetes Service whose name
+     * starts with `queuebox` injects names such as `QUEUEBOX_DB_SERVICE_HOST` into every pod of
+     * its namespace, so a name of that form that binds no setting is not configuration either.
+     * Every other variable reaches the strict check, which refuses one that binds nothing.
+     */
+    private fun configurationVariables(environment: Map<String, String>): Map<String, String> =
+        environment.filterKeys { name ->
+            name.startsWith(EnvConfigLoader.PREFIX) &&
+                name != CONFIG_FILE_ENV &&
+                !(EnvConfigLoader.isServiceLink(name) && !StrictConfigCheck.bindsSetting(name))
+        }
+
+    /**
+     * Builds the loader, checks the merged tree of every source, and decodes it.
+     *
+     * The strict check runs here, on the tree that Hoplite decodes, so no source can bypass it.
+     * See `docs/specs/strict-config.md`.
+     */
+    @OptIn(ExperimentalHoplite::class)
+    private fun loadChecked(
+        variables: Map<String, String>,
+        addFileSources: ConfigLoaderBuilder.() -> Unit
+    ): QueueBoxConfig {
+        val loader = ConfigLoaderBuilder.default()
+            .addDecoder(SecretDecoder())
+            .addDecoder(SignaturePayloadFormatDecoder())
+            .addDecoder(TypeDiscriminatorDecoder())
+            // TypeDiscriminatorDecoder outranks Hoplite's sealed decoder. Naming the field here
+            // stops Hoplite from warning that it infers the kind from the keys, which it no
+            // longer does.
+            .withExplicitSealedTypes(ConfigKinds.TYPE_KEY)
+            .addPropertySource(createEnvSource(variables))
+            .apply(addFileSources)
+            .build()
+        StrictConfigCheck(variables.keys).check(loader.loadNodeOrThrow(emptyList()))
+        return loader.loadConfigOrThrow<QueueBoxConfig>()
+    }
 
     /**
      * Loads configuration from YAML file with optional environment variable overrides.
@@ -82,7 +128,8 @@ object ConfigLoader {
         optional: Boolean = false,
         env: () -> Map<String, String> = { System.getenv() }
     ): QueueBoxConfig {
-        val externalPath = env()[CONFIG_FILE_ENV] ?: DEFAULT_EXTERNAL_PATH
+        val environment = env()
+        val externalPath = environment[CONFIG_FILE_ENV] ?: DEFAULT_EXTERNAL_PATH
         // The packaged resource is a fallback, not an overlay. Hoplite cascades a map node key by
         // key, so a configuration that declares one destination used to inherit every destination
         // and every source of the packaged file. A deployment then served an inbox endpoint that
@@ -94,20 +141,15 @@ object ConfigLoader {
         // and the packaged routes. So the resource now loads only when neither an external file
         // nor a QUEUEBOX_ variable configures QueueBox, which is the local run it was written for.
         val externalFile = File(externalPath)
+        val variables = configurationVariables(environment)
         val config = try {
-            ConfigLoaderBuilder.default()
-                .addDecoder(SecretDecoder())
-                .addDecoder(SignaturePayloadFormatDecoder())
-                .addPropertySource(createEnvSource(env))
-                .apply {
-                    if (externalFile.isFile) {
-                        addFileSource(externalFile)
-                    } else if (!EnvConfigLoader.hasEnvConfig(env)) {
-                        addResourceSource("/$path", optional = optional)
-                    }
+            loadChecked(variables) {
+                if (externalFile.isFile) {
+                    addFileSource(externalFile)
+                } else if (variables.isEmpty() && CONFIG_FILE_ENV !in environment) {
+                    addResourceSource("/$path", optional = optional)
                 }
-                .build()
-                .loadConfigOrThrow<QueueBoxConfig>()
+            }
         } catch (e: ConfigException) {
             // Every source was absent or empty. Hoplite then reports "The applied config was
             // empty", which does not tell the user what to do next. Name the sources instead.
@@ -137,12 +179,7 @@ object ConfigLoader {
             )
         }
 
-        val config = ConfigLoaderBuilder.default()
-            .addDecoder(SecretDecoder())
-            .addDecoder(SignaturePayloadFormatDecoder())
-            .addPropertySource(createEnvSource { System.getenv() })
-            .build()
-            .loadConfigOrThrow<QueueBoxConfig>()
+        val config = loadChecked(configurationVariables(System.getenv())) {}
         return ConfigValidator.validate(config)
     }
 

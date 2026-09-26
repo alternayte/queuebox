@@ -56,8 +56,25 @@ By default, QueueBox applies its bundled Flyway migrations at start.
 The database account then needs the right to create and alter tables, indexes and sequences.
 
 Set `database.migrate: false` when the application account has no DDL rights.
-Apply the migration files by hand before each upgrade.
-The files are in [`postgres/src/main/resources/db/postgresql`](https://github.com/alternayte/queuebox/blob/main/postgres/src/main/resources/db/postgresql) and [`sqlserver/src/main/resources/db/sqlserver`](https://github.com/alternayte/queuebox/blob/main/sqlserver/src/main/resources/db/sqlserver).
+Before each upgrade, run the `migrate` command of the new image with a privileged account:
+
+```bash
+docker run --rm \
+  -e QUEUEBOX_DATABASE_URL=jdbc:postgresql://db.internal:5432/queuebox \
+  -e QUEUEBOX_DATABASE_USERNAME=queuebox_admin \
+  -e QUEUEBOX_DATABASE_PASSWORD=secret \
+  ghcr.io/alternayte/queuebox:1.2.3 migrate
+```
+
+The command reads the same configuration as the service and ignores `database.migrate`.
+It applies the migrations that the database does not have, logs their versions, and exits.
+It exits with 0 after success and with a non-zero code after a failure, so a Kubernetes `Job` or an init container can run it.
+
+A database that holds QueueBox tables and no Flyway history stops the start and the command.
+This happens when somebody applied the migration files by hand.
+Run `migrate --baseline <version>` once, with the last version that was applied by hand.
+The command records that version and the earlier ones as applied, then applies the later files.
+It refuses a database that already has a history.
 
 A custom table name or column name requires `database.migrate: false`.
 QueueBox refuses to start with a renamed table or column and `migrate: true`, because the bundled files name the default schema.
@@ -98,7 +115,8 @@ QUEUEBOX_DATABASE_PASSWORD=secret
 The name after the prefix is the configuration path in upper case.
 One underscore separates two levels of the path.
 A leaf name of more than one word has no underscore inside it: `QUEUEBOX_OUTBOX_POLLINTERVALMS` sets `outbox.pollIntervalMs`.
-A variable with an extra underscore sets nothing, and the start reports no error.
+A variable with an extra underscore sets no setting, so it stops the start.
+The error names the variable.
 See [Environment variables](/reference/environment-variables/) and [Configuration](/reference/configuration/).
 
 A configuration change needs a restart.
@@ -282,6 +300,22 @@ spec:
   See [Security](/operations/security/#transport-security).
 - Scrape `/metrics` on the management port.
   See [Monitoring](/operations/monitoring/).
+
+### Kubernetes Service link variables
+
+Kubernetes gives each pod variables for every Service in its namespace.
+A Service with the name `queuebox-db` gives the pod `QUEUEBOX_DB_SERVICE_HOST`, `QUEUEBOX_DB_SERVICE_PORT` and `QUEUEBOX_DB_PORT`.
+These names start with `QUEUEBOX_`, but they are not configuration.
+
+QueueBox ignores a `QUEUEBOX_` variable that sets no setting and ends in one of these forms:
+
+- `_SERVICE_HOST`
+- `_SERVICE_PORT`, or `_SERVICE_PORT_` and a port name
+- `_PORT`
+- `_PORT_`, a port number and `_TCP`, `_UDP` or `_SCTP`, with or without a suffix such as `_ADDR`
+
+Every other `QUEUEBOX_` variable that sets no setting stops the start.
+To keep these variables out of the pod, set `enableServiceLinks: false` in the pod spec.
 
 ### Shutdown
 

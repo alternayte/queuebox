@@ -45,12 +45,42 @@ The Prometheus exporter drops the `_info` suffix, so the metric `queuebox_info` 
 
 ## Upgrade with `database.migrate: false`
 
-A deployment that applies its own schema must apply each new migration before the new version starts.
+A deployment whose application user has no DDL rights runs the `migrate` command of the new image before the new version starts.
 
-1. List the migration files that the target version adds. The changelog names them, and so does [Use custom tables](/how-to/use-custom-tables/#apply-the-default-schema-by-hand).
-2. Apply each new file in version order, with a privileged user.
-3. For a custom schema, apply the same change to your own tables with your own names. Add the new column to the column mapping when you renamed it.
-4. Roll the replicas to the new image.
+1. Check that the target release needs no stop of the old workers. See [Migrations that need a full stop](#migrations-that-need-a-full-stop).
+2. Run the command of the target image with a privileged user. It applies each new migration, logs its version, and exits with 0.
+
+   ```bash
+   docker run --rm \
+     -e QUEUEBOX_DATABASE_URL=jdbc:postgresql://db.internal:5432/queuebox \
+     -e QUEUEBOX_DATABASE_USERNAME=queuebox_admin \
+     -e QUEUEBOX_DATABASE_PASSWORD=secret \
+     ghcr.io/alternayte/queuebox:0.5.0 migrate
+   ```
+
+3. Roll the replicas to the new image.
+
+A custom schema cannot use the command, because the bundled files name the default tables. Apply the same change to your own tables with your own names. Add the new column to the column mapping when you renamed it. See [Use custom tables](/how-to/use-custom-tables/).
+
+### A database with files applied by hand
+
+Before 0.5.0, a deployment without DDL rights applied the migration files by hand. Such a database has the QueueBox tables and no Flyway history. From 0.5.0, the start and the `migrate` command both stop on it with this message:
+
+```text
+QueueBox tables exist without a migration history. Run `queuebox migrate --baseline <version>` with the last version you applied by hand.
+```
+
+Run the command once with the last version that you applied, for example `10`:
+
+```bash
+docker run --rm \
+  -e QUEUEBOX_DATABASE_URL=jdbc:postgresql://db.internal:5432/queuebox \
+  -e QUEUEBOX_DATABASE_USERNAME=queuebox_admin \
+  -e QUEUEBOX_DATABASE_PASSWORD=secret \
+  ghcr.io/alternayte/queuebox:0.5.0 migrate --baseline 10
+```
+
+The command records V1 to V10 as applied without running them, then applies V11 and every later file. After that, the database is a normal install. The command refuses a database that already has a history, and it changes nothing there.
 
 A new column is nullable or has a default, so the replicas of the previous version keep running against the new schema. Two migrations are exceptions, and the next section covers them.
 

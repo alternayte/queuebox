@@ -96,7 +96,7 @@ class IntegrationDocSqlTest {
             )
         )
         postgresDataSource = postgresCreated
-        PostgresMigrator().migrate(postgresCreated)
+        PostgresMigrator().migrate(postgresCreated, listOf("outbox", "inbox"))
         postgresConnection = postgresCreated.connection.also { it.autoCommit = true }
 
         val sqlServerCreated = SqlServerDatabaseFactory.create(
@@ -109,7 +109,7 @@ class IntegrationDocSqlTest {
             )
         )
         sqlServerDataSource = sqlServerCreated
-        SqlServerMigrator().migrate(sqlServerCreated)
+        SqlServerMigrator().migrate(sqlServerCreated, listOf("outbox", "inbox"))
         sqlServerConnection = sqlServerCreated.connection.also { it.autoCommit = true }
 
         // One registration per dialect. A repeated `Database.connect` of the same data source

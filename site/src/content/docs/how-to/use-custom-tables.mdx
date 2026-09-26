@@ -1,55 +1,40 @@
 ---
 title: Use custom tables
-description: Point QueueBox at tables and columns with your own names, turn off the bundled migrations, and apply the schema by hand.
+description: Point QueueBox at tables and columns with your own names, or run the bundled migrations with a privileged user when QueueBox has no rights to change the schema.
 sidebar:
   order: 8
 ---
 
 import { Tabs, TabItem, Aside } from "@astrojs/starlight/components";
 
-This guide shows how to run QueueBox against tables that you create and name yourself. It also shows how to apply the default schema by hand when the QueueBox database user has no rights to change the schema.
+This guide shows how to run QueueBox against tables that you create and name yourself. It also shows how to apply the default schema when the QueueBox database user has no rights to change the schema.
 
 By default, QueueBox creates the `outbox` and `inbox` tables itself. At startup, Flyway applies the bundled migrations, because `database.migrate` is `true`.
 
 ## Choose the case
 
-Set `database.migrate: false` and apply the schema yourself in two cases:
+Set `database.migrate: false` in two cases:
 
-1. The QueueBox database user has no rights to create or change tables. Apply the bundled migration files with a privileged user. See [Apply the default schema by hand](#apply-the-default-schema-by-hand).
-2. The configuration renames a table or a column. The bundled files use the default names, so they cannot create your schema. See [Rename tables and columns](#rename-tables-and-columns).
+1. The QueueBox database user has no rights to create or change tables. Run the `migrate` command with a privileged user. See [Apply the default schema without DDL rights](#apply-the-default-schema-without-ddl-rights).
+2. The configuration renames a table or a column. The bundled files use the default names, so they cannot create your schema. Apply your own schema. See [Rename tables and columns](#rename-tables-and-columns).
 
 QueueBox refuses to start when the configuration renames a table or a column and `database.migrate` is still `true`. The error names each renamed setting.
 
-## Apply the default schema by hand
+## Apply the default schema without DDL rights
 
-Apply every migration file of your database, in version order, with a privileged user. The files are in the repository at the tag of the QueueBox version that you run.
-
-<Tabs syncKey="dialect">
-<TabItem label="PostgreSQL">
+Run the `migrate` command of the image that you deploy, with a privileged user. It reads the same configuration as the service, applies every migration that the database does not have, logs the versions, and exits.
 
 ```bash
-for version in 1 2 3 4 5 6 7 8 9 10 11; do
-  psql "$ADMIN_DATABASE_URL" -v ON_ERROR_STOP=1 \
-    -f postgres/src/main/resources/db/postgresql/V${version}__*.sql
-done
+docker run --rm \
+  -e QUEUEBOX_DATABASE_URL=jdbc:postgresql://db.internal:5432/queuebox \
+  -e QUEUEBOX_DATABASE_USERNAME=queuebox_admin \
+  -e QUEUEBOX_DATABASE_PASSWORD=${ADMIN_PASSWORD} \
+  ghcr.io/alternayte/queuebox:0.5.0 migrate
 ```
 
-</TabItem>
-<TabItem label="SQL Server">
+The command exits with 0 after success and with a non-zero code after a failure. It ignores `database.migrate`. It refuses a configuration that renames a table or a column, because the bundled files name the default schema.
 
-```bash
-for version in 1 2 3 4 5 6 7 8 9 10 11; do
-  sqlcmd -S db.internal -d queuebox -U admin -b -I \
-    -i sqlserver/src/main/resources/db/sqlserver/V${version}__*.sql
-done
-```
-
-`-I` sets `QUOTED_IDENTIFIER ON`. `V8__add_pull_claim_indexes.sql` and `V11__add_outbox_sequence.sql` create filtered indexes, and SQL Server needs that setting for them.
-
-</TabItem>
-</Tabs>
-
-These are the files of the current release:
+These are the migrations of the current release:
 
 | File | Change |
 |------|--------|
@@ -65,9 +50,7 @@ These are the files of the current release:
 | `V10__add_inbox_headers.sql` | Add `headers` to the inbox. |
 | `V11__add_outbox_sequence.sql` | Add `sequence` to the outbox, number the existing rows, and add the index on `key` and `sequence`. |
 
-Apply every file. A missing file does not stop the start. The first insert that names the missing column fails instead.
-
-Then turn the migrations off:
+Then turn the startup migration off, and run the service with the application user:
 
 ```yaml
 database:
@@ -77,7 +60,7 @@ database:
   migrate: false
 ```
 
-A new QueueBox version can add a migration. Apply it by hand before you start that version. [Upgrade QueueBox](/how-to/upgrade/) lists the steps.
+A new QueueBox version can add a migration. Run the `migrate` command of the new image before you start that version. [Upgrade QueueBox](/how-to/upgrade/) lists the steps.
 
 ## Rename tables and columns
 

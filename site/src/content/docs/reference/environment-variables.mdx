@@ -39,7 +39,8 @@ When no source holds a configuration, the start fails. The error names the three
 4. It writes the path in lower case. The loader matches a key name in any letter case.
 
 The leaf name therefore has no underscore inside it. `outbox.pollIntervalMs` is `QUEUEBOX_OUTBOX_POLLINTERVALMS`.
-A variable that ends in `OUTBOX_POLL_INTERVAL_MS` sets the path `outbox.poll.interval.ms`, which does not exist. QueueBox reports no error for it, and the value has no effect.
+A variable that ends in `OUTBOX_POLL_INTERVAL_MS` sets the path `outbox.poll.interval.ms`, which does not exist. QueueBox does not start, and the error names the variable.
+See [unknown keys](/reference/configuration/#unknown-keys-stop-the-start) for the two kinds of variable that QueueBox ignores.
 
 | Part of the path | How to write it | Example variable | Key |
 | --- | --- | --- | --- |

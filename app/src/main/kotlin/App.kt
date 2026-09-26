@@ -1,5 +1,6 @@
 package org.nxtspec.app
 
+import com.zaxxer.hikari.HikariDataSource
 import io.ktor.serialization.kotlinx.json.*
 import io.ktor.server.application.*
 import io.ktor.server.engine.*
@@ -7,6 +8,7 @@ import io.ktor.server.netty.*
 import io.ktor.server.plugins.contentnegotiation.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
+import io.micrometer.core.instrument.MeterRegistry
 import io.micrometer.prometheusmetrics.PrometheusConfig
 import io.micrometer.prometheusmetrics.PrometheusMeterRegistry
 import kotlinx.coroutines.runBlocking
@@ -20,10 +22,15 @@ import org.nxtspec.repository.ColumnMappingData
 import org.nxtspec.repository.DatabaseProviderFactory
 import org.nxtspec.repository.DatabaseType
 import org.nxtspec.repository.InboxColumnMappingData
+import org.nxtspec.repository.MigrationHistoryExistsException
+import org.nxtspec.repository.MigrationHistoryMissingException
+import org.nxtspec.repository.Migrator
 import org.nxtspec.repository.OutboxColumnMappingData
 import org.nxtspec.transform.InboxTransformPipeline
 import org.nxtspec.transform.TransformEngine
 import org.nxtspec.transform.TransformPipeline
+import javax.sql.DataSource
+import kotlin.system.exitProcess
 
 private val log = logger("org.nxtspec.app.QueueBox")
 
@@ -35,7 +42,7 @@ private val log = logger("org.nxtspec.app.QueueBox")
  * pool, a migration tool and a configuration loader all put the JDBC URL, and therefore the
  * database password, into that chain. Every risky step takes this path now.
  */
-private inline fun <T> startupStep(what: String, block: () -> T): T = try {
+internal inline fun <T> startupStep(what: String, block: () -> T): T = try {
     block()
 } catch (e: StartupFailedException) {
     // An inner step already sanitised it. Do not wrap it twice.
@@ -44,7 +51,14 @@ private inline fun <T> startupStep(what: String, block: () -> T): T = try {
     throw StartupFailedException("QueueBox could not $what. Reason: ${ErrorSanitizer.sanitize(e)}")
 }
 
-fun main() = runApp()
+/**
+ * Dispatches on the first argument. None starts the service. `migrate` applies the migrations and
+ * exits. The image `ENTRYPOINT` is `./bin/app`, so `docker run <image> migrate` reaches this.
+ */
+fun main(args: Array<String>) {
+    if (args.isEmpty()) return runApp()
+    exitProcess(runCommand(args.toList()))
+}
 
 /**
  * Runs the real startup sequence. `main` calls this with the real environment. A test calls it
@@ -112,31 +126,7 @@ internal fun runApp(env: () -> Map<String, String> = { System.getenv() }) {
     // F-034: fail fast when the admin routes are enabled with no authentication.
     requireAdminAuth(config.admin)
 
-    // Seventh review gate, defect 4. `HikariDataSource` opens the pool in its constructor, so a
-    // database that is not up yet throws here, with the JDBC URL in the cause chain. The call sat
-    // outside the try, so that chain reached stderr and the retry loop below never ran. Both
-    // failures now take the same guarded path.
-    val dataSource = startupStep("open the database pool") {
-        DatabaseFactory.create(config.database, prometheusRegistry)
-    }
-
-    try {
-        // F-056: wait for the database rather than exiting at once. An orchestrator otherwise
-        // shows a crash loop with no useful message while the database comes up.
-        DatabaseStartup.awaitConnection(dataSource, config.database.startupTimeoutMs)
-
-        DatabaseFactory.init(dataSource)
-    } catch (e: StartupFailedException) {
-        // The shutdown hook does not exist yet, so the pool closes here. The message is already
-        // sanitised, so it passes through unchanged.
-        dataSource.close()
-        throw e
-    } catch (e: Exception) {
-        dataSource.close()
-        throw StartupFailedException(
-            "QueueBox could not reach the database. Reason: ${ErrorSanitizer.sanitize(e)}"
-        )
-    }
+    val dataSource = openDatabase(config.database, prometheusRegistry)
 
     // Repositories via factory pattern
     val dbType = DatabaseType.valueOf(config.database.type.uppercase())
@@ -147,11 +137,7 @@ internal fun runApp(env: () -> Map<String, String> = { System.getenv() }) {
 
     // F-030: apply the bundled migrations before anything reads a table.
     if (config.database.migrate) {
-        startupStep("apply the database migrations") {
-            requireDefaultSchemaForMigrations(config.database)
-            val applied = repositoryFactory.createMigrator().migrate(dataSource)
-            log.info("Applied {} migration(s).", applied)
-        }
+        applyMigrations(repositoryFactory.createMigrator(), dataSource, config.database)
     }
 
     startupStep("check the inbox table") {
@@ -420,6 +406,74 @@ internal fun runApp(env: () -> Map<String, String> = { System.getenv() }) {
         // sanitised text and no cause, so the exit code and the operator message both survive.
         throw StartupFailedException("QueueBox did not start. Reason: ${ErrorSanitizer.sanitize(e)}")
     }
+}
+
+/**
+ * Opens the pool and waits for the database. The service and `queuebox migrate` share it.
+ *
+ * @param registry the registry for the pool metrics, or null when nothing exports them
+ */
+internal fun openDatabase(database: DatabaseConfig, registry: MeterRegistry?): HikariDataSource {
+    // Seventh review gate, defect 4. `HikariDataSource` opens the pool in its constructor, so a
+    // database that is not up yet throws here, with the JDBC URL in the cause chain. The call sat
+    // outside the try, so that chain reached stderr and the retry loop below never ran. Both
+    // failures now take the same guarded path.
+    val dataSource = startupStep("open the database pool") {
+        DatabaseFactory.create(database, registry)
+    }
+
+    try {
+        // F-056: wait for the database rather than exiting at once. An orchestrator otherwise
+        // shows a crash loop with no useful message while the database comes up.
+        DatabaseStartup.awaitConnection(dataSource, database.startupTimeoutMs)
+
+        DatabaseFactory.init(dataSource)
+    } catch (e: StartupFailedException) {
+        // The shutdown hook does not exist yet, so the pool closes here. The message is already
+        // sanitised, so it passes through unchanged.
+        dataSource.close()
+        throw e
+    } catch (e: Exception) {
+        dataSource.close()
+        throw StartupFailedException(
+            "QueueBox could not reach the database. Reason: ${ErrorSanitizer.sanitize(e)}"
+        )
+    }
+    return dataSource
+}
+
+/**
+ * Applies the bundled migrations, or records [baseline] first and then applies the later files.
+ * The startup migration and `queuebox migrate` share it, so both refuse the same databases.
+ *
+ * @return the versions that the call applied
+ */
+internal fun applyMigrations(
+    migrator: Migrator,
+    dataSource: DataSource,
+    database: DatabaseConfig,
+    baseline: String? = null
+): List<String> = startupStep("apply the database migrations") {
+    requireDefaultSchemaForMigrations(database)
+    val applied = try {
+        if (baseline == null) {
+            migrator.migrate(dataSource, listOf(database.outboxTableName, database.inboxTableName))
+        } else {
+            migrator.baseline(dataSource, baseline)
+        }
+    } catch (e: MigrationHistoryMissingException) {
+        // The message is the instruction. It carries no secret, so it passes through unwrapped.
+        throw StartupFailedException(e.message!!)
+    } catch (e: MigrationHistoryExistsException) {
+        throw StartupFailedException(e.message!!)
+    }
+    if (baseline != null) log.info("Recorded the baseline at version {}.", baseline)
+    log.info(
+        "Applied {} migration(s): {}.",
+        applied.size,
+        applied.joinToString(", ").ifEmpty { "none" }
+    )
+    applied
 }
 
 /**

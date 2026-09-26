@@ -87,6 +87,50 @@ object EnvConfigLoader {
         return result
     }
 
+    /**
+     * A name that a Kubernetes Service link injects. A Service whose name starts with `queuebox`,
+     * such as `queuebox-db`, gives every pod of its namespace `QUEUEBOX_DB_SERVICE_HOST`,
+     * `QUEUEBOX_DB_SERVICE_PORT`, `QUEUEBOX_DB_SERVICE_PORT_<name>`, `QUEUEBOX_DB_PORT` and
+     * `QUEUEBOX_DB_PORT_<n>_<protocol>` with its `_PROTO`, `_PORT` and `_ADDR` forms.
+     */
+    private val serviceLink = Regex("_SERVICE_HOST$|_SERVICE_PORT(_.*)?$|_PORT$|_PORT_\\d+_(TCP|UDP|SCTP)(_.*)?$")
+
+    /**
+     * Checks if [envKey] has the form of a Kubernetes Service link variable.
+     *
+     * `ConfigLoader` ignores such a name only when it binds no setting, so a setting that ends in
+     * `PORT` still binds.
+     */
+    fun isServiceLink(envKey: String): Boolean = envKey.startsWith(PREFIX) && serviceLink.containsMatchIn(envKey)
+
+    /**
+     * The path of each variable in the tree that [nestEnv] builds, one segment per level.
+     *
+     * The path is [envKeyToYamlPath] split on dots, except for a list index. [nestEnv] closes the
+     * gaps of a sparse index, so `QUEUEBOX_ROUTES_3_TOPICPATTERN` alone becomes element 0. The
+     * strict check needs the position in the tree to name the variable that set a node.
+     */
+    internal fun treePaths(envKeys: Collection<String>): Map<String, List<String>> {
+        val paths = envKeys.associateWith { envKeyToYamlPath(it).split(".") }.toMutableMap()
+        val depth = paths.values.maxOfOrNull { it.size } ?: 0
+        for (level in 0 until depth) {
+            paths.entries
+                .filter { (_, path) -> path.size > level && path[level].isIndex() }
+                .groupBy { (_, path) -> path.subList(0, level) }
+                .values
+                .forEach { group ->
+                    val order = group.map { (_, path) -> path[level].toInt() }.distinct().sorted()
+                    group.forEach { (key, path) ->
+                        paths[key] =
+                            path.toMutableList().also { it[level] = order.indexOf(path[level].toInt()).toString() }
+                    }
+                }
+        }
+        return paths
+    }
+
+    private fun String.isIndex() = isNotEmpty() && all(Char::isDigit)
+
     /** Builds fully nested maps and lists. A list element takes this shape, a top level key does not. */
     private fun nestFully(flat: Map<String, String>): Map<String, Any> {
         val root = mutableMapOf<String, Any>()
