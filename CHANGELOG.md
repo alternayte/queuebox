@@ -9,6 +9,12 @@ the configuration schema and for the database schema.
 
 ## [Unreleased]
 
+## [0.5.0] — 2026-09-26
+
+This release ships the server image alone, as `v0.5.0`. No client library changed, so all four
+client packages stay at 0.3.1. It is a minor release because a configuration that 0.4.1 accepted
+can now stop the start; see Breaking for each migration step.
+
 ### Breaking
 
 - **An unknown configuration key or `QUEUEBOX_*` variable stops the start.** QueueBox used to
@@ -529,7 +535,8 @@ release exists.
   cannot push a credential into a log.
 - The admin surface is off by default.
 
-[Unreleased]: https://github.com/AlterNayte/queuebox/compare/v0.4.1...HEAD
+[Unreleased]: https://github.com/AlterNayte/queuebox/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/AlterNayte/queuebox/compare/v0.4.1...v0.5.0
 [0.4.1]: https://github.com/AlterNayte/queuebox/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/AlterNayte/queuebox/compare/v0.3.2...v0.4.0
 [0.3.2]: https://github.com/AlterNayte/queuebox/compare/v0.3.1...v0.3.2
