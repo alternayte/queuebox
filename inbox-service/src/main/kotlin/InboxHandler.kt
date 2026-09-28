@@ -38,17 +38,11 @@ class InboxHandler(
     ): InboxHandlerResult {
         val messageId = UUID.randomUUID()
 
-        // Extract every path BEFORE transform, from the original payload, with one parse. See F-025.
-        val paths = buildMap {
-            put(IDEMPOTENCY_KEY, sourceConfig.idempotencyKeyPath)
-            sourceConfig.aggregateIdPath?.let { put(AGGREGATE_ID_KEY, it) }
-            sourceConfig.eventTypePath?.let { put(EVENT_TYPE_KEY, it) }
-        }
-        val extracted = extractor.extractAll(payload, paths)
+        val extracted = extractKeys(sourceConfig, payload, headers)
 
         val idempotencyKey = extracted[IDEMPOTENCY_KEY]
         if (idempotencyKey == null) {
-            return rejectMissingKey(source, sourceConfig.idempotencyKeyPath)
+            return rejectMissingKey(source, sourceConfig)
         }
         val aggregateId = extracted[AGGREGATE_ID_KEY]
         val eventType = extracted[EVENT_TYPE_KEY]
@@ -117,19 +111,61 @@ class InboxHandler(
     }
 
     /**
-     * Rejects a message whose idempotency key path matched nothing.
+     * The idempotency key, the aggregate ID and the event type of one request, by caller key.
+     *
+     * Issue #80. A configured header wins, and its path is the fallback. Every path that is still
+     * needed is read BEFORE transform, from the original payload, with one parse. See F-025.
+     */
+    private fun extractKeys(
+        sourceConfig: SourceConfig.Http,
+        payload: JsonElement,
+        headers: Map<String, String>
+    ): Map<String, String?> {
+        val fromHeaders = buildMap {
+            headerValue(headers, sourceConfig.idempotencyKeyHeader)?.let { put(IDEMPOTENCY_KEY, it) }
+            headerValue(headers, sourceConfig.aggregateIdHeader)?.let { put(AGGREGATE_ID_KEY, it) }
+            headerValue(headers, sourceConfig.eventTypeHeader)?.let { put(EVENT_TYPE_KEY, it) }
+        }
+        val paths = buildMap {
+            sourceConfig.idempotencyKeyPath?.let { put(IDEMPOTENCY_KEY, it) }
+            sourceConfig.aggregateIdPath?.let { put(AGGREGATE_ID_KEY, it) }
+            sourceConfig.eventTypePath?.let { put(EVENT_TYPE_KEY, it) }
+        } - fromHeaders.keys
+        return fromHeaders + extractor.extractAll(payload, paths)
+    }
+
+    /**
+     * The trimmed value of the header [name], in any letter case. An absent header, an empty
+     * value and an unset [name] all give null. Issue #80.
+     */
+    private fun headerValue(headers: Map<String, String>, name: String?): String? {
+        if (name == null) return null
+        val wanted = name.trim()
+        return headers.entries
+            .lastOrNull { it.key.equals(wanted, ignoreCase = true) }
+            ?.value
+            ?.trim()
+            ?.takeIf { it.isNotEmpty() }
+    }
+
+    /**
+     * Rejects a message whose idempotency key header and path gave no value.
      *
      * F-052: the reason is a fixed enumeration, never the path or the payload. The reason reaches
      * the 400 response body, and the caller of an inbox source is an untrusted webhook sender. The
      * configured JSONPath is internal configuration, so it must not travel back. The operator
-     * needs it, so the log line carries it instead.
+     * needs it, so the log line carries it instead. Issue #80: a missing key header gets the same
+     * response, and the log line names the header.
      */
-    private fun rejectMissingKey(source: String, path: String): InboxHandlerResult {
+    private fun rejectMissingKey(source: String, sourceConfig: SourceConfig.Http): InboxHandlerResult {
         metricsCollector?.recordInboxRejection(InboxRejectionReason.EXTRACTION_FAILED)
+        val tried = listOfNotNull(
+            sourceConfig.idempotencyKeyHeader?.let { "header '$it'" },
+            sourceConfig.idempotencyKeyPath?.let { "path '$it'" }
+        ).joinToString(" and ")
         log.warn(
-            "The idempotency key path '{}' of source '{}' matched nothing. The message is " +
-                "rejected with 400.",
-            path,
+            "The idempotency key {} of source '{}' matched nothing. The message is rejected with 400.",
+            tried,
             source
         )
         return InboxHandlerResult.ExtractionFailed(

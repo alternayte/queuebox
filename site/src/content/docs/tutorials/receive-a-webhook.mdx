@@ -372,6 +372,52 @@ git checkout examples/queuebox.yml
 
 You posted a webhook to an inbox source, and QueueBox stored it once although it arrived twice. A pull worker then took the message and wrote an order row. The completion committed in the same transaction as the order row.
 
+## Receive GitHub webhooks
+
+The `orders` source reads its idempotency key from the body. A GitHub webhook has no body field that is unique for every delivery. GitHub puts the delivery ID in the `X-GitHub-Delivery` header, and the event name in the `X-GitHub-Event` header. GitHub also sends the same delivery again after a timeout or a manual redelivery.
+
+An HTTP source reads a key from a header when you set the header key:
+
+```yaml
+sources:
+  github:
+    type: http
+    path: /github
+    idempotencyKeyHeader: X-GitHub-Delivery
+    eventTypeHeader: X-GitHub-Event
+    aggregateIdPath: $.repository.full_name
+    consumption: pull
+    auth:
+      type: hmac
+      secret: ${GITHUB_WEBHOOK_SECRET}
+      headerName: X-Hub-Signature-256
+      signaturePrefix: "sha256="
+```
+
+- `idempotencyKeyHeader: X-GitHub-Delivery` makes the delivery ID the idempotency key. A redelivery of the same delivery is a duplicate. Two deliveries with the same body are two rows.
+- `eventTypeHeader: X-GitHub-Event` stores the event name, for example `pull_request`, as the event type.
+- `aggregateIdPath: $.repository.full_name` keeps the events of one repository in order.
+- The `hmac` auth checks the `X-Hub-Signature-256` header against the secret of the GitHub webhook. A request with a wrong signature gets `401`.
+
+A header name matches in any letter case. When a source also sets `idempotencyKeyPath`, the header comes first and the path is the fallback. A request without the key gets `400`.
+
+Do not name the signature header as a key header. QueueBox never stores the `auth.headerName` header, so that configuration stops the start.
+
+To send a delivery by hand, sign the body with the same secret:
+
+```bash
+body='{"action":"opened","repository":{"full_name":"acme/api"}}'
+signature="sha256=$(printf '%s' "$body" | openssl dgst -sha256 -hmac "$GITHUB_WEBHOOK_SECRET" | sed 's/^.* //')"
+curl -i -X POST http://localhost:8080/inbox/github \
+  -H "X-Hub-Signature-256: $signature" \
+  -H 'X-GitHub-Delivery: 72d3162e-cc78-11e3-81ab-4c9367dc0958' \
+  -H 'X-GitHub-Event: pull_request' \
+  -H 'Content-Type: application/json' \
+  -d "$body"
+```
+
+The first request gets `202 Accepted`. The same request again gets `200 OK` with `{"status":"duplicate"}`.
+
 ## Next steps
 
 - [Consume the inbox](/how-to/consume-the-inbox/) compares the push relay with pull workers, and covers retries and idempotent handlers.

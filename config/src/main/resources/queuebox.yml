@@ -58,5 +58,5 @@ sources:
 
   github:
     path: /github
-    idempotencyKeyPath: $.delivery
-    eventTypePath: $.action
+    idempotencyKeyHeader: X-GitHub-Delivery
+    eventTypeHeader: X-GitHub-Event

@@ -381,9 +381,19 @@ sealed class SourceConfig {
     @SerialName("http")
     data class Http(
         val path: String,
-        val idempotencyKeyPath: String,
+        /** The JSONPath of the idempotency key. A source sets this, [idempotencyKeyHeader], or both. */
+        val idempotencyKeyPath: String? = null,
         val aggregateIdPath: String? = null,
         val eventTypePath: String? = null,
+        /**
+         * The request header that carries the idempotency key. It wins over [idempotencyKeyPath],
+         * which becomes the fallback. The name matches in any letter case. Issue #80.
+         */
+        val idempotencyKeyHeader: String? = null,
+        /** The request header of the aggregate ID. It wins over [aggregateIdPath]. */
+        val aggregateIdHeader: String? = null,
+        /** The request header of the event type. It wins over [eventTypePath]. */
+        val eventTypeHeader: String? = null,
         override val transform: TransformConfig? = null,
         override val topic: String = "{{ eventType }}",
         override val consumption: String = "push",
