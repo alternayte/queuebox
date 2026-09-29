@@ -85,8 +85,8 @@ sources:
   github:
     type: http
     path: /github
-    idempotencyKeyPath: $.delivery
-    eventTypePath: $.action
+    idempotencyKeyHeader: X-GitHub-Delivery
+    eventTypeHeader: X-GitHub-Event
     transform:
       expression: '{ "action": action, "repository": repository.full_name, "event": $headers."x-github-event" }'
       onError: Skip
@@ -95,7 +95,7 @@ sources:
 - Quote a header name that holds a hyphen: `$headers."x-github-event"`.
 - A header name matches exactly, so use the letter case that the stored row shows.
 - An HTTP source stores no `Authorization`, `Proxy-Authorization` or `Cookie` header, and no header that the source authentication reads.
-- QueueBox reads the idempotency key and the event type from the original body, before the transform runs.
+- QueueBox reads the idempotency key and the event type from the headers and the original body, before the transform runs.
 
 ## More expressions
 

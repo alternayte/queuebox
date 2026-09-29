@@ -9,6 +9,29 @@ the configuration schema and for the database schema.
 
 ## [Unreleased]
 
+## [0.6.0] — Unreleased
+
+### Added
+
+- **An HTTP source reads its keys from a request header.** The optional keys
+  `idempotencyKeyHeader`, `eventTypeHeader` and `aggregateIdHeader` name a header for the
+  idempotency key, the event type and the aggregate ID. The header wins, and the matching path key
+  is the fallback. A header name matches in any letter case. QueueBox trims the value, and an
+  empty value counts as missing. A request with no idempotency key gets `400`, as a missing path
+  does. `idempotencyKeyPath` is now optional on an HTTP source, but the source must set it or
+  `idempotencyKeyHeader`. A key header named `Authorization`, `Proxy-Authorization`, `Cookie` or
+  the `auth.headerName` of the source stops the start, because QueueBox never stores those
+  headers. The keys load from YAML and from `QUEUEBOX_*` variables. A GitHub source keys on
+  `X-GitHub-Delivery`, so a redelivery is a duplicate and two deliveries with the same body are
+  two rows. Fixes #80.
+
+### Fixed
+
+- **The GitHub sample sources key on `X-GitHub-Delivery`.** The packaged configuration,
+  `examples/queuebox.yml` and the docs read `$.delivery` and `$.action` from the body. A GitHub
+  body has no `delivery` field, so the samples rejected every delivery with `400`. They now read
+  `X-GitHub-Delivery` and `X-GitHub-Event`.
+
 ## [0.5.0] — 2026-09-26
 
 This release ships the server image alone, as `v0.5.0`. No client library changed, so all four

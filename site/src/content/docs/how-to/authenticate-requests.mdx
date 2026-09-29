@@ -74,8 +74,8 @@ sources:
   github:
     type: http
     path: /github
-    idempotencyKeyPath: $.delivery
-    eventTypePath: $.action
+    idempotencyKeyHeader: X-GitHub-Delivery
+    eventTypeHeader: X-GitHub-Event
     auth:
       type: hmac
       secret: ${GITHUB_WEBHOOK_SECRET}
@@ -89,10 +89,12 @@ QueueBox computes the HMAC of the raw request body with `secret`. It writes the 
 A sender computes the same value:
 
 ```bash
-body='{"delivery":"d-1","action":"opened"}'
+body='{"action":"opened"}'
 signature="sha256=$(printf '%s' "$body" | openssl dgst -sha256 -hmac "$GITHUB_WEBHOOK_SECRET" | sed 's/^.* //')"
 curl -X POST http://localhost:8080/inbox/github \
   -H "X-Hub-Signature-256: $signature" \
+  -H 'X-GitHub-Delivery: d-1' \
+  -H 'X-GitHub-Event: pull_request' \
   -H 'Content-Type: application/json' \
   -d "$body"
 ```

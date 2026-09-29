@@ -187,6 +187,7 @@ object ConfigValidator {
             }
             if (source is SourceConfig.Http) {
                 validateInboxAuth(source.auth, "Source '$name'", "sources.$name.auth")
+                HttpSourceKeyValidator.validate(name, source)
             }
             source.filter?.let { filter ->
                 filter.require.forEachIndexed { i, rule ->
@@ -361,10 +362,13 @@ object ConfigValidator {
 
         when (source) {
             is SourceConfig.Http ->
-                require(source.eventTypePath != null) {
-                    "Source '$name' topic template '${source.topic}' uses eventType, but " +
-                        "'sources.$name.eventTypePath' is not set. The inbox relay would mark every " +
-                        "message of this source as dead. Set 'sources.$name.eventTypePath', or set a " +
+                // Issue #80. The event type header is the operator's declaration that every
+                // sender sets it, as `eventTypeFromHeader` is for a broker source.
+                require(source.eventTypePath != null || source.eventTypeHeader != null) {
+                    "Source '$name' topic template '${source.topic}' uses eventType, but neither " +
+                        "'sources.$name.eventTypePath' nor 'sources.$name.eventTypeHeader' is set. " +
+                        "The inbox relay would mark every message of this source as dead. Set " +
+                        "'sources.$name.eventTypePath' or 'sources.$name.eventTypeHeader', or set a " +
                         "'sources.$name.topic' template that does not use eventType."
                 }
 

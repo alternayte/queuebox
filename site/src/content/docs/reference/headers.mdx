@@ -94,10 +94,25 @@ Delivery is at least once, so a receiver must deduplicate. [Delivery semantics](
 | `X-Signature` | The `hmac` kind reads the signature. `auth.headerName` changes the name. |
 | The `auth.timestampHeader` | The `hmac` kind reads the request time in Unix milliseconds. |
 | `X-Correlation-Id` | The correlation identifier. QueueBox generates a UUID when it is absent, and echoes the value in the response. |
+| The `idempotencyKeyHeader` | The idempotency key. |
+| The `eventTypeHeader` | The event type. |
+| The `aggregateIdHeader` | The aggregate identifier. |
 | Any header | The header filter of the source reads it. QueueBox stores it in the inbox `headers` column. |
 
 QueueBox does not store `Authorization`, `Proxy-Authorization`, `Cookie`, or the header that the `api-key` or `hmac` auth reads.
-An HTTP source takes the idempotency key, the event type and the aggregate identifier from the body only.
+
+An HTTP source takes each attribute from the first place in its list that gives a value.
+
+| Attribute | HTTP |
+| --- | --- |
+| Idempotency key | 1. `idempotencyKeyHeader` 2. `idempotencyKeyPath` |
+| Aggregate identifier | 1. `aggregateIdHeader` 2. `aggregateIdPath` |
+| Event type | 1. `eventTypeHeader` 2. `eventTypePath` |
+
+A header name matches in any letter case. QueueBox trims the value, and an empty value counts as missing.
+A request with no idempotency key gets `400`. An HTTP source has no digest fallback.
+A key header cannot be a header that QueueBox does not store. Such a configuration stops the start.
+A GitHub source, for example, reads `X-GitHub-Delivery` and `X-GitHub-Event`. [Receive a webhook](/tutorials/receive-a-webhook/#receive-github-webhooks) shows the source.
 
 ### RabbitMQ, Kafka and NATS sources
 

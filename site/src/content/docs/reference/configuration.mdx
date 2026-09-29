@@ -71,7 +71,7 @@ QueueBox does not select a kind from the keys of an entry.
 | `destinations.<name>` | `rabbitmq` | `url`, `exchange` |
 | `destinations.<name>` | `kafka` | `bootstrapServers`, `topic` |
 | `destinations.<name>` | `nats` | `servers`, `subject` |
-| `sources.<name>` | `http` | `path`, `idempotencyKeyPath` |
+| `sources.<name>` | `http` | `path`, and `idempotencyKeyPath` or `idempotencyKeyHeader` |
 | `sources.<name>` | `rabbitmq` | `queueName`, `connectionUrl` |
 | `sources.<name>` | `kafka` | `bootstrapServers`, `topics`, `groupId` |
 | `sources.<name>` | `nats` | `servers`, `stream`, `durable` |
@@ -549,7 +549,7 @@ The permitted names are `aggregate_type`, `topic` and `key`, with the underscore
 | `type` | string | `http` | `http`, `rabbitmq`, `kafka` or `nats`. See [how QueueBox selects the kind](#how-queuebox-selects-the-kind-of-an-entry). |
 | `consumption` | string | `push` | `push`: the relay copies the row into the outbox. `pull`: a pull client claims the row. QueueBox stores the value on the row at receipt. |
 | `topic` | string | `{{ eventType }}` for HTTP, `{{ source }}` for the others | The outbox topic that the relay writes. `{{ source }}` and `{{ eventType }}` render. It must not be blank on a push source. |
-| `idempotencyKeyPath` | string | required for HTTP, `$.id` for the others | The JSONPath of the idempotency key in the body. |
+| `idempotencyKeyPath` | string | none for HTTP, `$.id` for the others | The JSONPath of the idempotency key in the body. An HTTP source needs this key, `idempotencyKeyHeader`, or both. |
 | `aggregateIdPath` | string | none | The JSONPath of the aggregate identifier. The relay writes it into the outbox `key`. |
 | `eventTypePath` | string | none | The JSONPath of the event type. |
 | `transform` | block | none | A JSONata transform that runs before the store. See [transform](#transform). |
@@ -559,7 +559,7 @@ The permitted names are `aggregate_type`, `topic` and `key`, with the underscore
 Every JSONPath must be definite. A path such as `$..orderId` stops the start.
 The relay marks a row dead when its topic renders empty.
 QueueBox therefore refuses to start when a push source uses `{{ eventType }}` and has no source of the event type.
-An HTTP source needs `eventTypePath`. The other kinds need `eventTypePath` or `eventTypeFromHeader: true`.
+An HTTP source needs `eventTypePath` or `eventTypeHeader`. The other kinds need `eventTypePath` or `eventTypeFromHeader: true`.
 
 ### HTTP source
 
@@ -568,8 +568,22 @@ The source answers `POST <basePath><path>`. The [HTTP API](/reference/http-api/#
 | Key | Type | Default | Meaning |
 | --- | --- | --- | --- |
 | `path` | string | required | The path after `inbox.basePath`. |
-| `idempotencyKeyPath` | string | required | The JSONPath of the idempotency key. A request whose key path finds no value gets `400`. |
+| `idempotencyKeyPath` | string | none | The JSONPath of the idempotency key. |
+| `idempotencyKeyHeader` | string | none | The request header of the idempotency key. It wins over `idempotencyKeyPath`. |
+| `eventTypeHeader` | string | none | The request header of the event type. It wins over `eventTypePath`. |
+| `aggregateIdHeader` | string | none | The request header of the aggregate identifier. It wins over `aggregateIdPath`. |
 | `auth` | block | none | The credentials that each request must carry. See the next section. |
+
+An HTTP source needs `idempotencyKeyPath`, `idempotencyKeyHeader`, or both. A source with neither stops the start.
+
+These rules apply to each of the three attributes:
+
+- When a source sets the header key and the path key, QueueBox reads the header first. The path is the fallback.
+- A header name matches in any letter case.
+- QueueBox trims the header value. An empty value counts as missing.
+- A request whose idempotency key is missing gets `400`, and QueueBox stores nothing.
+- Each value holds at most 255 characters, the width of its inbox column.
+- A key header must not be `Authorization`, `Proxy-Authorization`, `Cookie`, or the `auth.headerName` of the source. QueueBox never stores these headers, so such a key header stops the start.
 
 ### Source auth
 
