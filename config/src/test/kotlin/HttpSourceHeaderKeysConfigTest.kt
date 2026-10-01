@@ -70,7 +70,7 @@ class HttpSourceHeaderKeysConfigTest {
         assertEquals("X-GitHub-Delivery", source.idempotencyKeyHeader)
         assertEquals("X-GitHub-Event", source.eventTypeHeader)
         assertEquals("X-GitHub-Hook-ID", source.aggregateIdHeader)
-        assertEquals("\$.repository.full_name", source.aggregateIdPath)
+        assertEquals(KeyPaths("\$.repository.full_name"), source.aggregateIdPath)
         assertNull(source.idempotencyKeyPath)
         assertEquals(fromYaml.sources, fromEnv.sources)
     }

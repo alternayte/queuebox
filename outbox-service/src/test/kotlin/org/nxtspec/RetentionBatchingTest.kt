@@ -60,7 +60,8 @@ class RetentionBatchingTest {
         val rows = rows.toMutableList()
         val deleteCalls = mutableListOf<Pair<String, Int>>()
 
-        override suspend fun store(message: InboxMessage): InboxResult = InboxResult.Stored
+        override suspend fun store(message: InboxMessage, initialDelay: kotlin.time.Duration): InboxResult =
+            InboxResult.Stored
 
         override suspend fun storeDead(message: InboxMessage): InboxResult = InboxResult.Stored
 

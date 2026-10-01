@@ -118,7 +118,7 @@ A sender therefore cannot set them.
 The topic template accepts `{{ source }}` and `{{ eventType }}`.
 The default for an HTTP source is `{{ eventType }}`.
 The default for an AMQP source is `{{ source }}`, because an AMQP message carries no event type of its own.
-QueueBox refuses to start when an AMQP template uses `{{ eventType }}` and the source sets neither `eventTypePath` nor `eventTypeFromHeader: true`.
+QueueBox refuses to start when an AMQP template uses `{{ eventType }}` and the source sets none of `eventTypePath`, `eventTypeExpression` and `eventTypeFromHeader: true`.
 
 The relay marks the inbox row `dead` when the template renders empty, because such a message can reach no destination.
 

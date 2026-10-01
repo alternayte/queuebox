@@ -33,80 +33,85 @@ class SqlServerInboxRepository(
 ) : InboxRepositoryInterface {
     private val table = SqlServerDynamicInboxTable(columnMapping, tableName)
 
-    override suspend fun store(message: InboxMessage): InboxResult = insert(message, "pending")
+    override suspend fun store(message: InboxMessage, initialDelay: Duration): InboxResult =
+        insert(message, "pending", initialDelay)
 
-    override suspend fun storeDead(message: InboxMessage): InboxResult = insert(message, "dead")
+    override suspend fun storeDead(message: InboxMessage): InboxResult = insert(message, "dead", Duration.ZERO)
 
-    private suspend fun insert(message: InboxMessage, initialState: String): InboxResult = joinOrNewTransaction {
-        try {
-            val now = Clock.System.now()
-            val nowTimestamp = Timestamp.from(
-                java.time.Instant.ofEpochSecond(now.epochSeconds, now.nanosecondsOfSecond.toLong())
-            )
+    private suspend fun insert(message: InboxMessage, initialState: String, initialDelay: Duration): InboxResult =
+        joinOrNewTransaction {
+            try {
+                val now = Clock.System.now()
+                val nowTimestamp = Timestamp.from(
+                    java.time.Instant.ofEpochSecond(now.epochSeconds, now.nanosecondsOfSecond.toLong())
+                )
 
-            // Escape column names that are SQL Server reserved words
-            val sourceCol = quoteSqlServerIdentifier(columnMapping.source)
-            val idempotencyKeyCol = quoteSqlServerIdentifier(columnMapping.idempotencyKey)
-            val idCol = quoteSqlServerIdentifier(columnMapping.id)
-            val aggregateIdCol = quoteSqlServerIdentifier(columnMapping.aggregateId)
-            val eventTypeCol = quoteSqlServerIdentifier(columnMapping.eventType)
-            val payloadCol = quoteSqlServerIdentifier(columnMapping.payload)
-            val stateCol = quoteSqlServerIdentifier(columnMapping.state)
-            val createdAtCol = quoteSqlServerIdentifier(columnMapping.createdAt)
-            val correlationIdCol = quoteSqlServerIdentifier(columnMapping.correlationId)
-            val headersCol = quoteSqlServerIdentifier(columnMapping.headers)
+                // Escape column names that are SQL Server reserved words
+                val sourceCol = quoteSqlServerIdentifier(columnMapping.source)
+                val idempotencyKeyCol = quoteSqlServerIdentifier(columnMapping.idempotencyKey)
+                val idCol = quoteSqlServerIdentifier(columnMapping.id)
+                val aggregateIdCol = quoteSqlServerIdentifier(columnMapping.aggregateId)
+                val eventTypeCol = quoteSqlServerIdentifier(columnMapping.eventType)
+                val payloadCol = quoteSqlServerIdentifier(columnMapping.payload)
+                val stateCol = quoteSqlServerIdentifier(columnMapping.state)
+                val createdAtCol = quoteSqlServerIdentifier(columnMapping.createdAt)
+                val correlationIdCol = quoteSqlServerIdentifier(columnMapping.correlationId)
+                val headersCol = quoteSqlServerIdentifier(columnMapping.headers)
 
-            // Use MERGE for atomic insert-if-not-exists
-            // This is the SQL Server equivalent of INSERT ... ON CONFLICT DO NOTHING
-            // Keep the inserted column list in one value so the statement text stays unchanged.
-            val insertColumns =
-                "$idCol, $sourceCol, $idempotencyKeyCol, $aggregateIdCol, $eventTypeCol, " +
-                    "$payloadCol, $stateCol, $createdAtCol, $correlationIdCol, ${quoteSqlServerIdentifier(
-                        columnMapping.consumption
-                    )}, $headersCol, ${quoteSqlServerIdentifier(columnMapping.scheduledAt)}"
-            val sql = """
+                // Use MERGE for atomic insert-if-not-exists
+                // This is the SQL Server equivalent of INSERT ... ON CONFLICT DO NOTHING
+                // Keep the inserted column list in one value so the statement text stays unchanged.
+                val insertColumns =
+                    "$idCol, $sourceCol, $idempotencyKeyCol, $aggregateIdCol, $eventTypeCol, " +
+                        "$payloadCol, $stateCol, $createdAtCol, $correlationIdCol, ${quoteSqlServerIdentifier(
+                            columnMapping.consumption
+                        )}, $headersCol, ${quoteSqlServerIdentifier(columnMapping.scheduledAt)}"
+                val sql = """
                 MERGE ${quoteSqlServerIdentifier(tableName)} WITH (HOLDLOCK) AS target
                 USING (SELECT ? AS source, ? AS idempotency_key) AS src
                 ON target.$sourceCol = src.source AND target.$idempotencyKeyCol = src.idempotency_key
                 WHEN NOT MATCHED THEN
                     INSERT ($insertColumns)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, SYSUTCDATETIME());
-            """.trimIndent()
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, DATEADD(second, ?, SYSUTCDATETIME()));
+                """.trimIndent()
 
-            val conn = TransactionManager.current().connection.connection as java.sql.Connection
-            val rowsAffected = conn.prepareStatement(sql).use { stmt ->
-                // The parameters are bound in the order of the statement text. An index counter
-                // keeps the order correct and holds no literal position.
-                var index = 0
-                fun nextString(value: String?) = stmt.setString(++index, value)
+                val conn = TransactionManager.current().connection.connection as java.sql.Connection
+                val rowsAffected = conn.prepareStatement(sql).use { stmt ->
+                    // The parameters are bound in the order of the statement text. An index counter
+                    // keeps the order correct and holds no literal position.
+                    var index = 0
+                    fun nextString(value: String?) = stmt.setString(++index, value)
 
-                nextString(message.source)
-                nextString(message.idempotencyKey)
-                nextString(message.id.toString())
-                nextString(message.source)
-                nextString(message.idempotencyKey)
-                nextString(message.aggregateId)
-                nextString(message.eventType)
-                nextString(message.payload.toString())
-                nextString(initialState)
-                stmt.setTimestamp(++index, nowTimestamp)
-                nextString(message.correlationId)
-                nextString(message.consumption)
-                nextString(HeaderJson.encode(message.headers))
-                stmt.executeUpdate()
+                    nextString(message.source)
+                    nextString(message.idempotencyKey)
+                    nextString(message.id.toString())
+                    nextString(message.source)
+                    nextString(message.idempotencyKey)
+                    nextString(message.aggregateId)
+                    nextString(message.eventType)
+                    nextString(message.payload.toString())
+                    nextString(initialState)
+                    stmt.setTimestamp(++index, nowTimestamp)
+                    nextString(message.correlationId)
+                    nextString(message.consumption)
+                    nextString(HeaderJson.encode(message.headers))
+                    // Issue #84. The delay is added to the database clock, which the claims compare
+                    // against. DATEADD takes a 32-bit integer, and the validator bounds the delay.
+                    stmt.setInt(++index, initialDelay.inWholeSeconds.toInt())
+                    stmt.executeUpdate()
+                }
+
+                if (rowsAffected == 0) {
+                    InboxResult.Duplicate
+                } else {
+                    InboxResult.Stored
+                }
+            } catch (e: Exception) {
+                // Sixth review gate: a driver message carries the JDBC URL, and the reason reaches
+                // a log line. Redact it where it is built, so every consumer is safe.
+                InboxResult.Error(ErrorSanitizer.sanitize(e) ?: "Unknown error")
             }
-
-            if (rowsAffected == 0) {
-                InboxResult.Duplicate
-            } else {
-                InboxResult.Stored
-            }
-        } catch (e: Exception) {
-            // Sixth review gate: a driver message carries the JDBC URL, and the reason reaches
-            // a log line. Redact it where it is built, so every consumer is safe.
-            InboxResult.Error(ErrorSanitizer.sanitize(e) ?: "Unknown error")
         }
-    }
 
     @Suppress("LongMethod")
     override suspend fun claimPending(batchSize: Int, leaseMs: Long): List<InboxMessage> = joinOrNewTransaction {
@@ -144,6 +149,7 @@ class SqlServerInboxRepository(
             )}, ${quoteSqlServerIdentifier(columnMapping.leaseExpiresAt)}, $idCol, $stateCol, $claimedAtCol
                 FROM $t WITH (ROWLOCK, UPDLOCK, READPAST)
                 WHERE $stateCol = 'pending' AND ${quoteSqlServerIdentifier(columnMapping.consumption)} = 'push'
+                AND ${quoteSqlServerIdentifier(columnMapping.scheduledAt)} <= SYSUTCDATETIME()
                 $exclusion
                 ORDER BY $createdAtCol ASC
             )

@@ -9,6 +9,38 @@ the configuration schema and for the database schema.
 
 ## [Unreleased]
 
+### Added
+
+- **An inbox source computes its keys with a JSONata expression.** The optional keys
+  `idempotencyKeyExpression`, `eventTypeExpression` and `aggregateIdExpression` take a JSONata
+  expression on the received body, on all four source kinds. QueueBox evaluates the expression
+  before the source transform and before the path key, which stays the fallback. On an HTTP source
+  the key header still comes first. A string, a number or a boolean is the value, and a whole
+  number has no decimal point. An object, an array, `null` and a blank string give no value. An
+  expression that fails gives no value and writes one warning, with a limit of 100 ms and a depth
+  of 100. An expression that does not compile stops the start. `aggregateIdExpression:
+  $split(subject, "/")[2]` reads `515725` from `/organization/515725/invitation/66725563`, so the
+  claim serialises the messages of one aggregate without a write after the claim.
+  `idempotencyKeyExpression` satisfies the HTTP check for an idempotency key, and
+  `eventTypeExpression` satisfies the check of a `{{ eventType }}` topic. Fixes #83.
+- **A path key takes a list of JSONPaths.** `idempotencyKeyPath`, `eventTypePath` and
+  `aggregateIdPath` take one JSONPath, as before, or a list. QueueBox reads the paths in order and
+  takes the first one that gives a value. Every path stays definite, and an empty list stops the
+  start. A list loads from indexed variables, such as `QUEUEBOX_SOURCES_ORDERS_AGGREGATEIDPATH_0`.
+  Fixes #85.
+- **`initialDelay` holds a received row.** The optional source key takes a duration such as `30s`.
+  QueueBox sets `scheduled_at` to the database time of the receipt plus the delay, and no claim
+  takes the row before that time. The hold uses no handler slot, no lease and no attempt. The key
+  applies to a pull source and to a push source. Fixes #84.
+
+### Changed
+
+- **The relay claim takes a row only when `scheduled_at` has passed.** The relay ignored the
+  column before, so a push row could not be held. QueueBox writes `scheduled_at` at the receipt
+  time for a source without `initialDelay`, so a deployment that sets no delay sees no change.
+  During a rolling upgrade, a 0.6.0 instance still forwards a held push row at once. Set
+  `initialDelay` on a push source after every instance runs this release.
+
 ## [0.6.0] — 2026-09-29
 
 ### Added

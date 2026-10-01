@@ -178,6 +178,7 @@ object ConfigValidator {
             require(source.consumption in setOf("push", "pull")) { "sources.$name.consumption must be push or pull" }
             if (source.consumption == "push") validateSourceTopic(name, source)
             validateExtractionPaths(name, source)
+            validateInitialDelay(name, source)
             source.rateLimit?.let {
                 require(it.requestsPerMinute > 0) {
                     "Source '$name' rateLimit.requestsPerMinute must be greater than 0. " +
@@ -305,47 +306,64 @@ object ConfigValidator {
      * such a path at startup instead of a rejection for every message.
      */
     private fun validateExtractionPaths(name: String, source: SourceConfig) {
-        val paths = when (source) {
-            is SourceConfig.Http -> listOf(
-                "idempotencyKeyPath" to source.idempotencyKeyPath,
-                "aggregateIdPath" to source.aggregateIdPath,
-                "eventTypePath" to source.eventTypePath
-            )
-            is SourceConfig.RabbitMQ -> listOf(
-                "idempotencyKeyPath" to source.idempotencyKeyPath,
-                "aggregateIdPath" to source.aggregateIdPath,
-                "eventTypePath" to source.eventTypePath
-            )
-            is SourceConfig.Kafka -> listOf(
-                "idempotencyKeyPath" to source.idempotencyKeyPath,
-                "aggregateIdPath" to source.aggregateIdPath,
-                "eventTypePath" to source.eventTypePath
-            )
-            is SourceConfig.Nats -> listOf(
-                "idempotencyKeyPath" to source.idempotencyKeyPath,
-                "aggregateIdPath" to source.aggregateIdPath,
-                "eventTypePath" to source.eventTypePath
-            )
-        }
-
-        paths.forEach { (field, path) ->
-            if (path == null) {
+        listOf(
+            "idempotencyKeyPath" to source.idempotencyKeyPath,
+            "aggregateIdPath" to source.aggregateIdPath,
+            "eventTypePath" to source.eventTypePath
+        ).forEach { (field, keyPaths) ->
+            if (keyPaths == null) {
                 return@forEach
             }
             val yamlPath = "sources.$name.$field"
-            val definite = try {
-                IdempotencyExtractor.isDefinitePath(path)
-            } catch (e: Exception) {
-                throw IllegalArgumentException(
-                    "Source '$name' $field '$path' is not a valid JSONPath expression: " +
-                        "${e.message}. " + setVia(yamlPath)
-                )
+            // Issue #85. A list with no path reads nothing, and that is never what the operator
+            // meant.
+            require(keyPaths.paths.isNotEmpty()) {
+                "Source '$name' $field is an empty list. Give at least one JSONPath, or remove the " +
+                    "key. " + setVia(yamlPath)
             }
-            require(definite) {
-                "Source '$name' $field '$path' is an indefinite JSONPath expression. It matches " +
-                    "any number of nodes, so QueueBox cannot read one value from it. Use a " +
-                    "definite path, such as '\$.data.orderId'. " + setVia(yamlPath)
+            keyPaths.paths.forEach { path -> validateExtractionPath(name, field, path, yamlPath) }
+        }
+
+        listOf(
+            "idempotencyKeyExpression" to source.idempotencyKeyExpression,
+            "aggregateIdExpression" to source.aggregateIdExpression,
+            "eventTypeExpression" to source.eventTypeExpression
+        ).forEach { (field, expression) ->
+            require(expression == null || expression.isNotBlank()) {
+                "Source '$name' $field cannot be blank. Remove the key, or give a JSONata " +
+                    "expression. " + setVia("sources.$name.$field")
             }
+        }
+    }
+
+    private fun validateExtractionPath(name: String, field: String, path: String, yamlPath: String) {
+        val definite = try {
+            IdempotencyExtractor.isDefinitePath(path)
+        } catch (e: Exception) {
+            throw IllegalArgumentException(
+                "Source '$name' $field '$path' is not a valid JSONPath expression: " +
+                    "${e.message}. " + setVia(yamlPath)
+            )
+        }
+        require(definite) {
+            "Source '$name' $field '$path' is an indefinite JSONPath expression. It matches " +
+                "any number of nodes, so QueueBox cannot read one value from it. Use a " +
+                "definite path, such as '\$.data.orderId'. " + setVia(yamlPath)
+        }
+    }
+
+    /** Refuses an `initialDelay` that is not a duration such as `30s`. Issue #84. */
+    private fun validateInitialDelay(name: String, source: SourceConfig) {
+        val delay = source.initialDelay ?: return
+        val yamlPath = "sources.$name.initialDelay"
+        val parsed = try {
+            DurationParser.parse(delay)
+        } catch (e: IllegalArgumentException) {
+            throw IllegalArgumentException("Source '$name' initialDelay is invalid: ${e.message}. " + setVia(yamlPath))
+        }
+        // SQL Server adds the delay as a whole number of seconds in a 32-bit integer.
+        require(parsed.inWholeSeconds <= Int.MAX_VALUE) {
+            "Source '$name' initialDelay '$delay' is too long. " + setVia(yamlPath)
         }
     }
 
@@ -364,60 +382,56 @@ object ConfigValidator {
             is SourceConfig.Http ->
                 // Issue #80. The event type header is the operator's declaration that every
                 // sender sets it, as `eventTypeFromHeader` is for a broker source.
-                require(source.eventTypePath != null || source.eventTypeHeader != null) {
-                    "Source '$name' topic template '${source.topic}' uses eventType, but neither " +
-                        "'sources.$name.eventTypePath' nor 'sources.$name.eventTypeHeader' is set. " +
+                require(
+                    source.eventTypePath != null ||
+                        source.eventTypeHeader != null ||
+                        source.eventTypeExpression != null
+                ) {
+                    "Source '$name' topic template '${source.topic}' uses eventType, but none of " +
+                        "'sources.$name.eventTypePath', 'sources.$name.eventTypeHeader' and " +
+                        "'sources.$name.eventTypeExpression' is set. " +
                         "The inbox relay would mark every message of this source as dead. Set " +
-                        "'sources.$name.eventTypePath' or 'sources.$name.eventTypeHeader', or set a " +
+                        "one of the three keys, or set a " +
                         "'sources.$name.topic' template that does not use eventType."
                 }
 
-            is SourceConfig.Kafka ->
-                // A Kafka source has the same two sources of the event type as an AMQP one: the
-                // body path and the record header that `attributeHeaders.eventType` names. The
-                // header cannot be checked at startup, so the operator declares it.
-                require(source.eventTypePath != null || source.eventTypeFromHeader) {
-                    "Source '$name' topic template '${source.topic}' uses eventType, but " +
-                        "'sources.$name.eventTypePath' is not set and " +
-                        "'sources.$name.eventTypeFromHeader' is false. The inbox relay would mark " +
-                        "every message with no event type as dead. Set " +
-                        "'sources.$name.eventTypePath', or set " +
-                        "'sources.$name.eventTypeFromHeader' to true when every producer sets the " +
-                        "'${source.attributeHeaders.eventType}' record header, or set a " +
-                        "'sources.$name.topic' template that does not use eventType."
-                }
+            // A broker source has two more sources of the event type: the body, through
+            // `eventTypePath` or `eventTypeExpression`, and the header that
+            // `attributeHeaders.eventType` names. A publisher that sets neither gives an empty
+            // topic, and the relay marks the message dead. The header cannot be checked at
+            // startup, so the operator declares it. See the fifth review gate.
+            is SourceConfig.Kafka -> requireBrokerEventType(
+                name,
+                source,
+                source.eventTypeFromHeader,
+                "every producer sets the '${source.attributeHeaders.eventType}' record header"
+            )
 
-            is SourceConfig.Nats ->
-                // A NATS message carries headers, so the event type has the same two sources as
-                // an AMQP or a Kafka one: the body path and the header that
-                // `attributeHeaders.eventType` names.
-                require(source.eventTypePath != null || source.eventTypeFromHeader) {
-                    "Source '$name' topic template '${source.topic}' uses eventType, but " +
-                        "'sources.$name.eventTypePath' is not set and " +
-                        "'sources.$name.eventTypeFromHeader' is false. The inbox relay would mark " +
-                        "every message with no event type as dead. Set " +
-                        "'sources.$name.eventTypePath', or set " +
-                        "'sources.$name.eventTypeFromHeader' to true when every publisher sets the " +
-                        "'${source.attributeHeaders.eventType}' message header, or set a " +
-                        "'sources.$name.topic' template that does not use eventType."
-                }
+            is SourceConfig.Nats -> requireBrokerEventType(
+                name,
+                source,
+                source.eventTypeFromHeader,
+                "every publisher sets the '${source.attributeHeaders.eventType}' message header"
+            )
 
-            is SourceConfig.RabbitMQ ->
-                // Fifth review gate. An AMQP source has two sources of the event type: the
-                // 'eventTypePath' in the body, and the header that 'attributeHeaders.eventType'
-                // names. A publisher that sets neither gives an empty topic, and the relay marks
-                // the message dead. The header cannot be checked at startup, so the operator
-                // declares it.
-                require(source.eventTypePath != null || source.eventTypeFromHeader) {
-                    "Source '$name' topic template '${source.topic}' uses eventType, but " +
-                        "'sources.$name.eventTypePath' is not set and " +
-                        "'sources.$name.eventTypeFromHeader' is false. The inbox relay would mark " +
-                        "every message with no event type as dead. Set " +
-                        "'sources.$name.eventTypePath', or set " +
-                        "'sources.$name.eventTypeFromHeader' to true when every publisher sets the " +
-                        "'${source.attributeHeaders.eventType}' AMQP header, or set a " +
-                        "'sources.$name.topic' template that does not use eventType."
-                }
+            is SourceConfig.RabbitMQ -> requireBrokerEventType(
+                name,
+                source,
+                source.eventTypeFromHeader,
+                "every publisher sets the '${source.attributeHeaders.eventType}' AMQP header"
+            )
+        }
+    }
+
+    private fun requireBrokerEventType(name: String, source: SourceConfig, fromHeader: Boolean, whenHeader: String) {
+        require(source.eventTypePath != null || source.eventTypeExpression != null || fromHeader) {
+            "Source '$name' topic template '${source.topic}' uses eventType, but neither " +
+                "'sources.$name.eventTypePath' nor 'sources.$name.eventTypeExpression' is " +
+                "set, and 'sources.$name.eventTypeFromHeader' is false. The inbox relay " +
+                "would mark every message with no event type as dead. Set " +
+                "'sources.$name.eventTypePath' or 'sources.$name.eventTypeExpression', or set " +
+                "'sources.$name.eventTypeFromHeader' to true when $whenHeader, or set a " +
+                "'sources.$name.topic' template that does not use eventType."
         }
     }
 

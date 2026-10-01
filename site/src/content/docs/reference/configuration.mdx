@@ -71,7 +71,7 @@ QueueBox does not select a kind from the keys of an entry.
 | `destinations.<name>` | `rabbitmq` | `url`, `exchange` |
 | `destinations.<name>` | `kafka` | `bootstrapServers`, `topic` |
 | `destinations.<name>` | `nats` | `servers`, `subject` |
-| `sources.<name>` | `http` | `path`, and `idempotencyKeyPath` or `idempotencyKeyHeader` |
+| `sources.<name>` | `http` | `path`, and `idempotencyKeyPath`, `idempotencyKeyHeader` or `idempotencyKeyExpression` |
 | `sources.<name>` | `rabbitmq` | `queueName`, `connectionUrl` |
 | `sources.<name>` | `kafka` | `bootstrapServers`, `topics`, `groupId` |
 | `sources.<name>` | `nats` | `servers`, `stream`, `durable` |
@@ -549,17 +549,88 @@ The permitted names are `aggregate_type`, `topic` and `key`, with the underscore
 | `type` | string | `http` | `http`, `rabbitmq`, `kafka` or `nats`. See [how QueueBox selects the kind](#how-queuebox-selects-the-kind-of-an-entry). |
 | `consumption` | string | `push` | `push`: the relay copies the row into the outbox. `pull`: a pull client claims the row. QueueBox stores the value on the row at receipt. |
 | `topic` | string | `{{ eventType }}` for HTTP, `{{ source }}` for the others | The outbox topic that the relay writes. `{{ source }}` and `{{ eventType }}` render. It must not be blank on a push source. |
-| `idempotencyKeyPath` | string | none for HTTP, `$.id` for the others | The JSONPath of the idempotency key in the body. An HTTP source needs this key, `idempotencyKeyHeader`, or both. |
-| `aggregateIdPath` | string | none | The JSONPath of the aggregate identifier. The relay writes it into the outbox `key`. |
-| `eventTypePath` | string | none | The JSONPath of the event type. |
+| `idempotencyKeyPath` | string or list | none for HTTP, `$.id` for the others | The JSONPath of the idempotency key in the body, or a list of JSONPaths. An HTTP source needs this key, `idempotencyKeyHeader` or `idempotencyKeyExpression`. |
+| `aggregateIdPath` | string or list | none | The JSONPath of the aggregate identifier, or a list of JSONPaths. The relay writes the value into the outbox `key`. |
+| `eventTypePath` | string or list | none | The JSONPath of the event type, or a list of JSONPaths. |
+| `idempotencyKeyExpression` | string | none | A JSONata expression that computes the idempotency key from the body. It comes before `idempotencyKeyPath`. |
+| `aggregateIdExpression` | string | none | A JSONata expression that computes the aggregate identifier. It comes before `aggregateIdPath`. |
+| `eventTypeExpression` | string | none | A JSONata expression that computes the event type. It comes before `eventTypePath`. |
+| `initialDelay` | duration | none | The time that a received row waits before a claim can take it, such as `30s`. See [initialDelay](#initialdelay). |
 | `transform` | block | none | A JSONata transform that runs before the store. See [transform](#transform). |
 | `filter` | block | none | A header filter. See [filter](#filter). |
 | `rateLimit.requestsPerMinute` | integer | none | The request limit of an HTTP source. A request over it gets `429`. QueueBox ignores the key on the other kinds. It must be above 0. |
 
-Every JSONPath must be definite. A path such as `$..orderId` stops the start.
 The relay marks a row dead when its topic renders empty.
 QueueBox therefore refuses to start when a push source uses `{{ eventType }}` and has no source of the event type.
-An HTTP source needs `eventTypePath` or `eventTypeHeader`. The other kinds need `eventTypePath` or `eventTypeFromHeader: true`.
+An HTTP source needs `eventTypePath`, `eventTypeExpression` or `eventTypeHeader`. The other kinds need `eventTypePath`, `eventTypeExpression` or `eventTypeFromHeader: true`.
+
+### Key paths and key expressions
+
+QueueBox reads the idempotency key, the aggregate identifier and the event type from the received body, before the source transform runs.
+Each of the three has a path key and an expression key.
+
+A path key takes one JSONPath or a list of JSONPaths.
+QueueBox reads the paths of a list in order and takes the first one that gives a value.
+Every JSONPath must be definite. A path such as `$..orderId` stops the start, and an empty list stops the start.
+
+```yaml
+# fragment
+sources:
+  orders:
+    type: rabbitmq
+    queueName: orders
+    connectionUrl: amqp://broker:5672
+    aggregateIdPath:
+      - $.orderId
+      - $.OrderId
+```
+
+An expression key takes a [JSONata](https://jsonata.org/) expression. Use it when no JSONPath selects the value, for example when the value is one part of a text.
+The body is the only input. An expression key binds no variable such as `$headers`.
+
+```yaml
+# fragment
+sources:
+  reviews:
+    type: rabbitmq
+    queueName: reviews
+    connectionUrl: amqp://broker:5672
+    aggregateIdExpression: $split(subject, "/")[2]
+    eventTypeExpression: '$lookup({"Organization.Review.accepted.v1": "Review.Accepted"}, type)'
+    eventTypePath: $.type
+```
+
+For the subject `/organization/515725/invitation/66725563`, the aggregate identifier is `515725`.
+The event type `Organization.Review.accepted.v1` becomes `Review.Accepted`. An event type that the table lacks comes from `eventTypePath`.
+
+These rules apply to an expression key:
+
+- When a source sets the expression key and the path key of one attribute, QueueBox evaluates the expression first. The path is the fallback.
+- A result that is a string, a number or a boolean is the value. A whole number has no decimal point.
+- An object, an array, `null`, no result and a blank string give no value.
+- An expression that fails gives no value, and QueueBox writes one warning to the log. The limits are 100 ms and a depth of 100.
+- An expression that does not compile stops the start, and the error names the key.
+- Put an expression that holds `: `, or that starts with a quote, in YAML quotes.
+
+### initialDelay
+
+`initialDelay` holds each received row of the source. QueueBox sets `scheduled_at` to the receipt time plus the delay, and no claim takes the row before that time.
+The value is a whole number and one unit: `s`, `m`, `h` or `d`. A value without a unit and a negative value stop the start.
+
+```yaml
+# fragment
+sources:
+  legacy:
+    type: rabbitmq
+    queueName: legacy.events
+    connectionUrl: amqp://broker:5672
+    consumption: pull
+    initialDelay: 30s
+```
+
+The key applies to a pull source and to a push source. A held row keeps state `pending` and uses no handler slot.
+A row that QueueBox stores in state `dead` gets no delay.
+A held row counts in `queuebox_inbox_oldest_pending_age_seconds`, so keep the alert threshold above the delay.
 
 ### HTTP source
 
@@ -568,17 +639,17 @@ The source answers `POST <basePath><path>`. The [HTTP API](/reference/http-api/#
 | Key | Type | Default | Meaning |
 | --- | --- | --- | --- |
 | `path` | string | required | The path after `inbox.basePath`. |
-| `idempotencyKeyPath` | string | none | The JSONPath of the idempotency key. |
-| `idempotencyKeyHeader` | string | none | The request header of the idempotency key. It wins over `idempotencyKeyPath`. |
-| `eventTypeHeader` | string | none | The request header of the event type. It wins over `eventTypePath`. |
-| `aggregateIdHeader` | string | none | The request header of the aggregate identifier. It wins over `aggregateIdPath`. |
+| `idempotencyKeyPath` | string or list | none | The JSONPath of the idempotency key, or a list of JSONPaths. |
+| `idempotencyKeyHeader` | string | none | The request header of the idempotency key. It wins over `idempotencyKeyExpression` and `idempotencyKeyPath`. |
+| `eventTypeHeader` | string | none | The request header of the event type. It wins over `eventTypeExpression` and `eventTypePath`. |
+| `aggregateIdHeader` | string | none | The request header of the aggregate identifier. It wins over `aggregateIdExpression` and `aggregateIdPath`. |
 | `auth` | block | none | The credentials that each request must carry. See the next section. |
 
-An HTTP source needs `idempotencyKeyPath`, `idempotencyKeyHeader`, or both. A source with neither stops the start.
+An HTTP source needs `idempotencyKeyPath`, `idempotencyKeyHeader` or `idempotencyKeyExpression`. A source with none of the three stops the start.
 
 These rules apply to each of the three attributes:
 
-- When a source sets the header key and the path key, QueueBox reads the header first. The path is the fallback.
+- QueueBox reads the header first, then the expression, then the path. Each one is the fallback of the one before it.
 - A header name matches in any letter case.
 - QueueBox trims the header value. An empty value counts as missing.
 - A request whose idempotency key is missing gets `400`, and QueueBox stores nothing.
@@ -620,7 +691,7 @@ A body that is not JSON, or a message that the transform rejects, becomes a dead
 | `attributeHeaders` | block | see [attributeHeaders](#attributeheaders) | The header names of the three attributes. |
 
 The idempotency key comes from the first of these that gives a value:
-the key header, `idempotencyKeyPath`, the AMQP `messageId` property, a SHA-256 digest of the body.
+the key header, `idempotencyKeyExpression`, `idempotencyKeyPath`, the AMQP `messageId` property, a SHA-256 digest of the body.
 Two different messages with the same body and no other key deduplicate to one row.
 
 ### Kafka source
@@ -642,7 +713,7 @@ The consumer commits an offset only after the inbox row commits. Every replica w
 | `attributeHeaders` | block | see [attributeHeaders](#attributeheaders) | The header names of the three attributes. |
 
 The idempotency key comes from the first of these that gives a value:
-the key header, `idempotencyKeyPath`, the record key, a SHA-256 digest of the body.
+the key header, `idempotencyKeyExpression`, `idempotencyKeyPath`, the record key, a SHA-256 digest of the body.
 The aggregate identifier falls back to the record key when the body path and the header give nothing.
 
 ### NATS source
@@ -664,7 +735,7 @@ The source reads a JetStream stream through a durable consumer. QueueBox never c
 | `attributeHeaders` | block | see [attributeHeaders](#attributeheaders) | The header names of the three attributes. |
 
 The idempotency key comes from the first of these that gives a value:
-the key header, `idempotencyKeyPath`, the `Nats-Msg-Id` header, a SHA-256 digest of the body.
+the key header, `idempotencyKeyExpression`, `idempotencyKeyPath`, the `Nats-Msg-Id` header, a SHA-256 digest of the body.
 
 ### attributeHeaders
 

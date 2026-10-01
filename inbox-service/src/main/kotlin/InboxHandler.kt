@@ -21,7 +21,7 @@ sealed class InboxHandlerResult {
 
 class InboxHandler(
     private val repository: InboxRepositoryInterface,
-    private val extractor: IdempotencyExtractor,
+    private val keyReader: InboxKeyReader,
     private val metricsCollector: MetricsCollectorInterface? = null,
     private val transformPipeline: InboxTransformPipeline? = null
 ) {
@@ -38,7 +38,7 @@ class InboxHandler(
     ): InboxHandlerResult {
         val messageId = UUID.randomUUID()
 
-        val extracted = extractKeys(sourceConfig, payload, headers)
+        val extracted = extractKeys(source, sourceConfig, payload, headers)
 
         val idempotencyKey = extracted[IDEMPOTENCY_KEY]
         if (idempotencyKey == null) {
@@ -82,7 +82,7 @@ class InboxHandler(
         )
 
         // Store with deduplication
-        return when (val result = repository.store(message)) {
+        return when (val result = repository.store(message, sourceConfig.initialDelayDuration())) {
             is InboxResult.Stored -> {
                 metricsCollector?.recordInboxReceived()
                 InboxHandlerResult.Accepted(message.id)
@@ -113,10 +113,12 @@ class InboxHandler(
     /**
      * The idempotency key, the aggregate ID and the event type of one request, by caller key.
      *
-     * Issue #80. A configured header wins, and its path is the fallback. Every path that is still
-     * needed is read BEFORE transform, from the original payload, with one parse. See F-025.
+     * Issue #80. A configured header wins, and the body is the fallback. Issue #83 and #85: in the
+     * body, the expression of a key comes before its paths. Every key that is still needed is read
+     * BEFORE transform, from the original payload. See F-025.
      */
     private fun extractKeys(
+        source: String,
         sourceConfig: SourceConfig.Http,
         payload: JsonElement,
         headers: Map<String, String>
@@ -126,12 +128,12 @@ class InboxHandler(
             headerValue(headers, sourceConfig.aggregateIdHeader)?.let { put(AGGREGATE_ID_KEY, it) }
             headerValue(headers, sourceConfig.eventTypeHeader)?.let { put(EVENT_TYPE_KEY, it) }
         }
-        val paths = buildMap {
-            sourceConfig.idempotencyKeyPath?.let { put(IDEMPOTENCY_KEY, it) }
-            sourceConfig.aggregateIdPath?.let { put(AGGREGATE_ID_KEY, it) }
-            sourceConfig.eventTypePath?.let { put(EVENT_TYPE_KEY, it) }
-        } - fromHeaders.keys
-        return fromHeaders + extractor.extractAll(payload, paths)
+        val fromBody = listOf(
+            BodyKey(IDEMPOTENCY_KEY, sourceConfig.idempotencyKeyExpression, sourceConfig.idempotencyKeyPath),
+            BodyKey(AGGREGATE_ID_KEY, sourceConfig.aggregateIdExpression, sourceConfig.aggregateIdPath),
+            BodyKey(EVENT_TYPE_KEY, sourceConfig.eventTypeExpression, sourceConfig.eventTypePath)
+        ).filter { it.name !in fromHeaders }
+        return keyReader.readAll(source, payload, fromBody) + fromHeaders
     }
 
     /**
@@ -149,7 +151,7 @@ class InboxHandler(
     }
 
     /**
-     * Rejects a message whose idempotency key header and path gave no value.
+     * Rejects a message whose idempotency key header, expression and paths gave no value.
      *
      * F-052: the reason is a fixed enumeration, never the path or the payload. The reason reaches
      * the 400 response body, and the caller of an inbox source is an untrusted webhook sender. The
@@ -161,7 +163,10 @@ class InboxHandler(
         metricsCollector?.recordInboxRejection(InboxRejectionReason.EXTRACTION_FAILED)
         val tried = listOfNotNull(
             sourceConfig.idempotencyKeyHeader?.let { "header '$it'" },
-            sourceConfig.idempotencyKeyPath?.let { "path '$it'" }
+            sourceConfig.idempotencyKeyExpression?.let { "expression '$it'" },
+            sourceConfig.idempotencyKeyPath?.paths?.let { paths ->
+                (if (paths.size == 1) "path " else "paths ") + paths.joinToString(", ") { "'$it'" }
+            }
         ).joinToString(" and ")
         log.warn(
             "The idempotency key {} of source '{}' matched nothing. The message is rejected with 400.",

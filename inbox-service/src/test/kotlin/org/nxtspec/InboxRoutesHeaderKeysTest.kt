@@ -44,11 +44,11 @@ class InboxRoutesHeaderKeysTest {
     private val both = SourceConfig.Http(
         path = "/github",
         idempotencyKeyHeader = "X-GitHub-Delivery",
-        idempotencyKeyPath = "$.id",
+        idempotencyKeyPath = KeyPaths("$.id"),
         eventTypeHeader = "X-GitHub-Event",
-        eventTypePath = "$.type",
+        eventTypePath = KeyPaths("$.type"),
         aggregateIdHeader = "X-Aggregate",
-        aggregateIdPath = "$.repo"
+        aggregateIdPath = KeyPaths("$.repo")
     )
 
     private fun ApplicationTestBuilder.route(vararg sources: Pair<String, SourceConfig.Http>) {
@@ -57,7 +57,7 @@ class InboxRoutesHeaderKeysTest {
             configureInboxRoutes(
                 InboxConfig(basePath = "/inbox"),
                 sources.toMap(),
-                InboxHandler(repository, IdempotencyExtractor())
+                InboxHandler(repository, InboxKeyReader())
             )
         }
     }
@@ -134,7 +134,7 @@ class InboxRoutesHeaderKeysTest {
     fun `a missing key header gets the same response and log line as a missing path`() = testApplication {
         route(
             "github" to SourceConfig.Http(path = "/github", idempotencyKeyHeader = "X-GitHub-Delivery"),
-            "stripe" to SourceConfig.Http(path = "/stripe", idempotencyKeyPath = "$.id")
+            "stripe" to SourceConfig.Http(path = "/stripe", idempotencyKeyPath = KeyPaths("$.id"))
         )
         logbackLogger.addAppender(appender)
 

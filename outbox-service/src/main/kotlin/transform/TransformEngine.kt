@@ -48,6 +48,19 @@ class TransformEngine(private val maxCacheSize: Int = 1000) {
         context: TransformContext,
         timeoutMs: Long = 100,
         maxDepth: Int = 100
+    ): Result<JsonElement> = evaluate(expression, payload, timeoutMs, maxDepth) { bindContextVariables(it, context) }
+
+    /**
+     * Evaluates a JSONata expression against a JSON payload, with no context variable.
+     *
+     * An inbox key expression uses this form. The payload is its only input.
+     */
+    fun evaluate(
+        expression: String,
+        payload: JsonElement,
+        timeoutMs: Long = 100,
+        maxDepth: Int = 100,
+        bind: (Jsonata.Frame) -> Unit = {}
     ): Result<JsonElement> = runCatching {
         val jsonata = getOrCompile(expression)
 
@@ -56,7 +69,7 @@ class TransformEngine(private val maxCacheSize: Int = 1000) {
 
         // Create a frame and bind context variables
         val frame = jsonata.createFrame()
-        bindContextVariables(frame, context)
+        bind(frame)
 
         // Set timeout and recursion depth limits
         frame.setRuntimeBounds(timeoutMs, maxDepth)

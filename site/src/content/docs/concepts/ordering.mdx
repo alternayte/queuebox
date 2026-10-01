@@ -30,7 +30,11 @@ The two modes scope that reservation differently, so do not treat them as the sa
 - A row with no `aggregate_id` takes part in no ordering.
 
 Set the aggregate identifier with `aggregateIdPath` on the source.
+Use `aggregateIdExpression` when no JSONPath selects the value, for example when the identifier is one part of a text.
 A broker source can also read it from the `x-aggregate-id` header.
+
+An `initialDelay` on a source holds every row of that source for the same time, so the order of one source does not change.
+Two sources with different delays that feed one aggregate on the relay can forward the rows of that aggregate out of creation order.
 
 ```yaml
 # fragment

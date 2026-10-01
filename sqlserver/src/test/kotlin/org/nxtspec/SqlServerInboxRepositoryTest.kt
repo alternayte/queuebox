@@ -6,6 +6,7 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import org.jetbrains.exposed.v1.jdbc.transactions.transaction
 import org.junit.jupiter.api.RepeatedTest
 import org.junit.jupiter.api.Test
 import java.util.Collections
@@ -391,5 +392,33 @@ class SqlServerInboxRepositoryTest : SqlServerTestBase() {
         val claimed = repository.claimPending(10).single()
 
         assertEquals(message.headers, claimed.headers)
+    }
+
+    // --- Initial delay. Issue #84. ---
+
+    private fun secondsUntilScheduled(key: String): Long = transaction {
+        exec(
+            "SELECT DATEDIFF(second, SYSUTCDATETIME(), scheduled_at) FROM inbox WHERE idempotency_key = '$key'"
+        ) { rows ->
+            rows.next()
+            rows.getLong(1)
+        }!!
+    }
+
+    @Test
+    fun `a row stored with an initial delay is held until the delay passes`() = runBlocking {
+        repository.store(
+            InboxMessage(source = "orders", idempotencyKey = "held", payload = JsonObject(emptyMap())),
+            30.seconds
+        )
+        repository.store(InboxMessage(source = "orders", idempotencyKey = "free", payload = JsonObject(emptyMap())))
+
+        assertTrue(secondsUntilScheduled("held") in 25..30, "scheduled_at must be the receipt plus the delay.")
+        assertTrue(secondsUntilScheduled("free") <= 0, "A store without a delay schedules the row at once.")
+        assertEquals(listOf("free"), repository.claimPending(10).map { it.idempotencyKey })
+
+        transaction { exec("UPDATE inbox SET scheduled_at = DATEADD(second, -31, scheduled_at)") }
+
+        assertEquals(listOf("held"), repository.claimPending(10).map { it.idempotencyKey })
     }
 }

@@ -107,8 +107,8 @@ class ConfigLoaderTest {
         assert(httpSource is SourceConfig.Http)
         val http = httpSource as SourceConfig.Http
         assertEquals("/events", http.path)
-        assertEquals("$.headers.X-Idempotency-Key", http.idempotencyKeyPath)
-        assertEquals("$.body.type", http.eventTypePath)
+        assertEquals(KeyPaths("$.headers.X-Idempotency-Key"), http.idempotencyKeyPath)
+        assertEquals(KeyPaths("$.body.type"), http.eventTypePath)
 
         val rabbitSource = config.sources["rabbit-source"]
         assertNotNull(rabbitSource)
@@ -116,7 +116,7 @@ class ConfigLoaderTest {
         val rabbit = rabbitSource as SourceConfig.RabbitMQ
         assertEquals("incoming-events", rabbit.queueName)
         assertEquals("amqp://localhost:5672", rabbit.connectionUrl)
-        assertEquals("$.id", rabbit.idempotencyKeyPath)
+        assertEquals(KeyPaths("$.id"), rabbit.idempotencyKeyPath)
         assertEquals(10, rabbit.prefetchCount)
     }
 

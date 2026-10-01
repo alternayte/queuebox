@@ -64,9 +64,9 @@ class KafkaInboxConsumerTest {
         bootstrapServers = kafka.bootstrapServers,
         topics = listOf(topic),
         groupId = group,
-        idempotencyKeyPath = "$.id",
-        aggregateIdPath = "$.customerId",
-        eventTypePath = "$.type"
+        idempotencyKeyPath = KeyPaths("$.id"),
+        aggregateIdPath = KeyPaths("$.customerId"),
+        eventTypePath = KeyPaths("$.type")
     )
 
     @Test
@@ -80,7 +80,7 @@ class KafkaInboxConsumerTest {
                 stored[message.idempotencyKey] = message
                 InboxResult.Stored
             },
-            extractor = IdempotencyExtractor(),
+            keyReader = InboxKeyReader(),
             config = consumerConfig(topic, "group-${UUID.randomUUID()}")
         )
 
@@ -114,7 +114,7 @@ class KafkaInboxConsumerTest {
                 stored[message.idempotencyKey] = message
                 InboxResult.Stored
             },
-            extractor = IdempotencyExtractor(),
+            keyReader = InboxKeyReader(),
             config = consumerConfig(topic, "group-${UUID.randomUUID()}")
         )
 
@@ -145,7 +145,7 @@ class KafkaInboxConsumerTest {
                 stored[message.idempotencyKey] = message
                 InboxResult.Stored
             },
-            extractor = IdempotencyExtractor(),
+            keyReader = InboxKeyReader(),
             config = consumerConfig(topic, "group-${UUID.randomUUID()}").copy(
                 attributeHeaders = AttributeHeaders(
                     idempotencyKey = "id",
@@ -186,7 +186,7 @@ class KafkaInboxConsumerTest {
                 stored[message.idempotencyKey] = message
                 InboxResult.Stored
             },
-            extractor = IdempotencyExtractor(),
+            keyReader = InboxKeyReader(),
             config = consumerConfig(topic, "group-${UUID.randomUUID()}")
         )
 
@@ -212,7 +212,7 @@ class KafkaInboxConsumerTest {
                 // The first attempt fails. A committed offset would lose the record here.
                 if (attempts.incrementAndGet() == 1) InboxResult.Error("the database is down") else InboxResult.Stored
             },
-            extractor = IdempotencyExtractor(),
+            keyReader = InboxKeyReader(),
             config = consumerConfig(topic, "group-${UUID.randomUUID()}")
         )
 
@@ -237,7 +237,7 @@ class KafkaInboxConsumerTest {
                 first.incrementAndGet()
                 InboxResult.Stored
             },
-            extractor = IdempotencyExtractor(),
+            keyReader = InboxKeyReader(),
             config = consumerConfig(topic, group)
         )
         one.start()
@@ -253,7 +253,7 @@ class KafkaInboxConsumerTest {
                 second.incrementAndGet()
                 InboxResult.Stored
             },
-            extractor = IdempotencyExtractor(),
+            keyReader = InboxKeyReader(),
             config = consumerConfig(topic, group)
         )
         two.start()
@@ -280,7 +280,7 @@ class KafkaInboxConsumerTest {
                 stored[message.idempotencyKey] = message
                 InboxResult.Stored
             },
-            extractor = IdempotencyExtractor(),
+            keyReader = InboxKeyReader(),
             config = consumerConfig(topic, "group-${UUID.randomUUID()}"),
             storeDeadMessage = { message ->
                 dead[message.idempotencyKey] = message
@@ -315,7 +315,7 @@ class KafkaInboxConsumerTest {
                 stored[message.idempotencyKey] = message
                 InboxResult.Stored
             },
-            extractor = IdempotencyExtractor(),
+            keyReader = InboxKeyReader(),
             config = consumerConfig(topic, "group-${UUID.randomUUID()}").copy(
                 filter = HeaderFilterConfig(exclude = listOf(HeaderRule("x-test", exists = true)))
             )

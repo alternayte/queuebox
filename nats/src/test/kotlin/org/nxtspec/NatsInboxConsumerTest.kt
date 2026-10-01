@@ -74,9 +74,9 @@ class NatsInboxConsumerTest {
         stream = stream,
         durable = "durable${UUID.randomUUID().toString().replace("-", "")}",
         filterSubject = filter,
-        idempotencyKeyPath = "$.id",
-        aggregateIdPath = "$.customerId",
-        eventTypePath = "$.type",
+        idempotencyKeyPath = KeyPaths("$.id"),
+        aggregateIdPath = KeyPaths("$.customerId"),
+        eventTypePath = KeyPaths("$.type"),
         ackWaitMs = 5000
     )
 
@@ -92,7 +92,7 @@ class NatsInboxConsumerTest {
                 stored[message.idempotencyKey] = message
                 InboxResult.Stored
             },
-            extractor = IdempotencyExtractor(),
+            keyReader = InboxKeyReader(),
             config = consumerConfig(stream, "$prefix.>")
         )
 
@@ -126,7 +126,7 @@ class NatsInboxConsumerTest {
                 stored[message.idempotencyKey] = message
                 InboxResult.Stored
             },
-            extractor = IdempotencyExtractor(),
+            keyReader = InboxKeyReader(),
             config = consumerConfig(stream, "$prefix.>")
         )
 
@@ -157,7 +157,7 @@ class NatsInboxConsumerTest {
                 stored[message.idempotencyKey] = message
                 InboxResult.Stored
             },
-            extractor = IdempotencyExtractor(),
+            keyReader = InboxKeyReader(),
             config = consumerConfig(stream, "$prefix.>").copy(
                 attributeHeaders = AttributeHeaders(
                     idempotencyKey = "id",
@@ -198,7 +198,7 @@ class NatsInboxConsumerTest {
                 stored[message.idempotencyKey] = message
                 InboxResult.Stored
             },
-            extractor = IdempotencyExtractor(),
+            keyReader = InboxKeyReader(),
             config = consumerConfig(stream, "$prefix.>")
         )
 
@@ -225,7 +225,7 @@ class NatsInboxConsumerTest {
                 // The first attempt fails. An acknowledgement here would lose the message.
                 if (attempts.incrementAndGet() == 1) InboxResult.Error("the database is down") else InboxResult.Stored
             },
-            extractor = IdempotencyExtractor(),
+            keyReader = InboxKeyReader(),
             config = consumerConfig(stream, "$prefix.>")
         )
 
@@ -253,7 +253,7 @@ class NatsInboxConsumerTest {
                 first.incrementAndGet()
                 InboxResult.Stored
             },
-            extractor = IdempotencyExtractor(),
+            keyReader = InboxKeyReader(),
             config = base
         )
         one.start()
@@ -269,7 +269,7 @@ class NatsInboxConsumerTest {
                 second.incrementAndGet()
                 InboxResult.Stored
             },
-            extractor = IdempotencyExtractor(),
+            keyReader = InboxKeyReader(),
             config = base
         )
         two.start()
@@ -296,7 +296,7 @@ class NatsInboxConsumerTest {
                 stored[message.idempotencyKey] = message
                 InboxResult.Stored
             },
-            extractor = IdempotencyExtractor(),
+            keyReader = InboxKeyReader(),
             config = consumerConfig(stream, "$prefix.>"),
             storeDeadMessage = { message ->
                 dead[message.idempotencyKey] = message
@@ -331,7 +331,7 @@ class NatsInboxConsumerTest {
                 stored[message.idempotencyKey] = message
                 InboxResult.Stored
             },
-            extractor = IdempotencyExtractor(),
+            keyReader = InboxKeyReader(),
             config = consumerConfig(stream, "$prefix.>").copy(
                 filter = HeaderFilterConfig(require = listOf(HeaderRule("x-tenant", equals = "acme")))
             )

@@ -12,10 +12,15 @@ internal object HttpSourceKeyValidator {
     private val credentialHeaders = listOf("Authorization", "Proxy-Authorization", "Cookie")
 
     fun validate(name: String, source: SourceConfig.Http) {
-        require(source.idempotencyKeyPath != null || source.idempotencyKeyHeader != null) {
+        require(
+            source.idempotencyKeyPath != null ||
+                source.idempotencyKeyHeader != null ||
+                source.idempotencyKeyExpression != null
+        ) {
             "Source '$name' has no idempotency key. Set 'sources.$name.idempotencyKeyPath' to a " +
-                "JSONPath in the body, or 'sources.$name.idempotencyKeyHeader' to a request header, " +
-                "or both. " + setVia("sources.$name.idempotencyKeyPath")
+                "JSONPath in the body, 'sources.$name.idempotencyKeyHeader' to a request header, " +
+                "or 'sources.$name.idempotencyKeyExpression' to a JSONata expression. " +
+                setVia("sources.$name.idempotencyKeyPath")
         }
 
         val authHeader = when (val auth = source.auth) {

@@ -36,39 +36,43 @@ class InboxRepository(
         require(!identifier.contains('"')) { "Invalid SQL identifier: '$identifier'" }
         return "\"$identifier\""
     }
-    override suspend fun store(message: InboxMessage): InboxResult = insert(message, "pending")
+    override suspend fun store(message: InboxMessage, initialDelay: Duration): InboxResult =
+        insert(message, "pending", initialDelay)
 
-    override suspend fun storeDead(message: InboxMessage): InboxResult = insert(message, "dead")
+    override suspend fun storeDead(message: InboxMessage): InboxResult = insert(message, "dead", Duration.ZERO)
 
-    private suspend fun insert(message: InboxMessage, initialState: String): InboxResult = joinOrNewTransaction {
-        try {
-            val now = Clock.System.now()
-            val inserted = table.insertIgnore {
-                it[id] = message.id
-                it[messageSrc] = message.source
-                it[idempotencyKey] = message.idempotencyKey
-                it[aggregateId] = message.aggregateId
-                it[eventType] = message.eventType
-                it[payload] = message.payload
-                it[state] = initialState
-                it[createdAt] = now
-                it[correlationId] = message.correlationId
-                it[headers] = HeaderJson.toElement(message.headers)
-                it[consumption] = message.consumption
-                it[scheduledAt] = databaseNow
+    private suspend fun insert(message: InboxMessage, initialState: String, initialDelay: Duration): InboxResult =
+        joinOrNewTransaction {
+            try {
+                val now = Clock.System.now()
+                val inserted = table.insertIgnore {
+                    it[id] = message.id
+                    it[messageSrc] = message.source
+                    it[idempotencyKey] = message.idempotencyKey
+                    it[aggregateId] = message.aggregateId
+                    it[eventType] = message.eventType
+                    it[payload] = message.payload
+                    it[state] = initialState
+                    it[createdAt] = now
+                    it[correlationId] = message.correlationId
+                    it[headers] = HeaderJson.toElement(message.headers)
+                    it[consumption] = message.consumption
+                    // Issue #84. The delay is added to the database clock, which the claims compare
+                    // against.
+                    it[scheduledAt] = databaseNowPlus(initialDelay)
+                }
+
+                if (inserted.insertedCount == 0) {
+                    InboxResult.Duplicate
+                } else {
+                    InboxResult.Stored
+                }
+            } catch (e: Exception) {
+                // Sixth review gate: a driver message carries the JDBC URL, and the reason reaches
+                // a log line. Redact it where it is built, so every consumer is safe.
+                InboxResult.Error(ErrorSanitizer.sanitize(e) ?: "Unknown error")
             }
-
-            if (inserted.insertedCount == 0) {
-                InboxResult.Duplicate
-            } else {
-                InboxResult.Stored
-            }
-        } catch (e: Exception) {
-            // Sixth review gate: a driver message carries the JDBC URL, and the reason reaches
-            // a log line. Redact it where it is built, so every consumer is safe.
-            InboxResult.Error(ErrorSanitizer.sanitize(e) ?: "Unknown error")
         }
-    }
 
     @Suppress("LongMethod")
     override suspend fun claimPending(batchSize: Int, leaseMs: Long): List<InboxMessage> = joinOrNewTransaction {
@@ -98,6 +102,7 @@ class InboxRepository(
                 SELECT $idCol AS claim_id
                 FROM $t
                 WHERE $stateCol = 'pending' AND ${q(columnMapping.consumption)} = 'push'
+                  AND ${q(columnMapping.scheduledAt)} <= clock_timestamp()
                   AND ( $aggregateCol IS NULL
                         OR $aggregateCol NOT IN (
                             SELECT DISTINCT $aggregateCol FROM $t
@@ -199,6 +204,13 @@ class InboxRepository(
         }) {
             it[state] = "pending"
             it[claimedAt] = null
+        }
+    }
+
+    /** The database clock plus [delay]. The value is a whole number, so it is safe in the text. */
+    private fun databaseNowPlus(delay: Duration) = object : org.jetbrains.exposed.v1.core.Expression<Instant>() {
+        override fun toQueryBuilder(queryBuilder: org.jetbrains.exposed.v1.core.QueryBuilder) {
+            queryBuilder.append("clock_timestamp() + INTERVAL '1 millisecond' * ${delay.inWholeMilliseconds}")
         }
     }
 

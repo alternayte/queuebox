@@ -17,11 +17,12 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.TestInstance
 import org.nxtspec.DatabaseConfig
 import org.nxtspec.DatabaseFactory
-import org.nxtspec.IdempotencyExtractor
 import org.nxtspec.InboxAuthConfig
 import org.nxtspec.InboxConfig
 import org.nxtspec.InboxHandler
+import org.nxtspec.InboxKeyReader
 import org.nxtspec.InboxRepository
+import org.nxtspec.KeyPaths
 import org.nxtspec.PostgresMigrator
 import org.nxtspec.Secret
 import org.nxtspec.SourceConfig
@@ -84,9 +85,9 @@ class HttpHeaderKeysDatabaseTest {
     private val github = SourceConfig.Http(
         path = "/github",
         idempotencyKeyHeader = "X-GitHub-Delivery",
-        idempotencyKeyPath = "$.fallback_id",
+        idempotencyKeyPath = KeyPaths("$.fallback_id"),
         eventTypeHeader = "X-GitHub-Event",
-        aggregateIdPath = "$.repository.full_name",
+        aggregateIdPath = KeyPaths("$.repository.full_name"),
         auth = InboxAuthConfig.HmacSignature(
             secret = Secret(SECRET),
             headerName = "X-Hub-Signature-256",
@@ -210,7 +211,7 @@ class HttpHeaderKeysDatabaseTest {
                     configureInboxRoutes(
                         InboxConfig(basePath = "/inbox"),
                         mapOf("github" to github),
-                        InboxHandler(dialect.repository(), IdempotencyExtractor())
+                        InboxHandler(dialect.repository(), InboxKeyReader())
                     )
                 }
                 Inbox(client).scenario(dialect)
