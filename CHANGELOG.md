@@ -9,6 +9,11 @@ the configuration schema and for the database schema.
 
 ## [Unreleased]
 
+## [0.7.0] — 2026-10-01
+
+This release ships the server image alone, as `v0.7.0`. No client library changed, so all four
+client packages stay at 0.3.1. It has no migration.
+
 ### Added
 
 - **An inbox source computes its keys with a JSONata expression.** The optional keys
@@ -595,7 +600,8 @@ release exists.
   cannot push a credential into a log.
 - The admin surface is off by default.
 
-[Unreleased]: https://github.com/AlterNayte/queuebox/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/AlterNayte/queuebox/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/AlterNayte/queuebox/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/AlterNayte/queuebox/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/AlterNayte/queuebox/compare/v0.4.1...v0.5.0
 [0.4.1]: https://github.com/AlterNayte/queuebox/compare/v0.4.0...v0.4.1
