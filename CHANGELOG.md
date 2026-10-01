@@ -41,6 +41,11 @@ the configuration schema and for the database schema.
   During a rolling upgrade, a 0.6.0 instance still forwards a held push row at once. Set
   `initialDelay` on a push source after every instance runs this release.
 
+### Security
+
+- The Jackson version floor is raised to 2.21.7, which closes CVE-2026-68497, CVE-2026-91776 and
+  CVE-2026-91777 in `jackson-databind`.
+
 ## [0.6.0] — 2026-09-29
 
 ### Added
