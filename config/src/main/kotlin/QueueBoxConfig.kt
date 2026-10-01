@@ -2,6 +2,7 @@ package org.nxtspec
 
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlin.time.Duration
 
 @Serializable
 data class QueueBoxConfig(
@@ -360,10 +361,40 @@ data class HeaderRule(
     val exists: Boolean? = null
 )
 
+/**
+ * The JSONPaths of one inbox key, in the order QueueBox reads them. The first path that gives a
+ * value wins. YAML takes one string or a list of strings. Issue #85.
+ */
+@Serializable
+data class KeyPaths(val paths: List<String>) {
+    constructor(vararg paths: String) : this(paths.toList())
+
+    override fun toString(): String = paths.joinToString(", ", "[", "]")
+}
+
 @Serializable
 sealed class SourceConfig {
     abstract val transform: TransformConfig?
     abstract val consumption: String
+
+    /** The JSONPaths of the three inbox keys in the body. Issue #85 lets each one be a list. */
+    abstract val idempotencyKeyPath: KeyPaths?
+    abstract val aggregateIdPath: KeyPaths?
+    abstract val eventTypePath: KeyPaths?
+
+    /** A JSONata expression per inbox key. Each one is read before its path. Issue #83. */
+    abstract val idempotencyKeyExpression: String?
+    abstract val aggregateIdExpression: String?
+    abstract val eventTypeExpression: String?
+
+    /**
+     * How long a received row waits before a claim can take it, such as `30s`. The store sets
+     * `scheduled_at` to the receipt time plus this delay. Issue #84.
+     */
+    abstract val initialDelay: String?
+
+    /** [initialDelay] as a duration. A source without the key has no delay. */
+    fun initialDelayDuration(): Duration = initialDelay?.let(DurationParser::parse) ?: Duration.ZERO
 
     /**
      * Template for the outbox topic that the relay writes. Supports `{{ source }}` and
@@ -382,9 +413,18 @@ sealed class SourceConfig {
     data class Http(
         val path: String,
         /** The JSONPath of the idempotency key. A source sets this, [idempotencyKeyHeader], or both. */
-        val idempotencyKeyPath: String? = null,
-        val aggregateIdPath: String? = null,
-        val eventTypePath: String? = null,
+        override val idempotencyKeyPath: KeyPaths? = null,
+        override val aggregateIdPath: KeyPaths? = null,
+        override val eventTypePath: KeyPaths? = null,
+        /**
+         * A JSONata expression that computes the idempotency key from the body. It wins over
+         * [idempotencyKeyPath], and [idempotencyKeyHeader] wins over it. Issue #83.
+         */
+        override val idempotencyKeyExpression: String? = null,
+        /** A JSONata expression that computes the aggregate ID. It wins over [aggregateIdPath]. */
+        override val aggregateIdExpression: String? = null,
+        /** A JSONata expression that computes the event type. It wins over [eventTypePath]. */
+        override val eventTypeExpression: String? = null,
         /**
          * The request header that carries the idempotency key. It wins over [idempotencyKeyPath],
          * which becomes the fallback. The name matches in any letter case. Issue #80.
@@ -399,6 +439,7 @@ sealed class SourceConfig {
         override val consumption: String = "push",
         override val rateLimit: RateLimitConfig? = null,
         override val filter: HeaderFilterConfig? = null,
+        override val initialDelay: String? = null,
         val auth: InboxAuthConfig? = null
     ) : SourceConfig()
 
@@ -416,14 +457,18 @@ sealed class SourceConfig {
         val topics: List<String>,
         /** The consumer group. Two QueueBox replicas in one group share the partitions. */
         val groupId: String,
-        val idempotencyKeyPath: String = "$.id",
-        val aggregateIdPath: String? = null,
+        override val idempotencyKeyPath: KeyPaths = KeyPaths("$.id"),
+        override val aggregateIdPath: KeyPaths? = null,
         /**
          * Optional JSONPath to the event type in the message body. The consumer reads this path
          * first, and it falls back to the record header that `attributeHeaders.eventType` names,
          * which defaults to `x-event-type`.
          */
-        val eventTypePath: String? = null,
+        override val eventTypePath: KeyPaths? = null,
+        /** A JSONata expression per inbox key. Each one is read before its path. Issue #83. */
+        override val idempotencyKeyExpression: String? = null,
+        override val aggregateIdExpression: String? = null,
+        override val eventTypeExpression: String? = null,
         /**
          * Declares that every producer of these topics sets the record header that
          * `attributeHeaders.eventType` names. See the RabbitMQ source for why the declaration
@@ -448,15 +493,18 @@ sealed class SourceConfig {
         override val topic: String = "{{ source }}",
         override val consumption: String = "push",
         override val rateLimit: RateLimitConfig? = null,
-        override val filter: HeaderFilterConfig? = null
+        override val filter: HeaderFilterConfig? = null,
+        override val initialDelay: String? = null
     ) : SourceConfig() {
         override fun toString(): String = "Kafka(bootstrapServers=$bootstrapServers, topics=$topics, " +
             "groupId=$groupId, idempotencyKeyPath=$idempotencyKeyPath, aggregateIdPath=$aggregateIdPath, " +
-            "eventTypePath=$eventTypePath, eventTypeFromHeader=$eventTypeFromHeader, " +
+            "eventTypePath=$eventTypePath, idempotencyKeyExpression=$idempotencyKeyExpression, " +
+            "aggregateIdExpression=$aggregateIdExpression, eventTypeExpression=$eventTypeExpression, " +
+            "eventTypeFromHeader=$eventTypeFromHeader, " +
             "autoOffsetReset=$autoOffsetReset, maxPollRecords=$maxPollRecords, " +
             "securityProtocol=$securityProtocol, saslMechanism=$saslMechanism, " +
             "saslUsername=$saslUsername, attributeHeaders=$attributeHeaders, transform=$transform, " +
-            "topic=$topic, consumption=$consumption, rateLimit=$rateLimit, filter=$filter)"
+            "topic=$topic, consumption=$consumption, rateLimit=$rateLimit, filter=$filter, initialDelay=$initialDelay)"
     }
 
     /**
@@ -477,9 +525,13 @@ sealed class SourceConfig {
         val durable: String,
         /** Optional filter. The default consumes every subject of the stream. */
         val filterSubject: String? = null,
-        val idempotencyKeyPath: String = "$.id",
-        val aggregateIdPath: String? = null,
-        val eventTypePath: String? = null,
+        override val idempotencyKeyPath: KeyPaths = KeyPaths("$.id"),
+        override val aggregateIdPath: KeyPaths? = null,
+        override val eventTypePath: KeyPaths? = null,
+        /** A JSONata expression per inbox key. Each one is read before its path. Issue #83. */
+        override val idempotencyKeyExpression: String? = null,
+        override val aggregateIdExpression: String? = null,
+        override val eventTypeExpression: String? = null,
         /**
          * Declares that every publisher sets the message header that `attributeHeaders.eventType`
          * names.
@@ -498,15 +550,18 @@ sealed class SourceConfig {
         override val topic: String = "{{ source }}",
         override val consumption: String = "push",
         override val rateLimit: RateLimitConfig? = null,
-        override val filter: HeaderFilterConfig? = null
+        override val filter: HeaderFilterConfig? = null,
+        override val initialDelay: String? = null
     ) : SourceConfig() {
         override fun toString(): String = "Nats(servers=${CredentialMasking.maskUrl(servers)}, " +
             "stream=$stream, durable=$durable, filterSubject=$filterSubject, " +
             "idempotencyKeyPath=$idempotencyKeyPath, aggregateIdPath=$aggregateIdPath, " +
-            "eventTypePath=$eventTypePath, eventTypeFromHeader=$eventTypeFromHeader, " +
+            "eventTypePath=$eventTypePath, idempotencyKeyExpression=$idempotencyKeyExpression, " +
+            "aggregateIdExpression=$aggregateIdExpression, eventTypeExpression=$eventTypeExpression, " +
+            "eventTypeFromHeader=$eventTypeFromHeader, " +
             "ackWaitMs=$ackWaitMs, batchSize=$batchSize, username=$username, " +
             "attributeHeaders=$attributeHeaders, transform=$transform, topic=$topic, " +
-            "consumption=$consumption, rateLimit=$rateLimit, filter=$filter)"
+            "consumption=$consumption, rateLimit=$rateLimit, filter=$filter, initialDelay=$initialDelay)"
     }
 
     @Serializable
@@ -514,14 +569,18 @@ sealed class SourceConfig {
     data class RabbitMQ(
         val queueName: String,
         val connectionUrl: String,
-        val idempotencyKeyPath: String = "$.id",
-        val aggregateIdPath: String? = null,
+        override val idempotencyKeyPath: KeyPaths = KeyPaths("$.id"),
+        override val aggregateIdPath: KeyPaths? = null,
         /**
          * Optional JSONPath to the event type in the message body, like the HTTP source.
          * The consumer reads this path first, and it falls back to the header that
          * `attributeHeaders.eventType` names, which defaults to `x-event-type`.
          */
-        val eventTypePath: String? = null,
+        override val eventTypePath: KeyPaths? = null,
+        /** A JSONata expression per inbox key. Each one is read before its path. Issue #83. */
+        override val idempotencyKeyExpression: String? = null,
+        override val aggregateIdExpression: String? = null,
+        override val eventTypeExpression: String? = null,
         /**
          * Declares that every publisher of this queue sets the header that
          * `attributeHeaders.eventType` names.
@@ -552,7 +611,8 @@ sealed class SourceConfig {
         override val topic: String = "{{ source }}",
         override val consumption: String = "push",
         override val rateLimit: RateLimitConfig? = null,
-        override val filter: HeaderFilterConfig? = null
+        override val filter: HeaderFilterConfig? = null,
+        override val initialDelay: String? = null
     ) : SourceConfig() {
         /**
          * F-038: an AMQP URI carries the broker password, so the printed form masks it.
@@ -560,10 +620,12 @@ sealed class SourceConfig {
         override fun toString(): String = "RabbitMQ(queueName=$queueName, " +
             "connectionUrl=${CredentialMasking.maskUrl(connectionUrl)}, " +
             "idempotencyKeyPath=$idempotencyKeyPath, aggregateIdPath=$aggregateIdPath, " +
-            "eventTypePath=$eventTypePath, eventTypeFromHeader=$eventTypeFromHeader, " +
+            "eventTypePath=$eventTypePath, idempotencyKeyExpression=$idempotencyKeyExpression, " +
+            "aggregateIdExpression=$aggregateIdExpression, eventTypeExpression=$eventTypeExpression, " +
+            "eventTypeFromHeader=$eventTypeFromHeader, " +
             "prefetchCount=$prefetchCount, declareQueue=$declareQueue, " +
             "attributeHeaders=$attributeHeaders, transform=$transform, " +
-            "topic=$topic, rateLimit=$rateLimit, filter=$filter)"
+            "topic=$topic, rateLimit=$rateLimit, filter=$filter, initialDelay=$initialDelay)"
     }
 }
 

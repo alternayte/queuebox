@@ -105,9 +105,9 @@ An HTTP source takes each attribute from the first place in its list that gives 
 
 | Attribute | HTTP |
 | --- | --- |
-| Idempotency key | 1. `idempotencyKeyHeader` 2. `idempotencyKeyPath` |
-| Aggregate identifier | 1. `aggregateIdHeader` 2. `aggregateIdPath` |
-| Event type | 1. `eventTypeHeader` 2. `eventTypePath` |
+| Idempotency key | 1. `idempotencyKeyHeader` 2. `idempotencyKeyExpression` 3. `idempotencyKeyPath` |
+| Aggregate identifier | 1. `aggregateIdHeader` 2. `aggregateIdExpression` 3. `aggregateIdPath` |
+| Event type | 1. `eventTypeHeader` 2. `eventTypeExpression` 3. `eventTypePath` |
 
 A header name matches in any letter case. QueueBox trims the value, and an empty value counts as missing.
 A request with no idempotency key gets `400`. An HTTP source has no digest fallback.
@@ -120,12 +120,13 @@ Each attribute comes from the first place in its list that gives a value.
 
 | Attribute | RabbitMQ | Kafka | NATS |
 | --- | --- | --- | --- |
-| Idempotency key | 1. `x-idempotency-key` header 2. `idempotencyKeyPath` 3. AMQP `message_id` property 4. SHA-256 digest of the body | 1. `x-idempotency-key` header 2. `idempotencyKeyPath` 3. record key 4. SHA-256 digest of the body | 1. `x-idempotency-key` header 2. `idempotencyKeyPath` 3. `Nats-Msg-Id` header 4. SHA-256 digest of the body |
-| Aggregate identifier | 1. `aggregateIdPath` 2. `x-aggregate-id` header | 1. `aggregateIdPath` 2. `x-aggregate-id` header 3. record key | 1. `aggregateIdPath` 2. `x-aggregate-id` header |
-| Event type | 1. `eventTypePath` 2. `x-event-type` header | 1. `eventTypePath` 2. `x-event-type` header | 1. `eventTypePath` 2. `x-event-type` header |
+| Idempotency key | 1. `x-idempotency-key` header 2. `idempotencyKeyExpression` 3. `idempotencyKeyPath` 4. AMQP `message_id` property 5. SHA-256 digest of the body | 1. `x-idempotency-key` header 2. `idempotencyKeyExpression` 3. `idempotencyKeyPath` 4. record key 5. SHA-256 digest of the body | 1. `x-idempotency-key` header 2. `idempotencyKeyExpression` 3. `idempotencyKeyPath` 4. `Nats-Msg-Id` header 5. SHA-256 digest of the body |
+| Aggregate identifier | 1. `aggregateIdExpression` 2. `aggregateIdPath` 3. `x-aggregate-id` header | 1. `aggregateIdExpression` 2. `aggregateIdPath` 3. `x-aggregate-id` header 4. record key | 1. `aggregateIdExpression` 2. `aggregateIdPath` 3. `x-aggregate-id` header |
+| Event type | 1. `eventTypeExpression` 2. `eventTypePath` 3. `x-event-type` header | 1. `eventTypeExpression` 2. `eventTypePath` 3. `x-event-type` header | 1. `eventTypeExpression` 2. `eventTypePath` 3. `x-event-type` header |
 | Correlation identifier | 1. `X-Correlation-Id` header, in any letter case 2. AMQP `correlation_id` property 3. a new UUID | 1. `X-Correlation-Id` header 2. a new UUID | 1. `X-Correlation-Id` header 2. a new UUID |
 
 `attributeHeaders.idempotencyKey`, `attributeHeaders.aggregateId` and `attributeHeaders.eventType` change the three `x-` header names.
+A path key can hold a list of JSONPaths, and the first path that gives a value wins. [Key paths and key expressions](/reference/configuration/#key-paths-and-key-expressions) states the rules.
 A Debezium producer, for example, sends `id`, `aggregateId` and `eventType`. The [configuration](/reference/configuration/#attributeheaders) page describes the keys.
 
 The digest fallback deduplicates a redelivery of the same bytes. It also merges two different events that carry the same body.

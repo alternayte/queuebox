@@ -11,7 +11,11 @@ import kotlin.time.Instant
  * Enables database-agnostic implementations for multi-database support.
  */
 interface InboxRepositoryInterface {
-    suspend fun store(message: InboxMessage): InboxResult
+    /**
+     * Stores a received message as pending. [initialDelay] holds the row: `scheduled_at` is the
+     * database time plus the delay, and no claim takes the row before that time. Issue #84.
+     */
+    suspend fun store(message: InboxMessage, initialDelay: Duration = Duration.ZERO): InboxResult
 
     suspend fun storeDead(message: InboxMessage): InboxResult
 

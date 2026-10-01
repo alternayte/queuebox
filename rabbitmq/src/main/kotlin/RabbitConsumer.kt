@@ -35,14 +35,18 @@ data class RabbitConsumerConfig(
     val queueName: String,
     val sourceName: String,
     val prefetchCount: Int = 10,
-    val idempotencyKeyPath: String = "$.id",
-    val aggregateIdPath: String? = null,
+    val idempotencyKeyPath: KeyPaths = KeyPaths("$.id"),
+    val aggregateIdPath: KeyPaths? = null,
     /**
      * Optional JSONPath to the event type in the message body. The consumer reads this path
      * first, and it falls back to the AMQP header that `attributeHeaders.eventType` names,
      * which defaults to `x-event-type`.
      */
-    val eventTypePath: String? = null,
+    val eventTypePath: KeyPaths? = null,
+    /** A JSONata expression per inbox key. Each one is read before its path. Issue #83. */
+    val idempotencyKeyExpression: String? = null,
+    val aggregateIdExpression: String? = null,
+    val eventTypeExpression: String? = null,
     /**
      * Declares the source queue as durable before the consumer starts. F-097.
      *
@@ -68,7 +72,7 @@ private sealed interface AckCommand {
 class RabbitConsumer(
     private val connection: RabbitConnection,
     private val storeMessage: suspend (InboxMessage) -> InboxResult,
-    private val extractor: IdempotencyExtractor,
+    private val keyReader: InboxKeyReader,
     private val config: RabbitConsumerConfig,
     private val metricsCollector: MetricsCollectorInterface? = null,
     private val transformPipeline: InboxTransformPipeline? = null,
@@ -265,7 +269,7 @@ class RabbitConsumer(
 
             // Extract idempotency key with fallback chain (from ORIGINAL payload):
             // 1. the configured idempotency-key header
-            // 2. JSONPath from payload
+            // 2. the body: the key expression, then the key paths
             // 3. messageId property
             // 4. A stable SHA-256 digest of the body
             val idempotencyKey = extractIdempotencyKey(properties, payload, body)
@@ -450,11 +454,9 @@ class RabbitConsumer(
             return headerKey.toString()
         }
 
-        // Priority 2: JSONPath extraction from payload
-        val extracted = extractor.extract(payload, config.idempotencyKeyPath)
-        if (extracted.isSuccess) {
-            return extracted.getOrThrow()
-        }
+        // Priority 2: the body. The expression of the key first, then its paths.
+        bodyKey(payload, "idempotencyKey", config.idempotencyKeyExpression, config.idempotencyKeyPath)
+            ?.let { return it }
 
         // Priority 3: messageId property
         if (properties.messageId != null) {
@@ -512,6 +514,10 @@ class RabbitConsumer(
         storeRejected(envelope, message, "the body is not JSON", InboxRejectionReason.EXTRACTION_FAILED)
     }
 
+    /** Reads one inbox key from the body: its expression first, then its paths. Issues #83 and #85. */
+    private fun bodyKey(payload: JsonElement, name: String, expression: String?, paths: KeyPaths?): String? =
+        keyReader.read(config.sourceName, payload, BodyKey(name, expression, paths))
+
     /** Returns the hexadecimal SHA-256 digest of the raw message body. */
     private fun bodyDigest(body: ByteArray): String {
         val digest = java.security.MessageDigest.getInstance("SHA-256").digest(body)
@@ -526,24 +532,14 @@ class RabbitConsumer(
      * names, which defaults to `x-event-type`.
      */
     private fun extractEventType(properties: AMQP.BasicProperties, payload: JsonElement): String? {
-        config.eventTypePath?.let { path ->
-            val extracted = extractor.extract(payload, path)
-            if (extracted.isSuccess) {
-                return extracted.getOrThrow()
-            }
-        }
+        bodyKey(payload, "eventType", config.eventTypeExpression, config.eventTypePath)?.let { return it }
 
         return properties.headers?.get(config.attributeHeaders.eventType)?.toString()
     }
 
     private fun extractAggregateId(properties: AMQP.BasicProperties, payload: JsonElement): String? {
-        // Priority 1: JSONPath extraction from payload
-        config.aggregateIdPath?.let { path ->
-            val extracted = extractor.extract(payload, path)
-            if (extracted.isSuccess) {
-                return extracted.getOrThrow()
-            }
-        }
+        // Priority 1: the body. The expression of the key first, then its paths.
+        bodyKey(payload, "aggregateId", config.aggregateIdExpression, config.aggregateIdPath)?.let { return it }
 
         // Priority 2: the configured aggregate-id header fallback
         return properties.headers?.get(config.attributeHeaders.aggregateId)?.toString()

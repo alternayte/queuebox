@@ -117,8 +117,8 @@ Deduplicate relay traffic on `x-idempotency-key`, which carries the inbox idempo
 
 ### Where the idempotency key comes from
 
-An HTTP source reads the key from the `idempotencyKeyHeader` header first, then with `idempotencyKeyPath`.
-A broker source reads the `x-idempotency-key` header first, then `idempotencyKeyPath`, then the AMQP `messageId` property.
+An HTTP source reads the key from the `idempotencyKeyHeader` header first, then with `idempotencyKeyExpression`, then with `idempotencyKeyPath`.
+A broker source reads the `x-idempotency-key` header first, then `idempotencyKeyExpression`, then `idempotencyKeyPath`, then the AMQP `messageId` property.
 When all of them give nothing, QueueBox uses a SHA-256 digest of the body.
 
 <Aside type="caution">

@@ -189,11 +189,11 @@ class IdempotencyExtractorTest {
         val values = counting.extractAll(
             payload,
             mapOf(
-                "one" to "$.id",
-                "two" to "$.b",
-                "three" to "$.c",
-                "four" to "$.d",
-                "five" to "$.e"
+                "one" to listOf("$.id"),
+                "two" to listOf("$.b"),
+                "three" to listOf("$.c"),
+                "four" to listOf("$.d"),
+                "five" to listOf("$.e")
             )
         )
 
@@ -211,7 +211,7 @@ class IdempotencyExtractorTest {
         }
         val payload = Json.parseToJsonElement("""{"id": "a"}""")
 
-        counting.extractAll(payload, mapOf("one" to "$.id"))
+        counting.extractAll(payload, mapOf("one" to listOf("$.id")))
 
         assertEquals(1, parseCount)
     }
@@ -220,7 +220,7 @@ class IdempotencyExtractorTest {
     fun `should return null for a path that is not found`() {
         val payload = Json.parseToJsonElement("""{"id": "a"}""")
 
-        val values = extractor.extractAll(payload, mapOf("one" to "$.id", "two" to "$.missing"))
+        val values = extractor.extractAll(payload, mapOf("one" to listOf("$.id"), "two" to listOf("$.missing")))
 
         assertEquals("a", values["one"])
         assertNull(values["two"])
@@ -318,7 +318,7 @@ class IdempotencyExtractorTest {
     fun `should map an empty indefinite result to null in extractAll`() {
         val payload = Json.parseToJsonElement("""{"data": {"other": "B-2"}}""")
 
-        val values = extractor.extractAll(payload, mapOf("key" to "$..orderId"))
+        val values = extractor.extractAll(payload, mapOf("key" to listOf("$..orderId")))
 
         assertNull(values["key"])
     }
@@ -329,7 +329,7 @@ class IdempotencyExtractorTest {
             """{"a": {"orderId": "A-1"}, "b": {"orderId": "A-2"}}"""
         )
 
-        val values = extractor.extractAll(payload, mapOf("key" to "$..orderId"))
+        val values = extractor.extractAll(payload, mapOf("key" to listOf("$..orderId")))
 
         assertNull(values["key"])
     }

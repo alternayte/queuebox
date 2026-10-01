@@ -145,12 +145,12 @@ class RabbitConsumerRejectedClaimRaceTest {
         val config = RabbitConsumerConfig(
             queueName = TEST_QUEUE,
             sourceName = "race-source",
-            idempotencyKeyPath = "$.id"
+            idempotencyKeyPath = KeyPaths("$.id")
         )
         consumer = RabbitConsumer(
             connection = connection,
             storeMessage = repository::store,
-            extractor = IdempotencyExtractor(),
+            keyReader = InboxKeyReader(),
             config = config,
             transformPipeline = rejectingPipeline(),
             sourceTransform = rejectingTransform,
@@ -192,7 +192,7 @@ class RabbitConsumerRejectedClaimRaceTest {
         val config = RabbitConsumerConfig(
             queueName = TEST_QUEUE,
             sourceName = "race-source",
-            idempotencyKeyPath = "$.id"
+            idempotencyKeyPath = KeyPaths("$.id")
         )
         // Event A is healthy. It reaches the inbox through the normal path.
         val healthy = InboxMessage(
@@ -208,7 +208,7 @@ class RabbitConsumerRejectedClaimRaceTest {
         consumer = RabbitConsumer(
             connection = connection,
             storeMessage = repository::store,
-            extractor = IdempotencyExtractor(),
+            keyReader = InboxKeyReader(),
             config = config,
             transformPipeline = rejectingPipeline(),
             sourceTransform = rejectingTransform,

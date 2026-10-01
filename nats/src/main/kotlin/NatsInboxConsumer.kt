@@ -37,9 +37,13 @@ data class NatsConsumerConfig(
     val durable: String,
     val filterSubject: String? = null,
     val consumption: String = "push",
-    val idempotencyKeyPath: String = "$.id",
-    val aggregateIdPath: String? = null,
-    val eventTypePath: String? = null,
+    val idempotencyKeyPath: KeyPaths = KeyPaths("$.id"),
+    val aggregateIdPath: KeyPaths? = null,
+    val eventTypePath: KeyPaths? = null,
+    /** A JSONata expression per inbox key. Each one is read before its path. Issue #83. */
+    val idempotencyKeyExpression: String? = null,
+    val aggregateIdExpression: String? = null,
+    val eventTypeExpression: String? = null,
     val ackWaitMs: Long = 30000,
     val batchSize: Int = 100,
     val username: String? = null,
@@ -67,7 +71,7 @@ data class NatsConsumerConfig(
  */
 class NatsInboxConsumer(
     private val storeMessage: suspend (InboxMessage) -> InboxResult,
-    private val extractor: IdempotencyExtractor,
+    private val keyReader: InboxKeyReader,
     private val config: NatsConsumerConfig,
     private val metricsCollector: MetricsCollectorInterface? = null,
     private val transformPipeline: InboxTransformPipeline? = null,
@@ -317,8 +321,8 @@ class NatsInboxConsumer(
 
     private fun extractIdempotencyKey(natsMessage: Message, payload: JsonElement, body: ByteArray): String {
         header(natsMessage, config.attributeHeaders.idempotencyKey)?.let { return it }
-        val extracted = extractor.extract(payload, config.idempotencyKeyPath)
-        if (extracted.isSuccess) return extracted.getOrThrow()
+        bodyKey(payload, "idempotencyKey", config.idempotencyKeyExpression, config.idempotencyKeyPath)
+            ?.let { return it }
         // `Nats-Msg-Id` is the identifier that JetStream itself deduplicates on, so it is the
         // natural fallback before a digest of the body.
         header(natsMessage, "Nats-Msg-Id")?.let { return it }
@@ -326,20 +330,18 @@ class NatsInboxConsumer(
     }
 
     private fun extractEventType(natsMessage: Message, payload: JsonElement): String? {
-        config.eventTypePath?.let { path ->
-            val extracted = extractor.extract(payload, path)
-            if (extracted.isSuccess) return extracted.getOrThrow()
-        }
+        bodyKey(payload, "eventType", config.eventTypeExpression, config.eventTypePath)?.let { return it }
         return header(natsMessage, config.attributeHeaders.eventType)
     }
 
     private fun extractAggregateId(natsMessage: Message, payload: JsonElement): String? {
-        config.aggregateIdPath?.let { path ->
-            val extracted = extractor.extract(payload, path)
-            if (extracted.isSuccess) return extracted.getOrThrow()
-        }
+        bodyKey(payload, "aggregateId", config.aggregateIdExpression, config.aggregateIdPath)?.let { return it }
         return header(natsMessage, config.attributeHeaders.aggregateId)
     }
+
+    /** Reads one inbox key from the body: its expression first, then its paths. Issues #83 and #85. */
+    private fun bodyKey(payload: JsonElement, name: String, expression: String?, paths: KeyPaths?): String? =
+        keyReader.read(config.sourceName, payload, BodyKey(name, expression, paths))
 
     private fun bodyDigest(body: ByteArray): String {
         val digest = java.security.MessageDigest.getInstance("SHA-256").digest(body)

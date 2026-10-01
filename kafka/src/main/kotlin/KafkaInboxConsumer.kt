@@ -39,9 +39,13 @@ data class KafkaConsumerConfig(
     val topics: List<String>,
     val groupId: String,
     val consumption: String = "push",
-    val idempotencyKeyPath: String = "$.id",
-    val aggregateIdPath: String? = null,
-    val eventTypePath: String? = null,
+    val idempotencyKeyPath: KeyPaths = KeyPaths("$.id"),
+    val aggregateIdPath: KeyPaths? = null,
+    val eventTypePath: KeyPaths? = null,
+    /** A JSONata expression per inbox key. Each one is read before its path. Issue #83. */
+    val idempotencyKeyExpression: String? = null,
+    val aggregateIdExpression: String? = null,
+    val eventTypeExpression: String? = null,
     val autoOffsetReset: String = "earliest",
     val maxPollRecords: Int = 100,
     val securityProtocol: String = "PLAINTEXT",
@@ -76,7 +80,7 @@ data class KafkaConsumerConfig(
  */
 class KafkaInboxConsumer(
     private val storeMessage: suspend (InboxMessage) -> InboxResult,
-    private val extractor: IdempotencyExtractor,
+    private val keyReader: InboxKeyReader,
     private val config: KafkaConsumerConfig,
     private val metricsCollector: MetricsCollectorInterface? = null,
     private val transformPipeline: InboxTransformPipeline? = null,
@@ -358,27 +362,25 @@ class KafkaInboxConsumer(
         body: ByteArray
     ): String {
         header(record, config.attributeHeaders.idempotencyKey)?.let { return it }
-        val extracted = extractor.extract(payload, config.idempotencyKeyPath)
-        if (extracted.isSuccess) return extracted.getOrThrow()
+        bodyKey(payload, "idempotencyKey", config.idempotencyKeyExpression, config.idempotencyKeyPath)
+            ?.let { return it }
         record.key()?.takeIf { it.isNotBlank() }?.let { return it }
         return bodyDigest(body)
     }
 
     private fun extractEventType(record: ConsumerRecord<String, ByteArray>, payload: JsonElement): String? {
-        config.eventTypePath?.let { path ->
-            val extracted = extractor.extract(payload, path)
-            if (extracted.isSuccess) return extracted.getOrThrow()
-        }
+        bodyKey(payload, "eventType", config.eventTypeExpression, config.eventTypePath)?.let { return it }
         return header(record, config.attributeHeaders.eventType)
     }
 
     private fun extractAggregateId(record: ConsumerRecord<String, ByteArray>, payload: JsonElement): String? {
-        config.aggregateIdPath?.let { path ->
-            val extracted = extractor.extract(payload, path)
-            if (extracted.isSuccess) return extracted.getOrThrow()
-        }
+        bodyKey(payload, "aggregateId", config.aggregateIdExpression, config.aggregateIdPath)?.let { return it }
         return header(record, config.attributeHeaders.aggregateId) ?: record.key()
     }
+
+    /** Reads one inbox key from the body: its expression first, then its paths. Issues #83 and #85. */
+    private fun bodyKey(payload: JsonElement, name: String, expression: String?, paths: KeyPaths?): String? =
+        keyReader.read(config.sourceName, payload, BodyKey(name, expression, paths))
 
     private fun bodyDigest(body: ByteArray): String {
         val digest = java.security.MessageDigest.getInstance("SHA-256").digest(body)

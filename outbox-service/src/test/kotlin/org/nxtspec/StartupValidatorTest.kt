@@ -96,8 +96,8 @@ class StartupValidatorTest {
                     sources = mapOf(
                         "stripe" to SourceConfig.Http(
                             path = "/stripe",
-                            idempotencyKeyPath = "$.id",
-                            eventTypePath = "$.type",
+                            idempotencyKeyPath = KeyPaths("$.id"),
+                            eventTypePath = KeyPaths("$.type"),
                             transform = TransformConfig(expression = "{ unclosed")
                         )
                     )
@@ -144,5 +144,23 @@ class StartupValidatorTest {
         val config = configWith(exchange = "public.{{ payload.orderId }}.v1", exchangeFrom = null)
 
         StartupValidator.validateAddressTemplates(config)
+    }
+
+    @Test
+    fun `an inbox key expression that does not compile stops the start and names the key`() {
+        val error = assertFailsWith<InvalidTransformException> {
+            StartupValidator.validateTransforms(
+                config(
+                    sources = mapOf(
+                        "orders" to SourceConfig.RabbitMQ(
+                            queueName = "orders",
+                            connectionUrl = "amqp://localhost",
+                            aggregateIdExpression = "\$split(subject, "
+                        )
+                    )
+                )
+            )
+        }
+        assertContains(error.message!!, "sources.orders.aggregateIdExpression")
     }
 }

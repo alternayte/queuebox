@@ -178,6 +178,13 @@ abstract class SqlServerTestBase {
                     it[SqlServerInboxTable.leaseExpiresAt] = Clock.System.now() + kotlin.time.Duration.parse("5m")
                 }
                 it[createdAt] = now
+                // QueueBox stores `scheduled_at` from the database clock, in UTC, and the claims
+                // compare against that clock. The client default of the table is a local time.
+                it[scheduledAt] = object : org.jetbrains.exposed.v1.core.Expression<Instant>() {
+                    override fun toQueryBuilder(queryBuilder: org.jetbrains.exposed.v1.core.QueryBuilder) {
+                        queryBuilder.append("SYSUTCDATETIME()")
+                    }
+                }
             }
         }
         return id

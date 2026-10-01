@@ -26,7 +26,7 @@ class InboxRoutesTest {
     private fun ApplicationTestBuilder.setupInboxRoutes(
         handler: InboxHandler,
         sources: Map<String, SourceConfig> = mapOf(
-            "stripe" to SourceConfig.Http(path = "/stripe", idempotencyKeyPath = "$.id")
+            "stripe" to SourceConfig.Http(path = "/stripe", idempotencyKeyPath = KeyPaths("$.id"))
         ),
         config: InboxConfig = InboxConfig(basePath = "/inbox")
     ) {
@@ -76,8 +76,8 @@ class InboxRoutesTest {
     @Test
     fun `should return 202 when valid webhook received and stored`() = testApplication {
         val mockRepository = mockk<InboxRepository>()
-        val extractor = IdempotencyExtractor()
-        val handler = InboxHandler(mockRepository, extractor)
+        val keyReader = InboxKeyReader()
+        val handler = InboxHandler(mockRepository, keyReader)
 
         coEvery { mockRepository.store(any()) } returns InboxResult.Stored
 
@@ -96,8 +96,8 @@ class InboxRoutesTest {
     @Test
     fun `should return 200 when duplicate message received`() = testApplication {
         val mockRepository = mockk<InboxRepository>()
-        val extractor = IdempotencyExtractor()
-        val handler = InboxHandler(mockRepository, extractor)
+        val keyReader = InboxKeyReader()
+        val handler = InboxHandler(mockRepository, keyReader)
 
         coEvery { mockRepository.store(any()) } returns InboxResult.Duplicate
 
@@ -116,8 +116,8 @@ class InboxRoutesTest {
     @Test
     fun `should return 400 when invalid JSON received`() = testApplication {
         val mockRepository = mockk<InboxRepository>()
-        val extractor = IdempotencyExtractor()
-        val handler = InboxHandler(mockRepository, extractor)
+        val keyReader = InboxKeyReader()
+        val handler = InboxHandler(mockRepository, keyReader)
 
         setupInboxRoutes(handler)
 
@@ -137,12 +137,12 @@ class InboxRoutesTest {
     @Test
     fun `should return 400 when idempotency key extraction fails`() = testApplication {
         val mockRepository = mockk<InboxRepository>()
-        val extractor = IdempotencyExtractor()
-        val handler = InboxHandler(mockRepository, extractor)
+        val keyReader = InboxKeyReader()
+        val handler = InboxHandler(mockRepository, keyReader)
 
         // Configure a source that expects "$.orderId" but we'll send "$.id"
         val sources = mapOf(
-            "orders" to SourceConfig.Http(path = "/orders", idempotencyKeyPath = "$.orderId")
+            "orders" to SourceConfig.Http(path = "/orders", idempotencyKeyPath = KeyPaths("$.orderId"))
         )
 
         setupInboxRoutes(handler, sources)
@@ -160,8 +160,8 @@ class InboxRoutesTest {
     @Test
     fun `should return 500 when storage fails`() = testApplication {
         val mockRepository = mockk<InboxRepository>()
-        val extractor = IdempotencyExtractor()
-        val handler = InboxHandler(mockRepository, extractor)
+        val keyReader = InboxKeyReader()
+        val handler = InboxHandler(mockRepository, keyReader)
 
         coEvery { mockRepository.store(any()) } returns InboxResult.Error("Database connection failed")
 
@@ -180,8 +180,8 @@ class InboxRoutesTest {
     @Test
     fun `should return 404 when unknown source path requested`() = testApplication {
         val mockRepository = mockk<InboxRepository>()
-        val extractor = IdempotencyExtractor()
-        val handler = InboxHandler(mockRepository, extractor)
+        val keyReader = InboxKeyReader()
+        val handler = InboxHandler(mockRepository, keyReader)
 
         // Only configure stripe source
         setupInboxRoutes(handler)
@@ -197,8 +197,8 @@ class InboxRoutesTest {
     @Test
     fun `should store message with correct source name`() = testApplication {
         val mockRepository = mockk<InboxRepository>()
-        val extractor = IdempotencyExtractor()
-        val handler = InboxHandler(mockRepository, extractor)
+        val keyReader = InboxKeyReader()
+        val handler = InboxHandler(mockRepository, keyReader)
 
         coEvery { mockRepository.store(any()) } returns InboxResult.Stored
 
@@ -215,8 +215,8 @@ class InboxRoutesTest {
     @Test
     fun `should store message with correct idempotency key`() = testApplication {
         val mockRepository = mockk<InboxRepository>()
-        val extractor = IdempotencyExtractor()
-        val handler = InboxHandler(mockRepository, extractor)
+        val keyReader = InboxKeyReader()
+        val handler = InboxHandler(mockRepository, keyReader)
 
         coEvery { mockRepository.store(any()) } returns InboxResult.Stored
 
@@ -233,16 +233,16 @@ class InboxRoutesTest {
     @Test
     fun `should extract event type when configured`() = testApplication {
         val mockRepository = mockk<InboxRepository>()
-        val extractor = IdempotencyExtractor()
-        val handler = InboxHandler(mockRepository, extractor)
+        val keyReader = InboxKeyReader()
+        val handler = InboxHandler(mockRepository, keyReader)
 
         coEvery { mockRepository.store(any()) } returns InboxResult.Stored
 
         val sources = mapOf(
             "stripe" to SourceConfig.Http(
                 path = "/stripe",
-                idempotencyKeyPath = "$.id",
-                eventTypePath = "$.type"
+                idempotencyKeyPath = KeyPaths("$.id"),
+                eventTypePath = KeyPaths("$.type")
             )
         )
 
@@ -259,14 +259,14 @@ class InboxRoutesTest {
     @Test
     fun `should handle multiple sources with different paths`() = testApplication {
         val mockRepository = mockk<InboxRepository>()
-        val extractor = IdempotencyExtractor()
-        val handler = InboxHandler(mockRepository, extractor)
+        val keyReader = InboxKeyReader()
+        val handler = InboxHandler(mockRepository, keyReader)
 
         coEvery { mockRepository.store(any()) } returns InboxResult.Stored
 
         val sources = mapOf(
-            "stripe" to SourceConfig.Http(path = "/stripe", idempotencyKeyPath = "$.id"),
-            "github" to SourceConfig.Http(path = "/github", idempotencyKeyPath = "$.delivery")
+            "stripe" to SourceConfig.Http(path = "/stripe", idempotencyKeyPath = KeyPaths("$.id")),
+            "github" to SourceConfig.Http(path = "/github", idempotencyKeyPath = KeyPaths("$.delivery"))
         )
 
         setupInboxRoutes(handler, sources)
@@ -292,14 +292,14 @@ class InboxRoutesTest {
     @Test
     fun `should use custom base path from config`() = testApplication {
         val mockRepository = mockk<InboxRepository>()
-        val extractor = IdempotencyExtractor()
-        val handler = InboxHandler(mockRepository, extractor)
+        val keyReader = InboxKeyReader()
+        val handler = InboxHandler(mockRepository, keyReader)
 
         coEvery { mockRepository.store(any()) } returns InboxResult.Stored
 
         val config = InboxConfig(basePath = "/webhooks")
         val sources = mapOf(
-            "stripe" to SourceConfig.Http(path = "/stripe", idempotencyKeyPath = "$.id")
+            "stripe" to SourceConfig.Http(path = "/stripe", idempotencyKeyPath = KeyPaths("$.id"))
         )
 
         setupInboxRoutes(handler, sources, config)
@@ -315,8 +315,8 @@ class InboxRoutesTest {
     @Test
     fun `should include messageId in response on success`() = testApplication {
         val mockRepository = mockk<InboxRepository>()
-        val extractor = IdempotencyExtractor()
-        val handler = InboxHandler(mockRepository, extractor)
+        val keyReader = InboxKeyReader()
+        val handler = InboxHandler(mockRepository, keyReader)
 
         coEvery { mockRepository.store(any()) } returns InboxResult.Stored
 
@@ -335,8 +335,8 @@ class InboxRoutesTest {
     @Test
     fun `should preserve full payload in stored message`() = testApplication {
         val mockRepository = mockk<InboxRepository>()
-        val extractor = IdempotencyExtractor()
-        val handler = InboxHandler(mockRepository, extractor)
+        val keyReader = InboxKeyReader()
+        val handler = InboxHandler(mockRepository, keyReader)
 
         coEvery { mockRepository.store(any()) } returns InboxResult.Stored
 
@@ -361,13 +361,13 @@ class InboxRoutesTest {
     @Test
     fun `should return 413 when body is one byte over the limit`() = testApplication {
         val mockRepository = mockk<InboxRepository>(relaxed = true)
-        val extractor = IdempotencyExtractor()
-        val handler = InboxHandler(mockRepository, extractor)
+        val keyReader = InboxKeyReader()
+        val handler = InboxHandler(mockRepository, keyReader)
         coEvery { mockRepository.store(any()) } returns InboxResult.Stored
 
         val config = InboxConfig(basePath = "/inbox", maxBodyBytes = 1024)
         val sources = mapOf(
-            "stripe" to SourceConfig.Http(path = "/stripe", idempotencyKeyPath = "$.id")
+            "stripe" to SourceConfig.Http(path = "/stripe", idempotencyKeyPath = KeyPaths("$.id"))
         )
 
         application {
@@ -393,13 +393,13 @@ class InboxRoutesTest {
     @Test
     fun `should return 202 when body is exactly at the limit`() = testApplication {
         val mockRepository = mockk<InboxRepository>(relaxed = true)
-        val extractor = IdempotencyExtractor()
-        val handler = InboxHandler(mockRepository, extractor)
+        val keyReader = InboxKeyReader()
+        val handler = InboxHandler(mockRepository, keyReader)
         coEvery { mockRepository.store(any()) } returns InboxResult.Stored
 
         val config = InboxConfig(basePath = "/inbox", maxBodyBytes = 1024)
         val sources = mapOf(
-            "stripe" to SourceConfig.Http(path = "/stripe", idempotencyKeyPath = "$.id")
+            "stripe" to SourceConfig.Http(path = "/stripe", idempotencyKeyPath = KeyPaths("$.id"))
         )
 
         application {
@@ -422,15 +422,15 @@ class InboxRoutesTest {
     @Test
     fun `should return 429 with Retry-After on the 61st request in a minute`() = testApplication {
         val mockRepository = mockk<InboxRepository>(relaxed = true)
-        val extractor = IdempotencyExtractor()
-        val handler = InboxHandler(mockRepository, extractor)
+        val keyReader = InboxKeyReader()
+        val handler = InboxHandler(mockRepository, keyReader)
         coEvery { mockRepository.store(any()) } returns InboxResult.Stored
 
         val config = InboxConfig(basePath = "/inbox")
         val sources = mapOf(
             "stripe" to SourceConfig.Http(
                 path = "/stripe",
-                idempotencyKeyPath = "$.id",
+                idempotencyKeyPath = KeyPaths("$.id"),
                 rateLimit = RateLimitConfig(requestsPerMinute = 60)
             )
         )
@@ -460,15 +460,15 @@ class InboxRoutesTest {
     @Test
     fun `should not rate limit a source without a rate limit configured`() = testApplication {
         val mockRepository = mockk<InboxRepository>(relaxed = true)
-        val extractor = IdempotencyExtractor()
-        val handler = InboxHandler(mockRepository, extractor)
+        val keyReader = InboxKeyReader()
+        val handler = InboxHandler(mockRepository, keyReader)
         coEvery { mockRepository.store(any()) } returns InboxResult.Stored
 
         application {
             this.install(ContentNegotiation) { json() }
             configureInboxRoutes(
                 InboxConfig(basePath = "/inbox"),
-                mapOf("stripe" to SourceConfig.Http(path = "/stripe", idempotencyKeyPath = "$.id")),
+                mapOf("stripe" to SourceConfig.Http(path = "/stripe", idempotencyKeyPath = KeyPaths("$.id"))),
                 handler
             )
         }
@@ -486,14 +486,14 @@ class InboxRoutesTest {
 
     private fun ApplicationTestBuilder.setupRealInbox() {
         val repository = mockk<org.nxtspec.repository.InboxRepositoryInterface>()
-        val handler = InboxHandler(repository, IdempotencyExtractor())
+        val handler = InboxHandler(repository, InboxKeyReader())
         coEvery { repository.store(any()) } returns InboxResult.Stored
 
         application {
             this.install(ContentNegotiation) { json() }
             configureInboxRoutes(
                 InboxConfig(basePath = "/inbox"),
-                mapOf("stripe" to SourceConfig.Http(path = "/stripe", idempotencyKeyPath = "$.id")),
+                mapOf("stripe" to SourceConfig.Http(path = "/stripe", idempotencyKeyPath = KeyPaths("$.id"))),
                 handler
             )
         }
@@ -551,13 +551,13 @@ class InboxRoutesTest {
     fun `a new message returns 202 Accepted`() = testApplication {
         val repository = mockk<org.nxtspec.repository.InboxRepositoryInterface>()
         coEvery { repository.store(any()) } returns InboxResult.Stored
-        val handler = InboxHandler(repository, IdempotencyExtractor())
+        val handler = InboxHandler(repository, InboxKeyReader())
 
         application {
             this.install(ContentNegotiation) { json() }
             configureInboxRoutes(
                 InboxConfig(basePath = "/inbox"),
-                mapOf("stripe" to SourceConfig.Http(path = "/stripe", idempotencyKeyPath = "$.id")),
+                mapOf("stripe" to SourceConfig.Http(path = "/stripe", idempotencyKeyPath = KeyPaths("$.id"))),
                 handler
             )
         }
@@ -575,13 +575,13 @@ class InboxRoutesTest {
     fun `the same idempotency key returns 202 and then 200`() = testApplication {
         val repository = mockk<org.nxtspec.repository.InboxRepositoryInterface>()
         coEvery { repository.store(any()) } returnsMany listOf(InboxResult.Stored, InboxResult.Duplicate)
-        val handler = InboxHandler(repository, IdempotencyExtractor())
+        val handler = InboxHandler(repository, InboxKeyReader())
 
         application {
             this.install(ContentNegotiation) { json() }
             configureInboxRoutes(
                 InboxConfig(basePath = "/inbox"),
-                mapOf("stripe" to SourceConfig.Http(path = "/stripe", idempotencyKeyPath = "$.id")),
+                mapOf("stripe" to SourceConfig.Http(path = "/stripe", idempotencyKeyPath = KeyPaths("$.id"))),
                 handler
             )
         }
@@ -610,7 +610,7 @@ class InboxRoutesTest {
      */
     @Test
     fun `the route enumerates every response code that it can return`() {
-        val stripe = mapOf("stripe" to SourceConfig.Http(path = "/stripe", idempotencyKeyPath = "$.id"))
+        val stripe = mapOf("stripe" to SourceConfig.Http(path = "/stripe", idempotencyKeyPath = KeyPaths("$.id")))
         val observed = mutableSetOf<HttpStatusCode>()
 
         // 202 Accepted: a new message.
@@ -627,7 +627,7 @@ class InboxRoutesTest {
 
         // 400 Bad Request: the idempotency key is absent.
         observed += statusOf(
-            mapOf("stripe" to SourceConfig.Http(path = "/stripe", idempotencyKeyPath = "$.orderId")),
+            mapOf("stripe" to SourceConfig.Http(path = "/stripe", idempotencyKeyPath = KeyPaths("$.orderId"))),
             handlerFor(InboxResult.Stored),
             """{"id": "evt_1"}"""
         )
@@ -636,7 +636,7 @@ class InboxRoutesTest {
         val transformSource = mapOf(
             "stripe" to SourceConfig.Http(
                 path = "/stripe",
-                idempotencyKeyPath = "$.id",
+                idempotencyKeyPath = KeyPaths("$.id"),
                 transform = TransformConfig(
                     expression = """${"$"}nonExistentFunction()""",
                     onError = TransformErrorStrategy.Fail
@@ -665,7 +665,7 @@ class InboxRoutesTest {
             mapOf(
                 "stripe" to SourceConfig.Http(
                     path = "/stripe",
-                    idempotencyKeyPath = "$.id",
+                    idempotencyKeyPath = KeyPaths("$.id"),
                     auth = InboxAuthConfig.Bearer(token = Secret("secret-token"))
                 )
             ),
@@ -678,7 +678,7 @@ class InboxRoutesTest {
             mapOf(
                 "stripe" to SourceConfig.Http(
                     path = "/stripe",
-                    idempotencyKeyPath = "$.id",
+                    idempotencyKeyPath = KeyPaths("$.id"),
                     rateLimit = RateLimitConfig(requestsPerMinute = 1)
                 )
             ),
@@ -705,7 +705,7 @@ class InboxRoutesTest {
     private fun handlerFor(storeResult: InboxResult, pipeline: InboxTransformPipeline? = null): InboxHandler {
         val repository = mockk<org.nxtspec.repository.InboxRepositoryInterface>()
         coEvery { repository.store(any()) } returns storeResult
-        return InboxHandler(repository, IdempotencyExtractor(), transformPipeline = pipeline)
+        return InboxHandler(repository, InboxKeyReader(), transformPipeline = pipeline)
     }
 
     /** Post [requests] times to the real route and return the status of the last response. */

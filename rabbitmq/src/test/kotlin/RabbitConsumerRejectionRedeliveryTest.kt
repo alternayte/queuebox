@@ -53,7 +53,7 @@ class RabbitConsumerRejectionRedeliveryTest {
 
     private lateinit var connection: RabbitConnection
     private lateinit var consumer: RabbitConsumer
-    private lateinit var extractor: IdempotencyExtractor
+    private lateinit var keyReader: InboxKeyReader
 
     private val storedMessages = CopyOnWriteArrayList<InboxMessage>()
     private val storedKeys = mutableSetOf<String>()
@@ -79,7 +79,7 @@ class RabbitConsumerRejectionRedeliveryTest {
         storedMessages.clear()
         storedKeys.clear()
         deadKeys.clear()
-        extractor = IdempotencyExtractor()
+        keyReader = InboxKeyReader()
         connection = RabbitConnection(amqpUrl)
         declareTestQueue()
     }
@@ -143,12 +143,12 @@ class RabbitConsumerRejectionRedeliveryTest {
         val config = RabbitConsumerConfig(
             queueName = TEST_QUEUE,
             sourceName = "test-source",
-            idempotencyKeyPath = "$.id"
+            idempotencyKeyPath = KeyPaths("$.id")
         )
         consumer = RabbitConsumer(
             connection = connection,
             storeMessage = mockStore,
-            extractor = extractor,
+            keyReader = keyReader,
             config = config,
             transformPipeline = rejectingPipeline(),
             sourceTransform = rejectingTransform,
@@ -191,7 +191,7 @@ class RabbitConsumerRejectionRedeliveryTest {
         val config = RabbitConsumerConfig(
             queueName = TEST_QUEUE,
             sourceName = "test-source",
-            idempotencyKeyPath = "$.id"
+            idempotencyKeyPath = KeyPaths("$.id")
         )
         // An earlier, healthy event already stored a pending row for this key.
         mockStore(
@@ -205,7 +205,7 @@ class RabbitConsumerRejectionRedeliveryTest {
         consumer = RabbitConsumer(
             connection = connection,
             storeMessage = mockStore,
-            extractor = extractor,
+            keyReader = keyReader,
             config = config,
             transformPipeline = rejectingPipeline(),
             sourceTransform = rejectingTransform,
@@ -233,12 +233,12 @@ class RabbitConsumerRejectionRedeliveryTest {
         val config = RabbitConsumerConfig(
             queueName = TEST_QUEUE,
             sourceName = "test-source",
-            idempotencyKeyPath = "$.id"
+            idempotencyKeyPath = KeyPaths("$.id")
         )
         consumer = RabbitConsumer(
             connection = connection,
             storeMessage = mockStore,
-            extractor = extractor,
+            keyReader = keyReader,
             config = config,
             transformPipeline = rejectingPipeline(),
             sourceTransform = rejectingTransform,
@@ -267,9 +267,9 @@ class RabbitConsumerRejectionRedeliveryTest {
         val config = RabbitConsumerConfig(
             queueName = TEST_QUEUE,
             sourceName = "test-source",
-            idempotencyKeyPath = "$.nonexistent"
+            idempotencyKeyPath = KeyPaths("$.nonexistent")
         )
-        consumer = RabbitConsumer(connection, mockStore, extractor, config)
+        consumer = RabbitConsumer(connection, mockStore, keyReader, config)
         consumer.start()
 
         val body = """{"data": "stable"}"""
@@ -292,9 +292,9 @@ class RabbitConsumerRejectionRedeliveryTest {
         val config = RabbitConsumerConfig(
             queueName = TEST_QUEUE,
             sourceName = "test-source",
-            idempotencyKeyPath = "$.nonexistent"
+            idempotencyKeyPath = KeyPaths("$.nonexistent")
         )
-        consumer = RabbitConsumer(connection, mockStore, extractor, config)
+        consumer = RabbitConsumer(connection, mockStore, keyReader, config)
         consumer.start()
 
         publishMessage("""{"data": "one"}""")

@@ -1,6 +1,7 @@
 package org.nxtspec.app
 
 import org.junit.jupiter.api.Test
+import org.nxtspec.KeyPaths
 import org.nxtspec.SourceConfig
 import kotlin.test.assertEquals
 
@@ -15,8 +16,8 @@ class RabbitConsumerConfigMappingTest {
         val source = SourceConfig.RabbitMQ(
             queueName = "orders",
             connectionUrl = "amqp://guest:guest@localhost:5672",
-            idempotencyKeyPath = "$.id",
-            aggregateIdPath = "$.orderId",
+            idempotencyKeyPath = KeyPaths("$.id"),
+            aggregateIdPath = KeyPaths("$.orderId"),
             prefetchCount = 7
         )
 
@@ -25,8 +26,8 @@ class RabbitConsumerConfigMappingTest {
         assertEquals("orders", config.queueName)
         assertEquals("orders-source", config.sourceName)
         assertEquals(7, config.prefetchCount)
-        assertEquals("$.id", config.idempotencyKeyPath)
-        assertEquals("$.orderId", config.aggregateIdPath, "The aggregate identifier path must be wired.")
+        assertEquals(KeyPaths("$.id"), config.idempotencyKeyPath)
+        assertEquals(KeyPaths("$.orderId"), config.aggregateIdPath, "The aggregate identifier path must be wired.")
     }
 
     @Test
@@ -36,11 +37,11 @@ class RabbitConsumerConfigMappingTest {
         val source = SourceConfig.RabbitMQ(
             queueName = "orders",
             connectionUrl = "amqp://guest:guest@localhost:5672",
-            eventTypePath = "$.type"
+            eventTypePath = KeyPaths("$.type")
         )
 
         val config = rabbitConsumerConfig("orders-source", source)
 
-        assertEquals("$.type", config.eventTypePath, "The event type path must be wired.")
+        assertEquals(KeyPaths("$.type"), config.eventTypePath, "The event type path must be wired.")
     }
 }

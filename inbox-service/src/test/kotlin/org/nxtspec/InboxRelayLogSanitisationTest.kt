@@ -43,7 +43,8 @@ class InboxRelayLogSanitisationTest {
 
     private class SingleMessageInbox(private val pending: MutableList<InboxMessage>) :
         InboxRepositoryInterface {
-        override suspend fun store(message: InboxMessage): InboxResult = InboxResult.Stored
+        override suspend fun store(message: InboxMessage, initialDelay: kotlin.time.Duration): InboxResult =
+            InboxResult.Stored
         override suspend fun storeDead(message: InboxMessage): InboxResult = InboxResult.Stored
         override suspend fun claimPending(batchSize: Int, leaseMs: Long): List<InboxMessage> {
             val claimed = pending.take(batchSize)

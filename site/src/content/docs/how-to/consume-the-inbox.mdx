@@ -56,7 +56,7 @@ The relay builds the outbox row from the inbox row:
 - `headers` holds the received headers, plus `x-inbox-id`, `x-source`, `x-idempotency-key` and `X-Correlation-Id`. These four replace a received header of the same name, so a sender cannot set them.
 - `max_attempts` is `inbox.relay.maxAttempts`, or `outbox.maxAttempts` when that is unset.
 
-A template that renders an empty topic sends the message to `dead`. This happens when the template reads `{{ eventType }}` and the message carries no event type. Set `eventTypePath`, or use `{{ source }}` in the template.
+A template that renders an empty topic sends the message to `dead`. This happens when the template reads `{{ eventType }}` and the message carries no event type. Set `eventTypePath` or `eventTypeExpression`, or use `{{ source }}` in the template.
 
 The relay holds one message of an aggregate in flight at a time, across every push source together. It forwards the messages of one aggregate in the order of `created_at`. A row with no aggregate identifier takes part in no ordering.
 
@@ -94,6 +94,8 @@ sources:
 Rows that existed before a source changed to `pull` stay push rows.
 
 `aggregateIdPath` sets the unit of order. A pull claim holds one message in state `processing` per source and aggregate identifier. The rule holds across every worker of that source. Two sources do not block each other, so a message of aggregate `A` on `orders` can run beside a message of aggregate `A` on `payments`.
+
+Set `initialDelay`, for example `30s`, when a handler must not read a message at once. QueueBox holds the row, so the handler does not wait and no claim is in use. [Hold a message before a handler reads it](/how-to/bridge-a-broker/#hold-a-message-before-a-handler-reads-it) shows the source.
 
 ## Run a pull worker
 

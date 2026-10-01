@@ -16,13 +16,14 @@ import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Test
 import org.nxtspec.Destination
 import org.nxtspec.ExposedTransactionRunner
-import org.nxtspec.IdempotencyExtractor
 import org.nxtspec.InboxConfig
 import org.nxtspec.InboxHandler
+import org.nxtspec.InboxKeyReader
 import org.nxtspec.InboxMessage
 import org.nxtspec.InboxRelay
 import org.nxtspec.InboxRelayConfig
 import org.nxtspec.InboxRepository
+import org.nxtspec.KeyPaths
 import org.nxtspec.MessageRouter
 import org.nxtspec.OutboxConfig
 import org.nxtspec.OutboxPoller
@@ -65,13 +66,13 @@ class E2EInboxRelayTest : E2ETestBase() {
             install(ContentNegotiation) { json(Json { ignoreUnknownKeys = true }) }
 
             val repository = InboxRepository()
-            val handler = InboxHandler(repository, IdempotencyExtractor())
+            val handler = InboxHandler(repository, InboxKeyReader())
             val sources = mapOf(
                 "stripe" to SourceConfig.Http(
                     path = "/stripe",
-                    idempotencyKeyPath = "$.id",
-                    aggregateIdPath = "$.customer",
-                    eventTypePath = "$.type",
+                    idempotencyKeyPath = KeyPaths("$.id"),
+                    aggregateIdPath = KeyPaths("$.customer"),
+                    eventTypePath = KeyPaths("$.type"),
                     topic = "{{ source }}.{{ eventType }}"
                 )
             )

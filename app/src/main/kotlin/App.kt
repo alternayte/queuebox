@@ -183,10 +183,10 @@ internal fun runApp(env: () -> Map<String, String> = { System.getenv() }) {
     )
 
     // Inbox service
-    val extractor = IdempotencyExtractor()
+    val keyReader = InboxKeyReader()
     val inboxHandler = InboxHandler(
         repository = inboxRepository,
-        extractor = extractor,
+        keyReader = keyReader,
         metricsCollector = metricsCollector,
         transformPipeline = inboxTransformPipeline
     )
@@ -207,7 +207,7 @@ internal fun runApp(env: () -> Map<String, String> = { System.getenv() }) {
     val kafkaConsumers = kafkaInboxConsumers(
         config,
         inboxRepository,
-        extractor,
+        keyReader,
         metricsCollector,
         inboxTransformPipeline
     )
@@ -217,7 +217,7 @@ internal fun runApp(env: () -> Map<String, String> = { System.getenv() }) {
     val natsConsumers = natsInboxConsumers(
         config,
         inboxRepository,
-        extractor,
+        keyReader,
         metricsCollector,
         inboxTransformPipeline
     )
@@ -230,8 +230,8 @@ internal fun runApp(env: () -> Map<String, String> = { System.getenv() }) {
             val connection = createSourceConnection(sourceName, rabbitConfig.connectionUrl)
             RabbitConsumer(
                 connection = connection,
-                storeMessage = inboxRepository::store,
-                extractor = extractor,
+                storeMessage = { inboxRepository.store(it, rabbitConfig.initialDelayDuration()) },
+                keyReader = keyReader,
                 config = rabbitConsumerConfig(sourceName, rabbitConfig),
                 metricsCollector = metricsCollector,
                 transformPipeline = inboxTransformPipeline,
@@ -578,6 +578,9 @@ internal fun rabbitConsumerConfig(sourceName: String, source: SourceConfig.Rabbi
         idempotencyKeyPath = source.idempotencyKeyPath,
         aggregateIdPath = source.aggregateIdPath,
         eventTypePath = source.eventTypePath,
+        idempotencyKeyExpression = source.idempotencyKeyExpression,
+        aggregateIdExpression = source.aggregateIdExpression,
+        eventTypeExpression = source.eventTypeExpression,
         declareQueue = source.declareQueue,
         attributeHeaders = source.attributeHeaders,
         filter = source.filter
@@ -673,7 +676,7 @@ fun Application.configureRouting() {
 private fun kafkaInboxConsumers(
     config: QueueBoxConfig,
     inboxRepository: org.nxtspec.repository.InboxRepositoryInterface,
-    extractor: IdempotencyExtractor,
+    keyReader: InboxKeyReader,
     metricsCollector: MetricsCollector,
     inboxTransformPipeline: org.nxtspec.transform.InboxTransformPipeline?
 ): List<Pair<String, KafkaInboxConsumer>> = config.sources
@@ -681,8 +684,8 @@ private fun kafkaInboxConsumers(
     .map { (sourceName, sourceConfig) ->
         val kafkaConfig = sourceConfig as SourceConfig.Kafka
         sourceName to KafkaInboxConsumer(
-            storeMessage = inboxRepository::store,
-            extractor = extractor,
+            storeMessage = { inboxRepository.store(it, kafkaConfig.initialDelayDuration()) },
+            keyReader = keyReader,
             config = kafkaConsumerConfig(sourceName, kafkaConfig),
             metricsCollector = metricsCollector,
             transformPipeline = inboxTransformPipeline,
@@ -709,6 +712,9 @@ internal fun kafkaConsumerConfig(sourceName: String, source: SourceConfig.Kafka)
         idempotencyKeyPath = source.idempotencyKeyPath,
         aggregateIdPath = source.aggregateIdPath,
         eventTypePath = source.eventTypePath,
+        idempotencyKeyExpression = source.idempotencyKeyExpression,
+        aggregateIdExpression = source.aggregateIdExpression,
+        eventTypeExpression = source.eventTypeExpression,
         autoOffsetReset = source.autoOffsetReset,
         maxPollRecords = source.maxPollRecords,
         securityProtocol = source.securityProtocol,
@@ -782,6 +788,9 @@ internal fun natsConsumerConfig(sourceName: String, source: SourceConfig.Nats): 
     idempotencyKeyPath = source.idempotencyKeyPath,
     aggregateIdPath = source.aggregateIdPath,
     eventTypePath = source.eventTypePath,
+    idempotencyKeyExpression = source.idempotencyKeyExpression,
+    aggregateIdExpression = source.aggregateIdExpression,
+    eventTypeExpression = source.eventTypeExpression,
     ackWaitMs = source.ackWaitMs,
     batchSize = source.batchSize,
     username = source.username,
@@ -795,7 +804,7 @@ internal fun natsConsumerConfig(sourceName: String, source: SourceConfig.Nats): 
 private fun natsInboxConsumers(
     config: QueueBoxConfig,
     inboxRepository: org.nxtspec.repository.InboxRepositoryInterface,
-    extractor: IdempotencyExtractor,
+    keyReader: InboxKeyReader,
     metricsCollector: MetricsCollector,
     inboxTransformPipeline: org.nxtspec.transform.InboxTransformPipeline?
 ): List<Pair<String, NatsInboxConsumer>> = config.sources
@@ -803,8 +812,8 @@ private fun natsInboxConsumers(
     .map { (sourceName, sourceConfig) ->
         val natsConfig = sourceConfig as SourceConfig.Nats
         sourceName to NatsInboxConsumer(
-            storeMessage = inboxRepository::store,
-            extractor = extractor,
+            storeMessage = { inboxRepository.store(it, natsConfig.initialDelayDuration()) },
+            keyReader = keyReader,
             config = natsConsumerConfig(sourceName, natsConfig),
             metricsCollector = metricsCollector,
             transformPipeline = inboxTransformPipeline,

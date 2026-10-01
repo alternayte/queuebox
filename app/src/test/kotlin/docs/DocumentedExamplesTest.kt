@@ -233,8 +233,12 @@ class DocumentedExamplesTest {
         return leaves
     }
 
-    private fun expand(type: Class<*>?, path: String, depth: Int): Set<String> =
-        if (type == null || isScalar(type)) setOf(path) else leafPaths(type, path, depth + 1)
+    private fun expand(type: Class<*>?, path: String, depth: Int): Set<String> = when {
+        type == null || isScalar(type) -> setOf(path)
+        // A path key is one string or a list of strings, so it binds with and without an index.
+        type.simpleName == "KeyPaths" -> setOf(path, join(path, "*"))
+        else -> leafPaths(type, path, depth + 1)
+    }
 
     private fun typeArgument(field: Field, index: Int): Class<*>? {
         val generic = field.genericType as? ParameterizedType ?: return null

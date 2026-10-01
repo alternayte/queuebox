@@ -7,6 +7,7 @@ import com.rabbitmq.client.Envelope
 import org.nxtspec.DatabaseConfig
 import org.nxtspec.DestinationConfig
 import org.nxtspec.InboxConfig
+import org.nxtspec.KeyPaths
 import org.nxtspec.OutboxConfig
 import org.nxtspec.QueueBoxConfig
 import org.nxtspec.RouteConfig
@@ -109,8 +110,8 @@ object E2ETestUtils {
         eventTypePath: String? = null
     ): SourceConfig.Http = SourceConfig.Http(
         path = path,
-        idempotencyKeyPath = idempotencyKeyPath,
-        eventTypePath = eventTypePath
+        idempotencyKeyPath = KeyPaths(idempotencyKeyPath),
+        eventTypePath = eventTypePath?.let { KeyPaths(it) }
     )
 
     /**
@@ -124,7 +125,7 @@ object E2ETestUtils {
     ): SourceConfig.RabbitMQ = SourceConfig.RabbitMQ(
         queueName = queueName,
         connectionUrl = connectionUrl,
-        idempotencyKeyPath = idempotencyKeyPath,
+        idempotencyKeyPath = KeyPaths(idempotencyKeyPath),
         prefetchCount = prefetchCount
     )
 }

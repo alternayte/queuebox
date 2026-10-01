@@ -27,7 +27,7 @@ class InboxRoutesHeadersTest {
         val sources = mapOf(
             "stripe" to SourceConfig.Http(
                 path = "/stripe",
-                idempotencyKeyPath = "$.id",
+                idempotencyKeyPath = KeyPaths("$.id"),
                 auth = InboxAuthConfig.ApiKey(headerName = "X-API-Key", key = Secret("k"))
             )
         )
@@ -36,7 +36,7 @@ class InboxRoutesHeadersTest {
             configureInboxRoutes(
                 InboxConfig(basePath = "/inbox"),
                 sources,
-                InboxHandler(mockRepository, IdempotencyExtractor())
+                InboxHandler(mockRepository, InboxKeyReader())
             )
         }
 
@@ -61,7 +61,7 @@ class InboxRoutesHeadersTest {
         val sources = mapOf(
             "stripe" to SourceConfig.Http(
                 path = "/stripe",
-                idempotencyKeyPath = "$.id",
+                idempotencyKeyPath = KeyPaths("$.id"),
                 filter = HeaderFilterConfig(require = listOf(HeaderRule("x-tenant", equals = "acme")))
             )
         )
@@ -70,7 +70,7 @@ class InboxRoutesHeadersTest {
             configureInboxRoutes(
                 InboxConfig(basePath = "/inbox"),
                 sources,
-                InboxHandler(mockRepository, IdempotencyExtractor())
+                InboxHandler(mockRepository, InboxKeyReader())
             )
         }
 

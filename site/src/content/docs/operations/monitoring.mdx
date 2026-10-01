@@ -72,6 +72,7 @@ The gauge runs no query on a scrape.
 
 <Aside>
 The inbox relay refreshes `queuebox_inbox_oldest_pending_age_seconds`.
+A row that an `initialDelay` holds counts as pending, so set the inbox threshold above the longest `initialDelay`.
 With `inbox.relay.enabled: false`, the gauge stays at zero.
 Measure a pull-only inbox with SQL, or with the metrics of your pull workers.
 </Aside>

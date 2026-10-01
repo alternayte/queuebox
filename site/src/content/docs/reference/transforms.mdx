@@ -21,6 +21,8 @@ QueueBox runs a [JSONata](https://jsonata.org/) expression at three stages. The 
 The source stage changes the stored inbox payload. The route and destination stages change only the delivered body. The outbox row keeps its payload.
 QueueBox compiles every expression at start. An expression that does not compile stops the start, and the error names the key path.
 
+The key expressions of a source, such as `aggregateIdExpression`, are JSONata too. They are not a transform stage. They read the received body before the source stage, bind no variable, and have no `onError` strategy. [Key paths and key expressions](/reference/configuration/#key-paths-and-key-expressions) states their rules.
+
 ## Variables
 
 A variable starts with `$`. `$` alone is the input document.

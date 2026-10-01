@@ -53,7 +53,7 @@ class RabbitConsumerIntegrationTest {
 
     private lateinit var connection: RabbitConnection
     private lateinit var consumer: RabbitConsumer
-    private lateinit var extractor: IdempotencyExtractor
+    private lateinit var keyReader: InboxKeyReader
 
     // Track stored messages
     private val storedMessages = CopyOnWriteArrayList<InboxMessage>()
@@ -81,7 +81,7 @@ class RabbitConsumerIntegrationTest {
         storedMessages.clear()
         storedIdempotencyKeys.clear()
         deadKeys.clear()
-        extractor = IdempotencyExtractor()
+        keyReader = InboxKeyReader()
         connection = RabbitConnection(amqpUrl)
         declareTestQueue()
     }
@@ -112,10 +112,10 @@ class RabbitConsumerIntegrationTest {
         val config = RabbitConsumerConfig(
             queueName = queue,
             sourceName = "test-source",
-            idempotencyKeyPath = "$.id",
+            idempotencyKeyPath = KeyPaths("$.id"),
             declareQueue = declareQueue
         )
-        return RabbitConsumer(connection, mockStore, extractor, config)
+        return RabbitConsumer(connection, mockStore, keyReader, config)
     }
 
     /** F-097: true when the named queue exists on the broker. */
@@ -151,9 +151,9 @@ class RabbitConsumerIntegrationTest {
         val config = RabbitConsumerConfig(
             queueName = TEST_QUEUE,
             sourceName = "test-source",
-            idempotencyKeyPath = "$.orderId"
+            idempotencyKeyPath = KeyPaths("$.orderId")
         )
-        consumer = RabbitConsumer(connection, mockStore, extractor, config)
+        consumer = RabbitConsumer(connection, mockStore, keyReader, config)
         consumer.start()
 
         val orderId = UUID.randomUUID().toString()
@@ -172,9 +172,9 @@ class RabbitConsumerIntegrationTest {
         val config = RabbitConsumerConfig(
             queueName = TEST_QUEUE,
             sourceName = "test-source",
-            idempotencyKeyPath = "$.orderId"
+            idempotencyKeyPath = KeyPaths("$.orderId")
         )
-        consumer = RabbitConsumer(connection, mockStore, extractor, config)
+        consumer = RabbitConsumer(connection, mockStore, keyReader, config)
         consumer.start()
 
         val orderId = UUID.randomUUID().toString()
@@ -192,9 +192,9 @@ class RabbitConsumerIntegrationTest {
         val config = RabbitConsumerConfig(
             queueName = TEST_QUEUE,
             sourceName = "test-source",
-            idempotencyKeyPath = "$.id"
+            idempotencyKeyPath = KeyPaths("$.id")
         )
-        consumer = RabbitConsumer(connection, mockStore, extractor, config)
+        consumer = RabbitConsumer(connection, mockStore, keyReader, config)
         consumer.start()
 
         val headerKey = "header-key-${UUID.randomUUID()}"
@@ -214,9 +214,9 @@ class RabbitConsumerIntegrationTest {
         val config = RabbitConsumerConfig(
             queueName = TEST_QUEUE,
             sourceName = "test-source",
-            idempotencyKeyPath = "$.nonExistentField"
+            idempotencyKeyPath = KeyPaths("$.nonExistentField")
         )
-        consumer = RabbitConsumer(connection, mockStore, extractor, config)
+        consumer = RabbitConsumer(connection, mockStore, keyReader, config)
         consumer.start()
 
         val messageId = "msg-${UUID.randomUUID()}"
@@ -242,7 +242,7 @@ class RabbitConsumerIntegrationTest {
                 eventType = "eventType"
             )
         )
-        consumer = RabbitConsumer(connection, mockStore, extractor, config)
+        consumer = RabbitConsumer(connection, mockStore, keyReader, config)
         consumer.start()
 
         // A flat payload with Debezium's header names, and no field in the body that the
@@ -266,7 +266,7 @@ class RabbitConsumerIntegrationTest {
             queueName = TEST_QUEUE,
             sourceName = "test-source"
         )
-        consumer = RabbitConsumer(connection, mockStore, extractor, config)
+        consumer = RabbitConsumer(connection, mockStore, keyReader, config)
         consumer.start()
 
         publishMessage(
@@ -291,9 +291,9 @@ class RabbitConsumerIntegrationTest {
         val config = RabbitConsumerConfig(
             queueName = TEST_QUEUE,
             sourceName = "test-source",
-            idempotencyKeyPath = "$.id"
+            idempotencyKeyPath = KeyPaths("$.id")
         )
-        consumer = RabbitConsumer(connection, mockStore, extractor, config)
+        consumer = RabbitConsumer(connection, mockStore, keyReader, config)
         consumer.start()
 
         val eventType = "order.created"
@@ -318,9 +318,9 @@ class RabbitConsumerIntegrationTest {
         val config = RabbitConsumerConfig(
             queueName = TEST_QUEUE,
             sourceName = "test-source",
-            idempotencyKeyPath = "$.id"
+            idempotencyKeyPath = KeyPaths("$.id")
         )
-        consumer = RabbitConsumer(connection, failingStore, extractor, config)
+        consumer = RabbitConsumer(connection, failingStore, keyReader, config)
         consumer.start()
 
         publishMessage("""{"id": "test-${UUID.randomUUID()}", "data": "test"}""")
@@ -358,10 +358,10 @@ class RabbitConsumerIntegrationTest {
         val config = RabbitConsumerConfig(
             queueName = TEST_QUEUE,
             sourceName = "test-source",
-            idempotencyKeyPath = "$.id",
+            idempotencyKeyPath = KeyPaths("$.id"),
             prefetchCount = 2
         )
-        consumer = RabbitConsumer(connection, slowStore, extractor, config)
+        consumer = RabbitConsumer(connection, slowStore, keyReader, config)
         consumer.start()
 
         // Publish multiple messages with unique IDs
@@ -384,9 +384,9 @@ class RabbitConsumerIntegrationTest {
         val config = RabbitConsumerConfig(
             queueName = TEST_QUEUE,
             sourceName = "test-source",
-            idempotencyKeyPath = "$.nonexistent"
+            idempotencyKeyPath = KeyPaths("$.nonexistent")
         )
-        consumer = RabbitConsumer(connection, mockStore, extractor, config)
+        consumer = RabbitConsumer(connection, mockStore, keyReader, config)
         consumer.start()
 
         // Publish message without id field, no x-idempotency-key header, no messageId
@@ -492,12 +492,12 @@ class RabbitConsumerIntegrationTest {
         val config = RabbitConsumerConfig(
             queueName = TEST_QUEUE,
             sourceName = "test-source",
-            idempotencyKeyPath = "$.id"
+            idempotencyKeyPath = KeyPaths("$.id")
         )
         consumer = RabbitConsumer(
             connection = connection,
             storeMessage = mockStore,
-            extractor = extractor,
+            keyReader = keyReader,
             config = config,
             transformPipeline = rejectingPipeline(),
             sourceTransform = rejectingTransform,
@@ -533,13 +533,13 @@ class RabbitConsumerIntegrationTest {
         val config = RabbitConsumerConfig(
             queueName = TEST_QUEUE,
             sourceName = "test-source",
-            idempotencyKeyPath = "$.id"
+            idempotencyKeyPath = KeyPaths("$.id")
         )
         val metricsCollector = mockk<MetricsCollectorInterface>(relaxed = true)
         consumer = RabbitConsumer(
             connection = connection,
             storeMessage = mockStore,
-            extractor = extractor,
+            keyReader = keyReader,
             config = config,
             metricsCollector = metricsCollector,
             storeDeadMessage = { m ->
@@ -567,13 +567,13 @@ class RabbitConsumerIntegrationTest {
         val config = RabbitConsumerConfig(
             queueName = TEST_QUEUE,
             sourceName = "test-source",
-            idempotencyKeyPath = "$.id"
+            idempotencyKeyPath = KeyPaths("$.id")
         )
         val deliveries = AtomicInteger(0)
         consumer = RabbitConsumer(
             connection = connection,
             storeMessage = mockStore,
-            extractor = extractor,
+            keyReader = keyReader,
             config = config,
             storeDeadMessage = { m ->
                 deliveries.incrementAndGet()
@@ -600,12 +600,12 @@ class RabbitConsumerIntegrationTest {
         val config = RabbitConsumerConfig(
             queueName = TEST_QUEUE,
             sourceName = "test-source",
-            idempotencyKeyPath = "$.id"
+            idempotencyKeyPath = KeyPaths("$.id")
         )
         consumer = RabbitConsumer(
             connection = connection,
             storeMessage = throwingStore,
-            extractor = extractor,
+            keyReader = keyReader,
             config = config,
             transformPipeline = rejectingPipeline(),
             sourceTransform = rejectingTransform,
@@ -634,10 +634,10 @@ class RabbitConsumerIntegrationTest {
         val config = RabbitConsumerConfig(
             queueName = TEST_QUEUE,
             sourceName = "test-source",
-            idempotencyKeyPath = "$.id",
+            idempotencyKeyPath = KeyPaths("$.id"),
             filter = HeaderFilterConfig(require = listOf(HeaderRule("x-tenant", equals = "acme")))
         )
-        consumer = RabbitConsumer(connection, mockStore, extractor, config)
+        consumer = RabbitConsumer(connection, mockStore, keyReader, config)
         consumer.start()
 
         publishMessage("""{"id": "filtered"}""", headers = mapOf("x-tenant" to "other"))

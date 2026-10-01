@@ -162,6 +162,14 @@ abstract class PostgresTestBase {
                     it[InboxTable.leaseExpiresAt] = Clock.System.now() + kotlin.time.Duration.parse("5m")
                 }
                 it[InboxTable.createdAt] = createdAt
+                // QueueBox stores `scheduled_at` from the database clock, and the claims compare
+                // against that clock. The client default of the table is the clock of this host,
+                // which can run ahead of the container.
+                it[InboxTable.scheduledAt] = object : org.jetbrains.exposed.v1.core.Expression<Instant>() {
+                    override fun toQueryBuilder(queryBuilder: org.jetbrains.exposed.v1.core.QueryBuilder) {
+                        queryBuilder.append("clock_timestamp()")
+                    }
+                }
             }
         }
         return id

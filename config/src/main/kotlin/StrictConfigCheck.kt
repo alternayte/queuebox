@@ -222,6 +222,8 @@ internal class StrictConfigCheck(envKeys: Collection<String>) {
         }
 
         private fun binds(kclass: KClass<*>, segments: List<String>): Boolean = when {
+            // A path key is one string or a list of strings. Issue #85.
+            kclass == KeyPaths::class -> segments.isEmpty() || (segments.size == 1 && segments[0].all(Char::isDigit))
             kclass.isSealed -> segments == listOf(ConfigKinds.TYPE_KEY) ||
                 kclass.sealedSubclasses.any { binds(it, segments) }
             kclass.isData -> segments.isNotEmpty() &&

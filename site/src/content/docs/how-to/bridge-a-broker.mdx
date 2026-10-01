@@ -97,9 +97,10 @@ A broker source reads the idempotency key from the first of these that gives a v
 | Order | RabbitMQ | Kafka | NATS |
 |-------|----------|-------|------|
 | 1 | Header `x-idempotency-key` | Header `x-idempotency-key` | Header `x-idempotency-key` |
-| 2 | `idempotencyKeyPath` in the body | `idempotencyKeyPath` in the body | `idempotencyKeyPath` in the body |
-| 3 | AMQP `messageId` property | Record key | Header `Nats-Msg-Id` |
-| 4 | SHA-256 digest of the body | SHA-256 digest of the body | SHA-256 digest of the body |
+| 2 | `idempotencyKeyExpression` on the body | `idempotencyKeyExpression` on the body | `idempotencyKeyExpression` on the body |
+| 3 | `idempotencyKeyPath` in the body | `idempotencyKeyPath` in the body | `idempotencyKeyPath` in the body |
+| 4 | AMQP `messageId` property | Record key | Header `Nats-Msg-Id` |
+| 5 | SHA-256 digest of the body | SHA-256 digest of the body | SHA-256 digest of the body |
 
 `idempotencyKeyPath` defaults to `$.id`. The digest deduplicates a redelivery correctly. It also merges two different events that carry the same body, and QueueBox then drops the second one. Give every message a key.
 
@@ -107,9 +108,60 @@ A broker source reads the idempotency key from the first of these that gives a v
 
 A push source forwards each row into the outbox. The `topic` template of the source sets the outbox topic. It can read `{{ source }}` and `{{ eventType }}`, and the default for a broker source is `{{ source }}`.
 
-The event type comes from `eventTypePath` in the body first. When the body gives nothing, it comes from the header `x-event-type`. A message with no event type renders `{{ eventType }}` as an empty string, and the relay then marks it `dead`. QueueBox refuses to start when a broker source template reads `{{ eventType }}` and the source sets neither `eventTypePath` nor `eventTypeFromHeader: true`. Set `eventTypeFromHeader: true` only when every publisher sets the header.
+The event type comes from `eventTypeExpression` first, then from `eventTypePath` in the body. When the body gives nothing, it comes from the header `x-event-type`. A message with no event type renders `{{ eventType }}` as an empty string, and the relay then marks it `dead`. QueueBox refuses to start when a broker source template reads `{{ eventType }}` and the source sets none of `eventTypePath`, `eventTypeExpression` and `eventTypeFromHeader: true`. Set `eventTypeFromHeader: true` only when every publisher sets the header.
 
-The aggregate identifier comes from `aggregateIdPath` first, then from the header `x-aggregate-id`. A Kafka source then falls back to the record key.
+The aggregate identifier comes from `aggregateIdExpression` first, then from `aggregateIdPath`, then from the header `x-aggregate-id`. A Kafka source then falls back to the record key.
+
+### Read a key that no single path selects
+
+Producers of one queue can disagree on a field name. Give the path key a list. QueueBox takes the first path that gives a value.
+
+```yaml
+# fragment
+sources:
+  orders:
+    type: rabbitmq
+    queueName: orders
+    connectionUrl: amqp://broker:5672
+    aggregateIdPath:
+      - $.orderId
+      - $.OrderId
+```
+
+A value can also be one part of a text, or need a translation. Use an expression key, which takes a JSONata expression on the received body.
+
+```yaml
+# fragment
+sources:
+  reviews:
+    type: rabbitmq
+    queueName: reviews
+    connectionUrl: amqp://broker:5672
+    aggregateIdExpression: $split(subject, "/")[2]
+    eventTypeExpression: '$lookup({"Organization.Review.accepted.v1": "Review.Accepted"}, type)'
+```
+
+The subjects `/organization/515725` and `/organization/515725/invitation/66725563` both give the aggregate identifier `515725`.
+QueueBox fills the columns at receipt, so the claim serialises the messages of one aggregate.
+[Key paths and key expressions](/reference/configuration/#key-paths-and-key-expressions) states the rules.
+
+### Hold a message before a handler reads it
+
+A producer can publish a message before it commits its own database. A handler that runs at once then reads state that does not exist yet.
+Set `initialDelay` on the source. QueueBox holds each row for that time, and the hold uses no handler slot and no attempt.
+
+```yaml
+# fragment
+sources:
+  legacy:
+    type: rabbitmq
+    queueName: legacy.events
+    connectionUrl: amqp://broker:5672
+    consumption: pull
+    initialDelay: 30s
+```
+
+A push source takes the key too. The relay copies the row into the outbox when the delay has passed.
 
 ### Rename the attribute headers
 

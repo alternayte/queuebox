@@ -917,8 +917,8 @@ class ConfigValidatorTest {
             sources = mapOf(
                 "stripe-webhooks" to SourceConfig.Http(
                     path = "/webhooks/stripe",
-                    idempotencyKeyPath = "$.id",
-                    eventTypePath = "$.type",
+                    idempotencyKeyPath = KeyPaths("$.id"),
+                    eventTypePath = KeyPaths("$.type"),
                     transform = TransformConfig(
                         expression = "{ \"eventId\": id }",
                         timeoutMs = 100,
@@ -937,8 +937,8 @@ class ConfigValidatorTest {
             sources = mapOf(
                 "stripe-webhooks" to SourceConfig.Http(
                     path = "/webhooks/stripe",
-                    idempotencyKeyPath = "$.id",
-                    eventTypePath = "$.type",
+                    idempotencyKeyPath = KeyPaths("$.id"),
+                    eventTypePath = KeyPaths("$.type"),
                     transform = null
                 )
             )
@@ -954,7 +954,7 @@ class ConfigValidatorTest {
                 "order-events" to SourceConfig.RabbitMQ(
                     queueName = "orders",
                     connectionUrl = "amqp://localhost:5672",
-                    idempotencyKeyPath = "$.orderId",
+                    idempotencyKeyPath = KeyPaths("$.orderId"),
                     transform = TransformConfig(
                         expression = """{ "orderId": orderId, "total": ${"$"}sum(items.price) }""",
                         timeoutMs = 200,
@@ -988,8 +988,8 @@ class ConfigValidatorTest {
             sources = mapOf(
                 "stripe-webhooks" to SourceConfig.Http(
                     path = "/webhooks/stripe",
-                    idempotencyKeyPath = "$.id",
-                    eventTypePath = "$.type",
+                    idempotencyKeyPath = KeyPaths("$.id"),
+                    eventTypePath = KeyPaths("$.type"),
                     transform = TransformConfig(expression = "")
                 )
             )
@@ -1025,8 +1025,8 @@ class ConfigValidatorTest {
             sources = mapOf(
                 "stripe-webhooks" to SourceConfig.Http(
                     path = "/webhooks/stripe",
-                    idempotencyKeyPath = "$.id",
-                    eventTypePath = "$.type",
+                    idempotencyKeyPath = KeyPaths("$.id"),
+                    eventTypePath = KeyPaths("$.type"),
                     transform = TransformConfig(expression = "{ \"id\": id }", timeoutMs = 0)
                 )
             )
@@ -1044,8 +1044,8 @@ class ConfigValidatorTest {
             sources = mapOf(
                 "stripe-webhooks" to SourceConfig.Http(
                     path = "/webhooks/stripe",
-                    idempotencyKeyPath = "$.id",
-                    eventTypePath = "$.type",
+                    idempotencyKeyPath = KeyPaths("$.id"),
+                    eventTypePath = KeyPaths("$.type"),
                     transform = TransformConfig(expression = "{ \"id\": id }", timeoutMs = -50)
                 )
             )
@@ -1100,8 +1100,8 @@ class ConfigValidatorTest {
             sources = mapOf(
                 "stripe-webhooks" to SourceConfig.Http(
                     path = "/webhooks/stripe",
-                    idempotencyKeyPath = "$.id",
-                    eventTypePath = "$.type",
+                    idempotencyKeyPath = KeyPaths("$.id"),
+                    eventTypePath = KeyPaths("$.type"),
                     transform = TransformConfig(
                         expression = "{ \"id\": id }",
                         onError = TransformErrorStrategy.Fail
@@ -1116,8 +1116,8 @@ class ConfigValidatorTest {
             sources = mapOf(
                 "stripe-webhooks" to SourceConfig.Http(
                     path = "/webhooks/stripe",
-                    idempotencyKeyPath = "$.id",
-                    eventTypePath = "$.type",
+                    idempotencyKeyPath = KeyPaths("$.id"),
+                    eventTypePath = KeyPaths("$.type"),
                     transform = TransformConfig(
                         expression = "{ \"id\": id }",
                         onError = TransformErrorStrategy.Skip
@@ -1132,8 +1132,8 @@ class ConfigValidatorTest {
             sources = mapOf(
                 "stripe-webhooks" to SourceConfig.Http(
                     path = "/webhooks/stripe",
-                    idempotencyKeyPath = "$.id",
-                    eventTypePath = "$.type",
+                    idempotencyKeyPath = KeyPaths("$.id"),
+                    eventTypePath = KeyPaths("$.type"),
                     transform = TransformConfig(
                         expression = "{ \"id\": id }",
                         onError = TransformErrorStrategy.Dead
@@ -1150,8 +1150,8 @@ class ConfigValidatorTest {
             sources = mapOf(
                 "stripe-webhooks" to SourceConfig.Http(
                     path = "/webhooks/stripe",
-                    idempotencyKeyPath = "$.id",
-                    eventTypePath = "$.type",
+                    idempotencyKeyPath = KeyPaths("$.id"),
+                    eventTypePath = KeyPaths("$.type"),
                     transform = TransformConfig(expression = "{ \"eventId\": id }")
                 ),
                 "order-events" to SourceConfig.RabbitMQ(
@@ -1221,8 +1221,8 @@ class ConfigValidatorTest {
             sources = mapOf(
                 "stripe-webhooks" to SourceConfig.Http(
                     path = "/webhooks/stripe",
-                    idempotencyKeyPath = "$.id",
-                    eventTypePath = "$.type",
+                    idempotencyKeyPath = KeyPaths("$.id"),
+                    eventTypePath = KeyPaths("$.type"),
                     auth = InboxAuthConfig.Bearer(token = Secret("secret-token"))
                 )
             )
@@ -1237,8 +1237,8 @@ class ConfigValidatorTest {
             sources = mapOf(
                 "stripe-webhooks" to SourceConfig.Http(
                     path = "/webhooks/stripe",
-                    idempotencyKeyPath = "$.id",
-                    eventTypePath = "$.type",
+                    idempotencyKeyPath = KeyPaths("$.id"),
+                    eventTypePath = KeyPaths("$.type"),
                     auth = InboxAuthConfig.Bearer(token = Secret(""))
                 )
             )
@@ -1255,8 +1255,8 @@ class ConfigValidatorTest {
             sources = mapOf(
                 "partner-webhook" to SourceConfig.Http(
                     path = "/webhooks/partner",
-                    idempotencyKeyPath = "$.id",
-                    eventTypePath = "$.type",
+                    idempotencyKeyPath = KeyPaths("$.id"),
+                    eventTypePath = KeyPaths("$.type"),
                     auth = InboxAuthConfig.ApiKey(headerName = "X-API-Key", key = Secret("my-api-key"))
                 )
             )
@@ -1271,8 +1271,8 @@ class ConfigValidatorTest {
             sources = mapOf(
                 "partner-webhook" to SourceConfig.Http(
                     path = "/webhooks/partner",
-                    idempotencyKeyPath = "$.id",
-                    eventTypePath = "$.type",
+                    idempotencyKeyPath = KeyPaths("$.id"),
+                    eventTypePath = KeyPaths("$.type"),
                     auth = InboxAuthConfig.ApiKey(headerName = "X-API-Key", key = Secret(""))
                 )
             )
@@ -1289,8 +1289,8 @@ class ConfigValidatorTest {
             sources = mapOf(
                 "partner-webhook" to SourceConfig.Http(
                     path = "/webhooks/partner",
-                    idempotencyKeyPath = "$.id",
-                    eventTypePath = "$.type",
+                    idempotencyKeyPath = KeyPaths("$.id"),
+                    eventTypePath = KeyPaths("$.type"),
                     auth = InboxAuthConfig.ApiKey(headerName = "", key = Secret("my-key"))
                 )
             )
@@ -1307,8 +1307,8 @@ class ConfigValidatorTest {
             sources = mapOf(
                 "stripe-webhooks" to SourceConfig.Http(
                     path = "/webhooks/stripe",
-                    idempotencyKeyPath = "$.id",
-                    eventTypePath = "$.type",
+                    idempotencyKeyPath = KeyPaths("$.id"),
+                    eventTypePath = KeyPaths("$.type"),
                     auth = InboxAuthConfig.HmacSignature(
                         secret = Secret("webhook-secret"),
                         headerName = "Stripe-Signature",
@@ -1327,8 +1327,8 @@ class ConfigValidatorTest {
             sources = mapOf(
                 "stripe-webhooks" to SourceConfig.Http(
                     path = "/webhooks/stripe",
-                    idempotencyKeyPath = "$.id",
-                    eventTypePath = "$.type",
+                    idempotencyKeyPath = KeyPaths("$.id"),
+                    eventTypePath = KeyPaths("$.type"),
                     auth = InboxAuthConfig.HmacSignature(
                         secret = Secret(""),
                         headerName = "X-Signature",
@@ -1349,8 +1349,8 @@ class ConfigValidatorTest {
             sources = mapOf(
                 "stripe-webhooks" to SourceConfig.Http(
                     path = "/webhooks/stripe",
-                    idempotencyKeyPath = "$.id",
-                    eventTypePath = "$.type",
+                    idempotencyKeyPath = KeyPaths("$.id"),
+                    eventTypePath = KeyPaths("$.type"),
                     auth = InboxAuthConfig.HmacSignature(
                         secret = Secret("webhook-secret"),
                         headerName = "X-Signature",
@@ -1371,8 +1371,8 @@ class ConfigValidatorTest {
             sources = mapOf(
                 "secure-webhook" to SourceConfig.Http(
                     path = "/webhooks/secure",
-                    idempotencyKeyPath = "$.id",
-                    eventTypePath = "$.type",
+                    idempotencyKeyPath = KeyPaths("$.id"),
+                    eventTypePath = KeyPaths("$.type"),
                     auth = InboxAuthConfig.HmacSignature(
                         secret = Secret("webhook-secret"),
                         headerName = "X-Signature",
@@ -1391,8 +1391,8 @@ class ConfigValidatorTest {
             sources = mapOf(
                 "secure-webhook" to SourceConfig.Http(
                     path = "/webhooks/secure",
-                    idempotencyKeyPath = "$.id",
-                    eventTypePath = "$.type",
+                    idempotencyKeyPath = KeyPaths("$.id"),
+                    eventTypePath = KeyPaths("$.type"),
                     auth = InboxAuthConfig.HmacSignature(
                         secret = Secret("webhook-secret"),
                         headerName = "",
@@ -1413,8 +1413,8 @@ class ConfigValidatorTest {
             sources = mapOf(
                 "public-webhook" to SourceConfig.Http(
                     path = "/webhooks/public",
-                    idempotencyKeyPath = "$.id",
-                    eventTypePath = "$.type",
+                    idempotencyKeyPath = KeyPaths("$.id"),
+                    eventTypePath = KeyPaths("$.type"),
                     auth = null
                 )
             )
@@ -1653,8 +1653,8 @@ class ConfigValidatorTest {
             sources = mapOf(
                 "stripe" to SourceConfig.Http(
                     path = "/stripe",
-                    idempotencyKeyPath = "$.id",
-                    eventTypePath = "$.type",
+                    idempotencyKeyPath = KeyPaths("$.id"),
+                    eventTypePath = KeyPaths("$.type"),
                     auth = InboxAuthConfig.HmacSignature(
                         secret = Secret("stripe-secret"),
                         algorithm = "HmacSHA256"
@@ -1662,8 +1662,8 @@ class ConfigValidatorTest {
                 ),
                 "github" to SourceConfig.Http(
                     path = "/github",
-                    idempotencyKeyPath = "$.delivery",
-                    eventTypePath = "$.type",
+                    idempotencyKeyPath = KeyPaths("$.delivery"),
+                    eventTypePath = KeyPaths("$.type"),
                     auth = InboxAuthConfig.HmacSignature(
                         secret = Secret("github-secret"),
                         algorithm = "HmacSHA256",
@@ -1760,7 +1760,7 @@ class ConfigValidatorTest {
                 sources = mapOf(
                     "stripe" to SourceConfig.Http(
                         path = "/stripe",
-                        idempotencyKeyPath = "$.id"
+                        idempotencyKeyPath = KeyPaths("$.id")
                     )
                 )
             )
@@ -1780,8 +1780,8 @@ class ConfigValidatorTest {
                 sources = mapOf(
                     "stripe" to SourceConfig.Http(
                         path = "/stripe",
-                        idempotencyKeyPath = "$.id",
-                        eventTypePath = "$.type"
+                        idempotencyKeyPath = KeyPaths("$.id"),
+                        eventTypePath = KeyPaths("$.type")
                     )
                 )
             )
@@ -1797,7 +1797,7 @@ class ConfigValidatorTest {
                 sources = mapOf(
                     "stripe" to SourceConfig.Http(
                         path = "/stripe",
-                        idempotencyKeyPath = "$.id",
+                        idempotencyKeyPath = KeyPaths("$.id"),
                         topic = "{{ source }}.received"
                     )
                 )
@@ -1814,8 +1814,8 @@ class ConfigValidatorTest {
                 sources = mapOf(
                     "stripe" to SourceConfig.Http(
                         path = "/stripe",
-                        idempotencyKeyPath = "$.id",
-                        eventTypePath = "$.type",
+                        idempotencyKeyPath = KeyPaths("$.id"),
+                        eventTypePath = KeyPaths("$.type"),
                         topic = "  "
                     )
                 )
@@ -2053,8 +2053,8 @@ class ConfigValidatorTest {
             sources = mapOf(
                 "stripe" to SourceConfig.Http(
                     path = "/stripe",
-                    idempotencyKeyPath = "$.id",
-                    eventTypePath = "$.type",
+                    idempotencyKeyPath = KeyPaths("$.id"),
+                    eventTypePath = KeyPaths("$.type"),
                     auth = InboxAuthConfig.HmacSignature(
                         secret = Secret("whsec"),
                         signaturePayloadFormat = SignaturePayloadFormat.TIMESTAMP_DOT_BODY
@@ -2076,8 +2076,8 @@ class ConfigValidatorTest {
             sources = mapOf(
                 "stripe" to SourceConfig.Http(
                     path = "/stripe",
-                    idempotencyKeyPath = "$.id",
-                    eventTypePath = "$.type",
+                    idempotencyKeyPath = KeyPaths("$.id"),
+                    eventTypePath = KeyPaths("$.type"),
                     auth = InboxAuthConfig.HmacSignature(
                         secret = Secret("whsec"),
                         timestampHeader = "X-Timestamp",
@@ -2102,8 +2102,8 @@ class ConfigValidatorTest {
             sources = mapOf(
                 "stripe-webhooks" to SourceConfig.Http(
                     path = "/webhooks/stripe",
-                    idempotencyKeyPath = "$..orderId",
-                    eventTypePath = "$.type"
+                    idempotencyKeyPath = KeyPaths("$..orderId"),
+                    eventTypePath = KeyPaths("$.type")
                 )
             )
         )
@@ -2122,8 +2122,8 @@ class ConfigValidatorTest {
             sources = mapOf(
                 "stripe-webhooks" to SourceConfig.Http(
                     path = "/webhooks/stripe",
-                    idempotencyKeyPath = "$.id",
-                    eventTypePath = "$.events[*].type"
+                    idempotencyKeyPath = KeyPaths("$.id"),
+                    eventTypePath = KeyPaths("$.events[*].type")
                 )
             )
         )
@@ -2143,8 +2143,8 @@ class ConfigValidatorTest {
                 "order-events" to SourceConfig.RabbitMQ(
                     queueName = "orders",
                     connectionUrl = "amqp://localhost:5672",
-                    idempotencyKeyPath = "$.orderId",
-                    aggregateIdPath = "$..customerId"
+                    idempotencyKeyPath = KeyPaths("$.orderId"),
+                    aggregateIdPath = KeyPaths("$..customerId")
                 )
             )
         )
@@ -2163,8 +2163,8 @@ class ConfigValidatorTest {
             sources = mapOf(
                 "stripe-webhooks" to SourceConfig.Http(
                     path = "/webhooks/stripe",
-                    idempotencyKeyPath = "$.[",
-                    eventTypePath = "$.type"
+                    idempotencyKeyPath = KeyPaths("$.["),
+                    eventTypePath = KeyPaths("$.type")
                 )
             )
         )
@@ -2182,9 +2182,9 @@ class ConfigValidatorTest {
             sources = mapOf(
                 "stripe-webhooks" to SourceConfig.Http(
                     path = "/webhooks/stripe",
-                    idempotencyKeyPath = "$.data.orderId",
-                    aggregateIdPath = "$.data.customerId",
-                    eventTypePath = "$.type"
+                    idempotencyKeyPath = KeyPaths("$.data.orderId"),
+                    aggregateIdPath = KeyPaths("$.data.customerId"),
+                    eventTypePath = KeyPaths("$.type")
                 )
             )
         )
@@ -2241,7 +2241,7 @@ class ConfigValidatorTest {
                 "order-events" to SourceConfig.RabbitMQ(
                     queueName = "orders",
                     connectionUrl = "amqp://localhost:5672",
-                    eventTypePath = "$.type",
+                    eventTypePath = KeyPaths("$.type"),
                     topic = "{{ source }}.{{ eventType }}"
                 )
             )
@@ -2273,7 +2273,7 @@ class ConfigValidatorTest {
                 "order-events" to SourceConfig.RabbitMQ(
                     queueName = "orders",
                     connectionUrl = "amqp://localhost:5672",
-                    eventTypePath = "$..type"
+                    eventTypePath = KeyPaths("$..type")
                 )
             )
         )

@@ -35,15 +35,22 @@ object StartupValidator {
 
         config.sources.forEach { (name, source) ->
             compile(engine, source.transform, "sources.$name.transform.expression")
+            // Issue #83. An inbox key expression is JSONata too, so the same rule applies.
+            compile(engine, source.idempotencyKeyExpression, "sources.$name.idempotencyKeyExpression")
+            compile(engine, source.aggregateIdExpression, "sources.$name.aggregateIdExpression")
+            compile(engine, source.eventTypeExpression, "sources.$name.eventTypeExpression")
         }
     }
 
-    private fun compile(engine: TransformEngine, transform: TransformConfig?, path: String) {
-        val expression = transform?.expression ?: return
+    private fun compile(engine: TransformEngine, transform: TransformConfig?, path: String) =
+        compile(engine, transform?.expression, path)
+
+    private fun compile(engine: TransformEngine, expression: String?, path: String) {
+        if (expression == null) return
 
         engine.validateExpression(expression).onFailure { error ->
             throw InvalidTransformException(
-                "The transform expression at '$path' does not compile. Reason: ${error.message}",
+                "The expression at '$path' does not compile. Reason: ${error.message}",
                 error
             )
         }

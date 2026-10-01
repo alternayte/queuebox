@@ -25,7 +25,7 @@ class RabbitConsumerConcurrencyTest {
 
     private lateinit var queueName: String
     private lateinit var connection: RabbitConnection
-    private lateinit var extractor: IdempotencyExtractor
+    private lateinit var keyReader: InboxKeyReader
     private var consumer: RabbitConsumer? = null
 
     private val storedMessages = CopyOnWriteArrayList<InboxMessage>()
@@ -59,7 +59,7 @@ class RabbitConsumerConcurrencyTest {
         duplicateCount.set(0)
         storeDelayMillis = 0
         queueName = "concurrency-queue-${UUID.randomUUID()}"
-        extractor = IdempotencyExtractor()
+        keyReader = InboxKeyReader()
         connection = RabbitConnection(amqpUrl)
         withControlChannel { it.queueDeclare(queueName, false, false, false, null) }
     }
@@ -107,9 +107,9 @@ class RabbitConsumerConcurrencyTest {
             queueName = queueName,
             sourceName = "concurrency-source",
             prefetchCount = 50,
-            idempotencyKeyPath = "$.id"
+            idempotencyKeyPath = KeyPaths("$.id")
         )
-        val target = RabbitConsumer(connection, mockStore, extractor, config)
+        val target = RabbitConsumer(connection, mockStore, keyReader, config)
         consumer = target
         target.start()
 
@@ -137,9 +137,9 @@ class RabbitConsumerConcurrencyTest {
             queueName = queueName,
             sourceName = "stop-source",
             prefetchCount = 50,
-            idempotencyKeyPath = "$.id"
+            idempotencyKeyPath = KeyPaths("$.id")
         )
-        val target = RabbitConsumer(connection, mockStore, extractor, config)
+        val target = RabbitConsumer(connection, mockStore, keyReader, config)
         consumer = target
         target.start()
 

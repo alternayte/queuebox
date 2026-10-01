@@ -99,6 +99,7 @@ object ConfigLoader {
         val loader = ConfigLoaderBuilder.default()
             .addDecoder(SecretDecoder())
             .addDecoder(SignaturePayloadFormatDecoder())
+            .addDecoder(KeyPathsDecoder())
             .addDecoder(TypeDiscriminatorDecoder())
             // TypeDiscriminatorDecoder outranks Hoplite's sealed decoder. Naming the field here
             // stops Hoplite from warning that it infers the kind from the keys, which it no

@@ -13,18 +13,19 @@ import org.nxtspec.transform.InboxTransformPipeline
 import org.nxtspec.transform.TransformEngine
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
+import kotlin.time.Duration.Companion.seconds
 
 class InboxHandlerTest {
 
     private lateinit var mockRepository: InboxRepository
-    private lateinit var extractor: IdempotencyExtractor
+    private lateinit var keyReader: InboxKeyReader
     private lateinit var handler: InboxHandler
 
     @BeforeEach
     fun setup() {
         mockRepository = mockk()
-        extractor = IdempotencyExtractor()
-        handler = InboxHandler(mockRepository, extractor)
+        keyReader = InboxKeyReader()
+        handler = InboxHandler(mockRepository, keyReader)
     }
 
     @Test
@@ -33,7 +34,7 @@ class InboxHandlerTest {
 
         val sourceConfig = SourceConfig.Http(
             path = "/webhook",
-            idempotencyKeyPath = "$.orderId"
+            idempotencyKeyPath = KeyPaths("$.orderId")
         )
         val payload = Json.parseToJsonElement("""{ "orderId": "order-123", "data": "test" }""")
 
@@ -49,7 +50,7 @@ class InboxHandlerTest {
 
         val sourceConfig = SourceConfig.Http(
             path = "/webhook",
-            idempotencyKeyPath = "$.id"
+            idempotencyKeyPath = KeyPaths("$.id")
         )
         val payload = Json.parseToJsonElement("""{ "id": "dup-123" }""")
 
@@ -62,7 +63,7 @@ class InboxHandlerTest {
     fun `should return ExtractionFailed when idempotency key path not found`() = runTest {
         val sourceConfig = SourceConfig.Http(
             path = "/webhook",
-            idempotencyKeyPath = "$.missing.field"
+            idempotencyKeyPath = KeyPaths("$.missing.field")
         )
         val payload = Json.parseToJsonElement("""{ "id": "123" }""")
 
@@ -78,7 +79,7 @@ class InboxHandlerTest {
 
         val sourceConfig = SourceConfig.Http(
             path = "/webhook",
-            idempotencyKeyPath = "$.id"
+            idempotencyKeyPath = KeyPaths("$.id")
         )
         val payload = Json.parseToJsonElement("""{ "id": "123" }""")
 
@@ -94,8 +95,8 @@ class InboxHandlerTest {
 
         val sourceConfig = SourceConfig.Http(
             path = "/webhook",
-            idempotencyKeyPath = "$.id",
-            eventTypePath = "$.type"
+            idempotencyKeyPath = KeyPaths("$.id"),
+            eventTypePath = KeyPaths("$.type")
         )
         val payload = Json.parseToJsonElement("""{ "id": "123", "type": "payment.completed" }""")
 
@@ -110,7 +111,7 @@ class InboxHandlerTest {
 
         val sourceConfig = SourceConfig.Http(
             path = "/webhook",
-            idempotencyKeyPath = "$.id"
+            idempotencyKeyPath = KeyPaths("$.id")
         )
         val payload = Json.parseToJsonElement("""{ "id": "123", "type": "payment.completed" }""")
 
@@ -125,8 +126,8 @@ class InboxHandlerTest {
 
         val sourceConfig = SourceConfig.Http(
             path = "/webhook",
-            idempotencyKeyPath = "$.id",
-            eventTypePath = "$.missing.type"
+            idempotencyKeyPath = KeyPaths("$.id"),
+            eventTypePath = KeyPaths("$.missing.type")
         )
         val payload = Json.parseToJsonElement("""{ "id": "123" }""")
 
@@ -141,7 +142,7 @@ class InboxHandlerTest {
 
         val sourceConfig = SourceConfig.Http(
             path = "/webhook",
-            idempotencyKeyPath = "$.id"
+            idempotencyKeyPath = KeyPaths("$.id")
         )
         val payload = Json.parseToJsonElement("""{ "id": "123" }""")
 
@@ -156,7 +157,7 @@ class InboxHandlerTest {
 
         val sourceConfig = SourceConfig.Http(
             path = "/webhook",
-            idempotencyKeyPath = "$.id"
+            idempotencyKeyPath = KeyPaths("$.id")
         )
         val payload = Json.parseToJsonElement("""{ "id": "123", "data": { "nested": "value" } }""")
 
@@ -173,8 +174,8 @@ class InboxHandlerTest {
 
         val sourceConfig = SourceConfig.Http(
             path = "/webhook",
-            idempotencyKeyPath = "$.id",
-            aggregateIdPath = "$.orderId"
+            idempotencyKeyPath = KeyPaths("$.id"),
+            aggregateIdPath = KeyPaths("$.orderId")
         )
         val payload = Json.parseToJsonElement("""{ "id": "123", "orderId": "order-456" }""")
 
@@ -189,7 +190,7 @@ class InboxHandlerTest {
 
         val sourceConfig = SourceConfig.Http(
             path = "/webhook",
-            idempotencyKeyPath = "$.id"
+            idempotencyKeyPath = KeyPaths("$.id")
         )
         val payload = Json.parseToJsonElement("""{ "id": "123", "orderId": "order-456" }""")
 
@@ -204,8 +205,8 @@ class InboxHandlerTest {
 
         val sourceConfig = SourceConfig.Http(
             path = "/webhook",
-            idempotencyKeyPath = "$.id",
-            aggregateIdPath = "$.missing.path"
+            idempotencyKeyPath = KeyPaths("$.id"),
+            aggregateIdPath = KeyPaths("$.missing.path")
         )
         val payload = Json.parseToJsonElement("""{ "id": "123", "orderId": "order-456" }""")
 
@@ -220,8 +221,8 @@ class InboxHandlerTest {
 
         val sourceConfig = SourceConfig.Http(
             path = "/webhook",
-            idempotencyKeyPath = "$.id",
-            aggregateIdPath = "$.data.customerId"
+            idempotencyKeyPath = KeyPaths("$.id"),
+            aggregateIdPath = KeyPaths("$.data.customerId")
         )
         val payload = Json.parseToJsonElement("""{ "id": "123", "data": { "customerId": "cust-789" } }""")
 
@@ -236,10 +237,10 @@ class InboxHandlerTest {
     fun `should work without transform pipeline (backwards compatible)`() = runTest {
         coEvery { mockRepository.store(any()) } returns InboxResult.Stored
 
-        val handlerWithoutPipeline = InboxHandler(mockRepository, extractor)
+        val handlerWithoutPipeline = InboxHandler(mockRepository, keyReader)
         val sourceConfig = SourceConfig.Http(
             path = "/webhook",
-            idempotencyKeyPath = "$.id"
+            idempotencyKeyPath = KeyPaths("$.id")
         )
         val payload = Json.parseToJsonElement("""{ "id": "123" }""")
 
@@ -254,11 +255,11 @@ class InboxHandlerTest {
         coEvery { mockRepository.store(any()) } returns InboxResult.Stored
 
         val transformPipeline = InboxTransformPipeline(TransformEngine())
-        val handlerWithPipeline = InboxHandler(mockRepository, extractor, transformPipeline = transformPipeline)
+        val handlerWithPipeline = InboxHandler(mockRepository, keyReader, transformPipeline = transformPipeline)
 
         val sourceConfig = SourceConfig.Http(
             path = "/webhook",
-            idempotencyKeyPath = "$.id",
+            idempotencyKeyPath = KeyPaths("$.id"),
             transform = null // No transform
         )
         val payload = Json.parseToJsonElement("""{ "id": "123", "data": "value" }""")
@@ -274,11 +275,11 @@ class InboxHandlerTest {
         coEvery { mockRepository.store(any()) } returns InboxResult.Stored
 
         val transformPipeline = InboxTransformPipeline(TransformEngine())
-        val handlerWithPipeline = InboxHandler(mockRepository, extractor, transformPipeline = transformPipeline)
+        val handlerWithPipeline = InboxHandler(mockRepository, keyReader, transformPipeline = transformPipeline)
 
         val sourceConfig = SourceConfig.Http(
             path = "/webhook",
-            idempotencyKeyPath = "$.id",
+            idempotencyKeyPath = KeyPaths("$.id"),
             transform = TransformConfig(
                 expression = """{ "transformedId": id, "normalized": true }"""
             )
@@ -303,11 +304,11 @@ class InboxHandlerTest {
         coEvery { mockRepository.store(any()) } returns InboxResult.Stored
 
         val transformPipeline = InboxTransformPipeline(TransformEngine())
-        val handlerWithPipeline = InboxHandler(mockRepository, extractor, transformPipeline = transformPipeline)
+        val handlerWithPipeline = InboxHandler(mockRepository, keyReader, transformPipeline = transformPipeline)
 
         val sourceConfig = SourceConfig.Http(
             path = "/webhook",
-            idempotencyKeyPath = "$.originalId",
+            idempotencyKeyPath = KeyPaths("$.originalId"),
             transform = TransformConfig(
                 expression = """{ "newId": "transformed" }""" // Transform removes originalId
             )
@@ -326,12 +327,12 @@ class InboxHandlerTest {
         coEvery { mockRepository.store(any()) } returns InboxResult.Stored
 
         val transformPipeline = InboxTransformPipeline(TransformEngine())
-        val handlerWithPipeline = InboxHandler(mockRepository, extractor, transformPipeline = transformPipeline)
+        val handlerWithPipeline = InboxHandler(mockRepository, keyReader, transformPipeline = transformPipeline)
 
         val sourceConfig = SourceConfig.Http(
             path = "/webhook",
-            idempotencyKeyPath = "$.id",
-            eventTypePath = "$.type",
+            idempotencyKeyPath = KeyPaths("$.id"),
+            eventTypePath = KeyPaths("$.type"),
             transform = TransformConfig(
                 expression = """{ "data": "transformed" }""" // Transform removes type field
             )
@@ -348,11 +349,11 @@ class InboxHandlerTest {
     @Test
     fun `should return TransformFailed when transform rejects message`() = runTest {
         val transformPipeline = InboxTransformPipeline(TransformEngine())
-        val handlerWithPipeline = InboxHandler(mockRepository, extractor, transformPipeline = transformPipeline)
+        val handlerWithPipeline = InboxHandler(mockRepository, keyReader, transformPipeline = transformPipeline)
 
         val sourceConfig = SourceConfig.Http(
             path = "/webhook",
-            idempotencyKeyPath = "$.id",
+            idempotencyKeyPath = KeyPaths("$.id"),
             transform = TransformConfig(
                 expression = """${"$"}nonExistentFunction()""", // Will fail
                 onError = TransformErrorStrategy.Fail
@@ -371,11 +372,11 @@ class InboxHandlerTest {
         coEvery { mockRepository.store(any()) } returns InboxResult.Stored
 
         val transformPipeline = InboxTransformPipeline(TransformEngine())
-        val handlerWithPipeline = InboxHandler(mockRepository, extractor, transformPipeline = transformPipeline)
+        val handlerWithPipeline = InboxHandler(mockRepository, keyReader, transformPipeline = transformPipeline)
 
         val sourceConfig = SourceConfig.Http(
             path = "/webhook",
-            idempotencyKeyPath = "$.id",
+            idempotencyKeyPath = KeyPaths("$.id"),
             transform = TransformConfig(
                 expression = """${"$"}nonExistentFunction()""", // Will fail
                 onError = TransformErrorStrategy.Skip // Use original on failure
@@ -387,5 +388,44 @@ class InboxHandlerTest {
 
         assertTrue(result is InboxHandlerResult.Accepted)
         coVerify { mockRepository.store(match { it.payload == payload }) } // Should store original
+    }
+
+    // Issues #83 and #84. See `docs/specs/inbox-keys-and-delay.md`.
+
+    @Test
+    fun `a key header wins over the key expression, and the expression wins over the key path`() = runTest {
+        coEvery { mockRepository.store(any(), any()) } returns InboxResult.Stored
+        val sourceConfig = SourceConfig.Http(
+            path = "/webhook",
+            idempotencyKeyExpression = "id",
+            aggregateIdHeader = "X-Aggregate",
+            aggregateIdExpression = "\$split(subject, \"/\")[2]",
+            aggregateIdPath = KeyPaths("$.subject"),
+            eventTypeExpression = "missing",
+            eventTypePath = KeyPaths("$.type"),
+            initialDelay = "30s"
+        )
+        val payload = Json.parseToJsonElement("""{ "id": "e-1", "subject": "/organization/515725", "type": "T" }""")
+
+        handler.handle("source", sourceConfig, payload)
+        handler.handle("source", sourceConfig, payload, headers = mapOf("x-aggregate" to "from-header"))
+
+        coVerify {
+            mockRepository.store(
+                match { it.idempotencyKey == "e-1" && it.aggregateId == "515725" && it.eventType == "T" },
+                30.seconds
+            )
+        }
+        coVerify { mockRepository.store(match { it.aggregateId == "from-header" }, 30.seconds) }
+    }
+
+    @Test
+    fun `an idempotency key expression that gives nothing rejects the message`() = runTest {
+        val sourceConfig = SourceConfig.Http(path = "/webhook", idempotencyKeyExpression = "missing")
+
+        val result = handler.handle("source", sourceConfig, Json.parseToJsonElement("""{ "id": "123" }"""))
+
+        assertTrue(result is InboxHandlerResult.ExtractionFailed)
+        coVerify(exactly = 0) { mockRepository.store(any(), any()) }
     }
 }

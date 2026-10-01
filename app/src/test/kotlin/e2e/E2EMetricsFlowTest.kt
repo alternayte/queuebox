@@ -10,10 +10,11 @@ import kotlinx.serialization.json.JsonPrimitive
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Test
 import org.nxtspec.Destination
-import org.nxtspec.IdempotencyExtractor
 import org.nxtspec.InboxHandler
 import org.nxtspec.InboxHandlerResult
+import org.nxtspec.InboxKeyReader
 import org.nxtspec.InboxRepository
+import org.nxtspec.KeyPaths
 import org.nxtspec.MessageRouter
 import org.nxtspec.OutboxConfig
 import org.nxtspec.OutboxPoller
@@ -304,13 +305,13 @@ class E2EMetricsFlowTest : E2ETestBase() {
 
         // Create inbox handler with metrics
         val inboxRepository = InboxRepository()
-        val extractor = IdempotencyExtractor()
-        val inboxHandler = InboxHandler(inboxRepository, extractor, metricsCollector)
+        val keyReader = InboxKeyReader()
+        val inboxHandler = InboxHandler(inboxRepository, keyReader, metricsCollector)
 
         // Create source config
         val sourceConfig = SourceConfig.Http(
             path = "/test",
-            idempotencyKeyPath = "$.id"
+            idempotencyKeyPath = KeyPaths("$.id")
         )
 
         // Store first message
@@ -387,11 +388,11 @@ class E2EMetricsFlowTest : E2ETestBase() {
 
         // Setup inbox components
         val inboxRepository = InboxRepository()
-        val extractor = IdempotencyExtractor()
-        val inboxHandler = InboxHandler(inboxRepository, extractor, metricsCollector)
+        val keyReader = InboxKeyReader()
+        val inboxHandler = InboxHandler(inboxRepository, keyReader, metricsCollector)
         val sourceConfig = SourceConfig.Http(
             path = "/webhook",
-            idempotencyKeyPath = "$.id"
+            idempotencyKeyPath = KeyPaths("$.id")
         )
 
         // Insert outbox messages

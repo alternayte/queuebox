@@ -27,7 +27,7 @@ QueueBox writes one row for each accepted message of a source. The application r
 | `state` | `VARCHAR(50)` | `NVARCHAR(50)` | no | `'pending'` | QueueBox, the relay or a pull client |
 | `created_at` | `TIMESTAMP WITH TIME ZONE` | `DATETIME2` | no | `CURRENT_TIMESTAMP` / `GETUTCDATE()` | The default |
 | `processed_at` | `TIMESTAMP WITH TIME ZONE` | `DATETIME2` | yes | none | The relay or a pull client |
-| `scheduled_at` | `TIMESTAMPTZ` | `DATETIME2` | no | `CURRENT_TIMESTAMP` / `SYSUTCDATETIME()` | The default, then a pull client on a retry |
+| `scheduled_at` | `TIMESTAMPTZ` | `DATETIME2` | no | `CURRENT_TIMESTAMP` / `SYSUTCDATETIME()` | QueueBox at receipt, then a pull client on a retry |
 | `attempt` | `INT` | `INT` | no | `0` | A pull client on a retry |
 | `last_error` | `TEXT` | `NVARCHAR(MAX)` | yes | none | A pull client on a retry or a dead letter |
 | `claimed_at` | `TIMESTAMP WITH TIME ZONE` | `DATETIME2` | yes | none | The relay or a pull client |
@@ -55,13 +55,13 @@ When a broker source finds no key, it writes `sha256:` and the hexadecimal SHA-2
 
 ### aggregate_id
 
-The unit of order of the inbox. It comes from `aggregateIdPath`, or from a header or the record key on a broker source.
+The unit of order of the inbox. It comes from `aggregateIdExpression` or `aggregateIdPath`, or from a header or the record key on a broker source.
 At most one row of an aggregate is in flight at a time. The relay copies the value into the outbox `key`.
 [Ordering](/concepts/ordering/) states the rules for push and pull rows.
 
 ### event_type
 
-The event type from `eventTypePath`, or from the event type header of a broker source. The topic template reads it as `{{ eventType }}`.
+The event type from `eventTypeExpression` or `eventTypePath`, or from the event type header of a broker source. The topic template reads it as `{{ eventType }}`.
 
 ### payload
 
@@ -105,8 +105,9 @@ For a push row, it means that the relay copied the row into the outbox. For a pu
 
 ### scheduled_at and attempt
 
-A pull claim takes a row only when `scheduled_at` has passed. A pull retry moves `scheduled_at` forward and raises `attempt` by one.
-The relay does not use these two columns.
+QueueBox sets `scheduled_at` at receipt to the database time plus the `initialDelay` of the source. A source without `initialDelay` gets the receipt time.
+A pull claim and the relay claim take a row only when `scheduled_at` has passed. A pull retry moves `scheduled_at` forward and raises `attempt` by one.
+The relay does not use `attempt`. QueueBox 0.6.0 and earlier do not read `scheduled_at` in the relay claim.
 
 ### last_error
 

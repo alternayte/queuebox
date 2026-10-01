@@ -35,13 +35,13 @@ class IdempotencyExtractor(
     }
 
     /**
-     * Reads every configured path out of a payload with one parse.
+     * Reads every configured key out of a payload with one parse.
      *
      * @param payload The message payload
-     * @param paths A map of caller key to JSONPath expression
-     * @return A map of caller key to value. A path that fails maps to null.
+     * @param paths A map of caller key to its JSONPath expressions, in the order to try them
+     * @return A map of caller key to the value of the first path that gives one, or to null
      */
-    fun extractAll(payload: JsonElement, paths: Map<String, String>): Map<String, String?> {
+    fun extractAll(payload: JsonElement, paths: Map<String, List<String>>): Map<String, String?> {
         if (paths.isEmpty()) {
             return emptyMap()
         }
@@ -50,7 +50,9 @@ class IdempotencyExtractor(
         } catch (e: Exception) {
             return paths.mapValues { null }
         }
-        return paths.mapValues { (_, path) -> read(documentContext, path).getOrNull() }
+        return paths.mapValues { (_, candidates) ->
+            candidates.firstNotNullOfOrNull { path -> read(documentContext, path).getOrNull() }
+        }
     }
 
     private fun read(documentContext: DocumentContext, jsonPath: String): Result<String> = try {

@@ -20,13 +20,14 @@ import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Test
 import org.nxtspec.Destination
 import org.nxtspec.ExposedTransactionRunner
-import org.nxtspec.IdempotencyExtractor
 import org.nxtspec.InboxConfig
 import org.nxtspec.InboxHandler
+import org.nxtspec.InboxKeyReader
 import org.nxtspec.InboxRelay
 import org.nxtspec.InboxRelayConfig
 import org.nxtspec.InboxRepository
 import org.nxtspec.InboxTable
+import org.nxtspec.KeyPaths
 import org.nxtspec.MessageRouter
 import org.nxtspec.OutboxConfig
 import org.nxtspec.OutboxPoller
@@ -72,12 +73,12 @@ class E2ECorrelationTest : E2ETestBase() {
                 sources = mapOf(
                     "stripe" to SourceConfig.Http(
                         path = "/stripe",
-                        idempotencyKeyPath = "$.id",
-                        eventTypePath = "$.type",
+                        idempotencyKeyPath = KeyPaths("$.id"),
+                        eventTypePath = KeyPaths("$.type"),
                         topic = "{{ source }}.{{ eventType }}"
                     )
                 ),
-                handler = InboxHandler(InboxRepository(), IdempotencyExtractor())
+                handler = InboxHandler(InboxRepository(), InboxKeyReader())
             )
         }
 
@@ -149,11 +150,11 @@ class E2ECorrelationTest : E2ETestBase() {
                 sources = mapOf(
                     "stripe" to SourceConfig.Http(
                         path = "/stripe",
-                        idempotencyKeyPath = "$.id",
-                        eventTypePath = "$.type"
+                        idempotencyKeyPath = KeyPaths("$.id"),
+                        eventTypePath = KeyPaths("$.type")
                     )
                 ),
-                handler = InboxHandler(InboxRepository(), IdempotencyExtractor())
+                handler = InboxHandler(InboxRepository(), InboxKeyReader())
             )
         }
 

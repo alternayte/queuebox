@@ -13,10 +13,11 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.jupiter.api.Test
-import org.nxtspec.IdempotencyExtractor
 import org.nxtspec.InboxConfig
 import org.nxtspec.InboxHandler
+import org.nxtspec.InboxKeyReader
 import org.nxtspec.InboxRepository
+import org.nxtspec.KeyPaths
 import org.nxtspec.SourceConfig
 import org.nxtspec.configureInboxRoutes
 import kotlin.test.assertEquals
@@ -38,14 +39,14 @@ class E2EInboxFlowTest : E2ETestBase() {
             }
 
             val repository = InboxRepository()
-            val extractor = IdempotencyExtractor()
-            val handler = InboxHandler(repository, extractor)
+            val keyReader = InboxKeyReader()
+            val handler = InboxHandler(repository, keyReader)
             val inboxConfig = InboxConfig(basePath = "/inbox")
             val sources = mapOf(
                 "stripe" to SourceConfig.Http(
                     path = "/stripe",
-                    idempotencyKeyPath = "$.id",
-                    eventTypePath = "$.type"
+                    idempotencyKeyPath = KeyPaths("$.id"),
+                    eventTypePath = KeyPaths("$.type")
                 )
             )
 
@@ -90,13 +91,13 @@ class E2EInboxFlowTest : E2ETestBase() {
             }
 
             val repository = InboxRepository()
-            val extractor = IdempotencyExtractor()
-            val handler = InboxHandler(repository, extractor)
+            val keyReader = InboxKeyReader()
+            val handler = InboxHandler(repository, keyReader)
             val inboxConfig = InboxConfig(basePath = "/inbox")
             val sources = mapOf(
                 "stripe" to SourceConfig.Http(
                     path = "/stripe",
-                    idempotencyKeyPath = "$.id"
+                    idempotencyKeyPath = KeyPaths("$.id")
                 )
             )
 
@@ -136,13 +137,13 @@ class E2EInboxFlowTest : E2ETestBase() {
             }
 
             val repository = InboxRepository()
-            val extractor = IdempotencyExtractor()
-            val handler = InboxHandler(repository, extractor)
+            val keyReader = InboxKeyReader()
+            val handler = InboxHandler(repository, keyReader)
             val inboxConfig = InboxConfig(basePath = "/inbox")
             val sources = mapOf(
                 "stripe" to SourceConfig.Http(
                     path = "/stripe",
-                    idempotencyKeyPath = "$.id"
+                    idempotencyKeyPath = KeyPaths("$.id")
                 )
             )
 
@@ -166,13 +167,13 @@ class E2EInboxFlowTest : E2ETestBase() {
             }
 
             val repository = InboxRepository()
-            val extractor = IdempotencyExtractor()
-            val handler = InboxHandler(repository, extractor)
+            val keyReader = InboxKeyReader()
+            val handler = InboxHandler(repository, keyReader)
             val inboxConfig = InboxConfig(basePath = "/inbox")
             val sources = mapOf(
                 "stripe" to SourceConfig.Http(
                     path = "/stripe",
-                    idempotencyKeyPath = "$.id" // Expects "id" field
+                    idempotencyKeyPath = KeyPaths("$.id") // Expects "id" field
                 )
             )
 
@@ -198,14 +199,14 @@ class E2EInboxFlowTest : E2ETestBase() {
             }
 
             val repository = InboxRepository()
-            val extractor = IdempotencyExtractor()
-            val handler = InboxHandler(repository, extractor)
+            val keyReader = InboxKeyReader()
+            val handler = InboxHandler(repository, keyReader)
             val inboxConfig = InboxConfig(basePath = "/inbox")
             val sources = mapOf(
                 "stripe" to SourceConfig.Http(
                     path = "/stripe",
-                    idempotencyKeyPath = "$.id",
-                    eventTypePath = "$.type"
+                    idempotencyKeyPath = KeyPaths("$.id"),
+                    eventTypePath = KeyPaths("$.type")
                 )
             )
 
@@ -229,16 +230,16 @@ class E2EInboxFlowTest : E2ETestBase() {
     fun `should store message from RabbitMQ when consumed`() = runBlocking {
         // 1. Setup RabbitConsumer with real database
         val repository = InboxRepository()
-        val extractor = IdempotencyExtractor()
+        val keyReader = InboxKeyReader()
 
         val consumer = org.nxtspec.RabbitConsumer(
             connection = org.nxtspec.RabbitConnection(amqpUrl),
             storeMessage = { message -> repository.store(message) },
-            extractor = extractor,
+            keyReader = keyReader,
             config = org.nxtspec.RabbitConsumerConfig(
                 queueName = "e2e-inbox-queue",
                 sourceName = "external-events",
-                idempotencyKeyPath = "$.eventId"
+                idempotencyKeyPath = KeyPaths("$.eventId")
             )
         )
 
@@ -279,16 +280,16 @@ class E2EInboxFlowTest : E2ETestBase() {
     fun `should deduplicate messages from RabbitMQ`() = runBlocking {
         // 1. Setup RabbitConsumer
         val repository = InboxRepository()
-        val extractor = IdempotencyExtractor()
+        val keyReader = InboxKeyReader()
 
         val consumer = org.nxtspec.RabbitConsumer(
             connection = org.nxtspec.RabbitConnection(amqpUrl),
             storeMessage = { message -> repository.store(message) },
-            extractor = extractor,
+            keyReader = keyReader,
             config = org.nxtspec.RabbitConsumerConfig(
                 queueName = "e2e-dedup-queue",
                 sourceName = "external-events",
-                idempotencyKeyPath = "$.eventId"
+                idempotencyKeyPath = KeyPaths("$.eventId")
             )
         )
 

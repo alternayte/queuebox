@@ -20,11 +20,11 @@ class InboxHandlerDisclosureTest {
     fun `the rejection reason never carries the configured idempotency key path`() = runTest {
         val secretLookingPath = "$.internal.tenant.secretRef"
         // The extraction fails before any repository call, so a bare mock is enough.
-        val handler = InboxHandler(mockk(relaxed = true), IdempotencyExtractor())
+        val handler = InboxHandler(mockk(relaxed = true), InboxKeyReader())
 
         val result = handler.handle(
             source = "stripe",
-            sourceConfig = SourceConfig.Http(path = "/stripe", idempotencyKeyPath = secretLookingPath),
+            sourceConfig = SourceConfig.Http(path = "/stripe", idempotencyKeyPath = KeyPaths(secretLookingPath)),
             payload = Json.parseToJsonElement("""{"unrelated":"value"}""")
         )
 

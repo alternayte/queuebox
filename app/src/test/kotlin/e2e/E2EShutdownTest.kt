@@ -21,12 +21,13 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import org.junit.jupiter.api.Test
-import org.nxtspec.IdempotencyExtractor
 import org.nxtspec.InboxConfig
 import org.nxtspec.InboxHandler
+import org.nxtspec.InboxKeyReader
 import org.nxtspec.InboxMessage
 import org.nxtspec.InboxRepository
 import org.nxtspec.InboxResult
+import org.nxtspec.KeyPaths
 import org.nxtspec.SourceConfig
 import org.nxtspec.app.RequestDrain
 import org.nxtspec.app.ShutdownSequence
@@ -51,7 +52,7 @@ class E2EShutdownTest : E2ETestBase() {
         private val delegate: InboxRepositoryInterface,
         private val handlerStarted: CountDownLatch
     ) : InboxRepositoryInterface by delegate {
-        override suspend fun store(message: InboxMessage): InboxResult {
+        override suspend fun store(message: InboxMessage, initialDelay: kotlin.time.Duration): InboxResult {
             handlerStarted.countDown()
             delay(700)
             return delegate.store(message)
@@ -81,13 +82,13 @@ class E2EShutdownTest : E2ETestBase() {
                 sources = mapOf(
                     "stripe" to SourceConfig.Http(
                         path = "/stripe",
-                        idempotencyKeyPath = "$.id",
-                        eventTypePath = "$.type"
+                        idempotencyKeyPath = KeyPaths("$.id"),
+                        eventTypePath = KeyPaths("$.type")
                     )
                 ),
                 handler = InboxHandler(
                     repository = SlowInboxRepository(InboxRepository(), handlerStarted),
-                    extractor = IdempotencyExtractor()
+                    keyReader = InboxKeyReader()
                 )
             )
         }
