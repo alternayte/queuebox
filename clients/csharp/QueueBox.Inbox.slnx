@@ -2,6 +2,7 @@
   <Folder Name="/src/">
     <Project Path="src/QueueBox.Inbox/QueueBox.Inbox.csproj" />
     <Project Path="src/QueueBox.Inbox.DependencyInjection/QueueBox.Inbox.DependencyInjection.csproj" />
+    <Project Path="src/QueueBox.Inbox.EntityFrameworkCore/QueueBox.Inbox.EntityFrameworkCore.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/QueueBox.Inbox.IntegrationTests/QueueBox.Inbox.IntegrationTests.csproj" />

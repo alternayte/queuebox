@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Xunit;
+using QueueBox.Inbox.EntityFrameworkCore;
 
 namespace QueueBox.Inbox.DependencyInjection.Tests;
 

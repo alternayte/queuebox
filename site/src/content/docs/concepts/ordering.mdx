@@ -34,7 +34,7 @@ Use `aggregateIdExpression` when no JSONPath selects the value, for example when
 A broker source can also read it from the `x-aggregate-id` header.
 
 An `initialDelay` on a source holds every row of that source for the same time, so the order of one source does not change.
-Two sources with different delays that feed one aggregate on the relay can forward the rows of that aggregate out of creation order.
+Two sources with different delays that feed one aggregate on the relay can forward the rows of that aggregate out of receipt order.
 
 ```yaml
 # fragment
@@ -58,11 +58,52 @@ sources:
   Two replicas therefore never write one aggregate into the outbox twice.
 
 **Guarantee.** At most one message per aggregate is in state `processing` at any time, across every replica.
-The relay forwards the messages of one aggregate in creation order.
+The relay forwards the messages of one aggregate in the order of `scheduled_at`, then of `created_at`. Both hold the receipt time, unless the source sets `initialDelay` or reads a publish time.
 
 The relay writes the `aggregate_id` into the outbox `key`.
 The outbox then delivers the rows of one key in insert order.
 The order of one aggregate therefore holds from the inbox to the destination.
+
+## Receipt order and publish order
+
+The guarantees above follow the order in which QueueBox stores the messages. That order is not always the order in which the producer published them.
+
+- A RabbitMQ source stores up to `prefetchCount` deliveries at the same time, so two messages of one aggregate can store in the opposite order.
+- Two QueueBox instances on one queue compete for the messages. RabbitMQ and a shared NATS consumer give competing consumers no order.
+- An HTTP source handles requests concurrently, and a sender can retry.
+- A Kafka source keeps the order of one partition.
+
+When the order of the producer matters, let the source read the publish time of each message, and give late messages a time to arrive:
+
+```yaml
+# fragment
+sources:
+  articles:
+    type: rabbitmq
+    queueName: articles
+    connectionUrl: amqp://broker:5672
+    consumption: pull
+    aggregateIdPath: $.articleId
+    scheduledAtPath: $.time
+    initialDelay: 30s
+```
+
+QueueBox sets `scheduled_at` to the publish time plus the delay. A pull claim and the relay claim take the rows of one aggregate in the order of `scheduled_at`, so they follow the publish order. The order holds at any prefetch and with any number of instances, because it comes from the message and not from the arrival.
+
+The publish time comes from the first of these that gives a time:
+
+1. The header that `scheduledAtHeader` names.
+2. The body field that `scheduledAtPath` names.
+3. On a broker source, the time of the broker protocol: the AMQP `timestamp` property, the Kafka record timestamp, or the time at which JetStream stored the message.
+4. The receipt time.
+
+On RabbitMQ 3.12 and later, the broker can stamp each message when it arrives. Set `message_interceptors.incoming.set_header_timestamp.overwrite` on the broker, and set `scheduledAtHeader: timestamp_in_ms` on the source. The stamp then comes from one clock, has millisecond precision, and needs no change in the producer.
+
+**No guarantee.** Publish order has three limits:
+
+- A message that arrives later than `initialDelay` after its publish time is out of order. Set the delay above the longest lag that you expect, which includes a redelivery after a crash.
+- A pull retry moves `scheduled_at` forward, and the claim does not hold back the later rows of that aggregate. A later message can pass a message that waits for its retry.
+- The order is only as good as the clock that wrote the stamp. Two producers with different clocks can stamp two messages in the wrong order.
 
 ## Order and the key
 

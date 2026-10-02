@@ -29,6 +29,7 @@ import org.nxtspec.transform.InboxTransformPipeline
 import org.nxtspec.transform.InboxTransformResult
 import java.util.UUID
 import kotlin.time.Clock
+import kotlin.time.Instant
 
 data class RabbitConsumerConfig(
     val consumption: String = "push",
@@ -47,6 +48,9 @@ data class RabbitConsumerConfig(
     val idempotencyKeyExpression: String? = null,
     val aggregateIdExpression: String? = null,
     val eventTypeExpression: String? = null,
+    /** Where the publish time of a message comes from. Issue #91. */
+    val scheduledAtHeader: String? = null,
+    val scheduledAtPath: KeyPaths? = null,
     /**
      * Declares the source queue as durable before the consumer starts. F-097.
      *
@@ -327,7 +331,16 @@ class RabbitConsumer(
                 eventType = eventType,
                 payload = transformedPayload,
                 correlationId = correlationId,
-                headers = headers
+                headers = headers,
+                // Issue #91. The header and the body come first. The AMQP `timestamp` property
+                // is the last source, because the publisher sets it and it holds whole seconds.
+                publishedAt = keyReader.publishedAt(
+                    config.sourceName,
+                    payload,
+                    headers,
+                    PublishTimeKeys(config.scheduledAtHeader, config.scheduledAtPath),
+                    properties.timestamp?.let { Instant.fromEpochMilliseconds(it.time) }
+                )
             )
 
             when (val result = storeMessage(message)) {

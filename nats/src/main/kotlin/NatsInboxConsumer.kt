@@ -29,6 +29,7 @@ import org.nxtspec.transform.InboxTransformResult
 import java.time.Duration
 import java.util.UUID
 import kotlin.time.Clock
+import kotlin.time.Instant
 
 data class NatsConsumerConfig(
     val sourceName: String,
@@ -44,6 +45,9 @@ data class NatsConsumerConfig(
     val idempotencyKeyExpression: String? = null,
     val aggregateIdExpression: String? = null,
     val eventTypeExpression: String? = null,
+    /** Where the publish time of a message comes from. Issue #91. */
+    val scheduledAtHeader: String? = null,
+    val scheduledAtPath: KeyPaths? = null,
     val ackWaitMs: Long = 30000,
     val batchSize: Int = 100,
     val username: String? = null,
@@ -175,7 +179,16 @@ class NatsInboxConsumer(
                 eventType = extractEventType(natsMessage, payload),
                 payload = payload,
                 correlationId = extractCorrelationId(natsMessage),
-                headers = headers
+                headers = headers,
+                // Issue #91. The header and the body come first, then the time at which JetStream
+                // stored the message.
+                publishedAt = keyReader.publishedAt(
+                    config.sourceName,
+                    payload,
+                    headers,
+                    PublishTimeKeys(config.scheduledAtHeader, config.scheduledAtPath),
+                    jetStreamTime(natsMessage)
+                )
             )
 
             val transformed = applyTransform(message)
@@ -342,6 +355,11 @@ class NatsInboxConsumer(
     /** Reads one inbox key from the body: its expression first, then its paths. Issues #83 and #85. */
     private fun bodyKey(payload: JsonElement, name: String, expression: String?, paths: KeyPaths?): String? =
         keyReader.read(config.sourceName, payload, BodyKey(name, expression, paths))
+
+    /** The time at which JetStream stored the message, or null for a message with no metadata. */
+    private fun jetStreamTime(natsMessage: Message): Instant? = runCatching {
+        natsMessage.metaData()?.timestamp()?.toInstant()?.let { Instant.fromEpochSeconds(it.epochSecond, it.nano) }
+    }.getOrNull()
 
     private fun bodyDigest(body: ByteArray): String {
         val digest = java.security.MessageDigest.getInstance("SHA-256").digest(body)

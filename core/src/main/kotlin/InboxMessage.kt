@@ -26,6 +26,12 @@ data class InboxMessage(
     val leaseExpiresAt: Instant? = null,
     val consumption: String = "push",
     val scheduledAt: Instant = Clock.System.now(),
+    /**
+     * The publish time that the source read from the message, or null. Issue #91. The store sets
+     * `scheduled_at` to the earlier of this time and the receipt time, plus the initial delay.
+     * It is not a column.
+     */
+    val publishedAt: Instant? = null,
     val attempt: Int = 0,
     val lastError: String? = null,
     /** The headers that the broker or the webhook request carried. One value per key. */

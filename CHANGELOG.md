@@ -9,6 +9,46 @@ the configuration schema and for the database schema.
 
 ## [Unreleased]
 
+### Added
+
+- **A source reads the publish time of a message.** The optional keys `scheduledAtHeader` and
+  `scheduledAtPath` name a header and a JSONPath that carry the publish time, on all four source
+  kinds. QueueBox sets `scheduled_at` to that time plus the `initialDelay` of the source. A pull
+  claim and the relay claim take the rows of one aggregate in the order of `scheduled_at`, so the
+  messages leave in publish order, at any prefetch and with any number of QueueBox instances. The
+  header comes first, then the path, then the time of the broker protocol: the AMQP `timestamp`
+  property, the Kafka record timestamp or the JetStream message time. A value is an ISO-8601 time
+  or a number of seconds or milliseconds since 1970. A publish time later than the receipt counts
+  as the receipt time. A source that sets either key must set an `initialDelay` above zero, or
+  the start stops. `scheduledAtHeader: timestamp_in_ms` reads the stamp that RabbitMQ 3.12 and
+  later can add at the broker. A message that arrives later than the delay is out of order, and a
+  pull retry lets a later message pass. No migration and no client library change. Fixes #91.
+
+### Changed
+
+- **The relay claim orders by `scheduled_at`, then by `created_at`.** It ordered by `created_at`
+  alone. Both columns hold the receipt time for a source that sets no `initialDelay` and reads no
+  publish time, so such a source sees no change.
+
+## Client libraries: C# 0.5.0 — 2026-10-02
+
+The tag `csharp-v0.5.0` ships `QueueBox.Inbox`, `QueueBox.Inbox.DependencyInjection` and the new
+`QueueBox.Inbox.EntityFrameworkCore` 0.5.0 on NuGet. The TypeScript client and the Go client did
+not change and stay at 0.3.1. It is a minor release because a consumer of `InboxDbContextFactory`
+must change its project; see Breaking.
+
+### Breaking
+
+- **`InboxDbContextFactory` moves to `QueueBox.Inbox.EntityFrameworkCore`.** The type shipped in
+  `QueueBox.Inbox.DependencyInjection`, so that package depended on
+  `Microsoft.EntityFrameworkCore.Relational` 8.0.11 for one static helper. A consumer that wanted
+  `AddQueueBoxInbox` alone took Entity Framework Core and its version floor, and a project pinned
+  below 8.0.11 failed to restore with NU1605. `QueueBox.Inbox.DependencyInjection` now depends on
+  `QueueBox.Inbox` and `Microsoft.Extensions.*` alone. The type keeps its name, its method and its
+  behaviour. Migration: add the package `QueueBox.Inbox.EntityFrameworkCore`, and change
+  `using QueueBox.Inbox.DependencyInjection;` to `using QueueBox.Inbox.EntityFrameworkCore;` where
+  the code calls `InboxDbContextFactory`. Fixes #90.
+
 ## Client libraries: C# 0.4.0 — 2026-10-02
 
 The tag `csharp-v0.4.0` ships `QueueBox.Inbox` and `QueueBox.Inbox.DependencyInjection` 0.4.0 on

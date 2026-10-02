@@ -72,7 +72,7 @@ class SqlServerInboxRepository(
                 ON target.$sourceCol = src.source AND target.$idempotencyKeyCol = src.idempotency_key
                 WHEN NOT MATCHED THEN
                     INSERT ($insertColumns)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, DATEADD(second, ?, SYSUTCDATETIME()));
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, DATEADD(second, ?, $earliestMoment));
                 """.trimIndent()
 
                 val conn = TransactionManager.current().connection.connection as java.sql.Connection
@@ -98,6 +98,10 @@ class SqlServerInboxRepository(
                     // Issue #84. The delay is added to the database clock, which the claims compare
                     // against. DATEADD takes a 32-bit integer, and the validator bounds the delay.
                     stmt.setInt(++index, initialDelay.inWholeSeconds.toInt())
+                    // Issue #91. A publish time replaces the database clock when it is the earlier
+                    // of the two. MIN ignores NULL, so a message with no publish time keeps the
+                    // clock. The text form carries UTC, which is what SYSUTCDATETIME() returns.
+                    nextString(message.publishedAt?.let(::utcDateTime2))
                     stmt.executeUpdate()
                 }
 
@@ -151,7 +155,7 @@ class SqlServerInboxRepository(
                 WHERE $stateCol = 'pending' AND ${quoteSqlServerIdentifier(columnMapping.consumption)} = 'push'
                 AND ${quoteSqlServerIdentifier(columnMapping.scheduledAt)} <= SYSUTCDATETIME()
                 $exclusion
-                ORDER BY $createdAtCol ASC
+                ORDER BY ${quoteSqlServerIdentifier(columnMapping.scheduledAt)} ASC, $createdAtCol ASC
             )
             UPDATE candidates
             SET $stateCol = 'processing', $claimedAtCol = ?, ${quoteSqlServerIdentifier(
@@ -231,7 +235,9 @@ class SqlServerInboxRepository(
         val released = mutableListOf<InboxMessage>()
         val seenAggregates = mutableSetOf<String>()
 
-        claimed.sortedBy { it.createdAt }.forEach { message ->
+        // Issue #91. The relay forwards in the order of `scheduled_at`, which holds the publish
+        // time plus the delay for a source that reads it, and the receipt time otherwise.
+        claimed.sortedWith(compareBy({ it.scheduledAt }, { it.createdAt })).forEach { message ->
             val aggregateId = message.aggregateId
             if (aggregateId == null || seenAggregates.add(aggregateId)) {
                 kept.add(message)
@@ -363,7 +369,8 @@ class SqlServerInboxRepository(
         claimToken = this[table.claimToken],
         leaseExpiresAt = this[table.leaseExpiresAt],
         claimedAt = this[table.claimedAt],
-        headers = HeaderJson.decode(this[table.headers])
+        headers = HeaderJson.decode(this[table.headers]),
+        scheduledAt = this[table.scheduledAt]
     )
 
     private fun stringToMessageState(state: String): MessageState = when (state) {
@@ -376,6 +383,16 @@ class SqlServerInboxRepository(
         "dead" -> MessageState.Dead
         else -> MessageState.Failed(error = "Unknown state: $state", attempt = 0)
     }
+
+    /** The UTC text of [instant] that SQL Server casts to DATETIME2, with millisecond precision. */
+    private fun utcDateTime2(instant: kotlin.time.Instant): String = java.time.format.DateTimeFormatter
+        .ofPattern("yyyy-MM-dd'T'HH:mm:ss.SSS")
+        .withZone(java.time.ZoneOffset.UTC)
+        .format(java.time.Instant.ofEpochMilli(instant.toEpochMilliseconds()))
+
+    /** The earlier of the database clock and the bound publish time. MIN ignores a NULL. */
+    private val earliestMoment =
+        "(SELECT MIN(moment) FROM (VALUES (SYSUTCDATETIME()), (CAST(? AS DATETIME2))) AS moments(moment))"
 
     private val claimLockResource: String = "queuebox_inbox_claim_$tableName"
 }

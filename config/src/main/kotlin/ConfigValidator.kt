@@ -309,7 +309,8 @@ object ConfigValidator {
         listOf(
             "idempotencyKeyPath" to source.idempotencyKeyPath,
             "aggregateIdPath" to source.aggregateIdPath,
-            "eventTypePath" to source.eventTypePath
+            "eventTypePath" to source.eventTypePath,
+            "scheduledAtPath" to source.scheduledAtPath
         ).forEach { (field, keyPaths) ->
             if (keyPaths == null) {
                 return@forEach
@@ -352,8 +353,24 @@ object ConfigValidator {
         }
     }
 
-    /** Refuses an `initialDelay` that is not a duration such as `30s`. Issue #84. */
+    /**
+     * Refuses an `initialDelay` that is not a duration such as `30s`. Issue #84.
+     *
+     * Issue #91: a source that reads the publish time needs a delay above zero. The delay is the
+     * time that a late message has to arrive, so without it the keys give no order.
+     */
     private fun validateInitialDelay(name: String, source: SourceConfig) {
+        val readsPublishTime = source.scheduledAtHeader != null || source.scheduledAtPath != null
+        require(source.scheduledAtHeader == null || source.scheduledAtHeader!!.isNotBlank()) {
+            "Source '$name' scheduledAtHeader cannot be blank. Remove the key, or name a header. " +
+                setVia("sources.$name.scheduledAtHeader")
+        }
+        require(!readsPublishTime || source.initialDelay != null) {
+            "Source '$name' sets scheduledAtHeader or scheduledAtPath, but no initialDelay. The " +
+                "delay is the time that a late message has to arrive, so the publish time gives " +
+                "no order without it. Set 'sources.$name.initialDelay' to a duration above zero, " +
+                "such as '30s'. " + setVia("sources.$name.initialDelay")
+        }
         val delay = source.initialDelay ?: return
         val yamlPath = "sources.$name.initialDelay"
         val parsed = try {
@@ -364,6 +381,10 @@ object ConfigValidator {
         // SQL Server adds the delay as a whole number of seconds in a 32-bit integer.
         require(parsed.inWholeSeconds <= Int.MAX_VALUE) {
             "Source '$name' initialDelay '$delay' is too long. " + setVia(yamlPath)
+        }
+        require(!readsPublishTime || parsed.isPositive()) {
+            "Source '$name' sets scheduledAtHeader or scheduledAtPath, so initialDelay must be " +
+                "above zero, not '$delay'. " + setVia(yamlPath)
         }
     }
 

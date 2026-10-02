@@ -106,8 +106,9 @@ For a push row, it means that the relay copied the row into the outbox. For a pu
 ### scheduled_at and attempt
 
 QueueBox sets `scheduled_at` at receipt to the database time plus the `initialDelay` of the source. A source without `initialDelay` gets the receipt time.
-A pull claim and the relay claim take a row only when `scheduled_at` has passed. A pull retry moves `scheduled_at` forward and raises `attempt` by one.
-The relay does not use `attempt`. QueueBox 0.6.0 and earlier do not read `scheduled_at` in the relay claim.
+A source with `scheduledAtHeader` or `scheduledAtPath` gets the publish time of the message plus the delay.
+A pull claim and the relay claim take a row only when `scheduled_at` has passed, and both take the rows in the order of `scheduled_at`, then of `created_at`. A pull retry moves `scheduled_at` forward and raises `attempt` by one.
+The relay does not use `attempt`. QueueBox 0.6.0 and earlier do not read `scheduled_at` in the relay claim, and 0.7.0 orders the relay claim by `created_at` alone.
 
 ### last_error
 

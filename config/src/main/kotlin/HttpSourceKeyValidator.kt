@@ -34,7 +34,8 @@ internal object HttpSourceKeyValidator {
         listOf(
             "idempotencyKeyHeader" to source.idempotencyKeyHeader,
             "eventTypeHeader" to source.eventTypeHeader,
-            "aggregateIdHeader" to source.aggregateIdHeader
+            "aggregateIdHeader" to source.aggregateIdHeader,
+            "scheduledAtHeader" to source.scheduledAtHeader
         ).forEach { (field, header) ->
             if (header == null) return@forEach
             val yamlPath = "sources.$name.$field"

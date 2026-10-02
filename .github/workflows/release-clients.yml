@@ -4,7 +4,7 @@
 # server release for a one line library fix, and it would republish a library under a version
 # whose number promises a change that the library did not make.
 #
-#   C#: `csharp-v0.1.1` publishes QueueBox.Inbox 0.1.1 to NuGet.
+#   C#: `csharp-v0.1.1` publishes QueueBox.Inbox 0.1.1 to NuGet, with its two companion packages.
 #   TypeScript: `typescript-v0.1.1` publishes @alternayte/queuebox-inbox 0.1.1 to npm.
 #   Go: `clients/go/v0.1.1` publishes the module. Go ties the tag of a module in a subdirectory
 #   to that subdirectory, so this tag carries the path and cannot follow the pattern above.
@@ -79,9 +79,10 @@ jobs:
         run: dotnet test clients/csharp/tests/QueueBox.Inbox.DependencyInjection.Tests -c Release --no-build
 
       - name: Pack the version that the tag names
-        # Both packages ship from one tag at one version. The dependency injection package
-        # depends on the core package, and its csproj pins that dependency to an exact version
-        # match, so the same -p:Version value keeps the two locked together.
+        # The three packages ship from one tag at one version. The dependency injection package
+        # and the Entity Framework Core package each depend on the core package, and each csproj
+        # pins that dependency to an exact version match, so the same -p:Version value keeps the
+        # three locked together.
         run: |
           dotnet pack clients/csharp/src/QueueBox.Inbox \
             -c Release \
@@ -93,23 +94,39 @@ jobs:
             -o artifacts \
             -p:Version=${{ steps.version.outputs.version }}
 
-      - name: Prove the dependency injection package pins the core package exactly
+          dotnet pack clients/csharp/src/QueueBox.Inbox.EntityFrameworkCore \
+            -c Release \
+            -o artifacts \
+            -p:Version=${{ steps.version.outputs.version }}
+
+      - name: Prove the two dependent packages pin the core package exactly
         # A lockstep claim that nothing verifies breaks quietly, and the failure would appear
-        # only after both packages are public and immutable. This step unpacks the nuspec and
+        # only after the packages are public and immutable. This step unpacks each nuspec and
         # fails the job when the core dependency is not an exact version match for the tag.
         run: |
           version="${{ steps.version.outputs.version }}"
-          package="artifacts/QueueBox.Inbox.DependencyInjection.${version}.nupkg"
-          nuspec_dir="$(mktemp -d)"
-          unzip -o -q "$package" -d "$nuspec_dir"
-          nuspec_file="$(find "$nuspec_dir" -maxdepth 1 -name '*.nuspec')"
           expected="<dependency id=\"QueueBox.Inbox\" version=\"[${version}]\""
-          if ! grep -qF "$expected" "$nuspec_file"; then
-            echo "The nuspec does not pin QueueBox.Inbox to an exact version match for ${version}." >&2
-            grep "QueueBox.Inbox" "$nuspec_file" >&2 || true
+          for name in QueueBox.Inbox.DependencyInjection QueueBox.Inbox.EntityFrameworkCore; do
+            nuspec_dir="$(mktemp -d)"
+            unzip -o -q "artifacts/${name}.${version}.nupkg" -d "$nuspec_dir"
+            nuspec_file="$(find "$nuspec_dir" -maxdepth 1 -name '*.nuspec')"
+            if ! grep -qF "$expected" "$nuspec_file"; then
+              echo "The nuspec of ${name} does not pin QueueBox.Inbox to an exact version match for ${version}." >&2
+              grep "QueueBox.Inbox" "$nuspec_file" >&2 || true
+              exit 1
+            fi
+            echo "Confirmed: ${name} pins QueueBox.Inbox to an exact match for ${version}."
+          done
+
+      - name: Prove the dependency injection package carries no Entity Framework Core
+        # Issue #90. A consumer that wants the registration alone must not take a database
+        # library, so a reference that comes back fails the job before the push.
+        run: |
+          version="${{ steps.version.outputs.version }}"
+          if unzip -p "artifacts/QueueBox.Inbox.DependencyInjection.${version}.nupkg" '*.nuspec' | grep -q "EntityFrameworkCore"; then
+            echo "QueueBox.Inbox.DependencyInjection depends on Entity Framework Core again." >&2
             exit 1
           fi
-          echo "Confirmed: the nuspec pins QueueBox.Inbox to an exact match for ${version}."
 
       - name: Ask nuget.org for a short-lived key
         # The trusted publishing policy on nuget.org names this repository and this workflow
@@ -121,8 +138,9 @@ jobs:
           user: ${{ secrets.NUGET_USER }}
 
       - name: Push to NuGet
-        # `--skip-duplicate` makes a repeated tag a no-op rather than a failure. Both packages
-        # push from the one tag, at the one version, so the two ship together.
+        # `--skip-duplicate` makes a repeated tag a no-op rather than a failure. The three
+        # packages push from the one tag, at the one version, so they ship together. The core
+        # package goes first, because the other two depend on it.
         run: |
           dotnet nuget push "artifacts/QueueBox.Inbox.${{ steps.version.outputs.version }}.nupkg" \
             --api-key "${{ steps.nuget_login.outputs.NUGET_API_KEY }}" \
@@ -134,13 +152,18 @@ jobs:
             --source https://api.nuget.org/v3/index.json \
             --skip-duplicate
 
+          dotnet nuget push "artifacts/QueueBox.Inbox.EntityFrameworkCore.${{ steps.version.outputs.version }}.nupkg" \
+            --api-key "${{ steps.nuget_login.outputs.NUGET_API_KEY }}" \
+            --source https://api.nuget.org/v3/index.json \
+            --skip-duplicate
+
       - name: Create the GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release create "${GITHUB_REF_NAME}" \
             --title "QueueBox.Inbox ${{ steps.version.outputs.version }}" \
-            --notes "The C# pull inbox client library, version ${{ steps.version.outputs.version }}, and QueueBox.Inbox.DependencyInjection at the same version. See clients/csharp/README.md." \
+            --notes "The C# pull inbox client library, version ${{ steps.version.outputs.version }}, with QueueBox.Inbox.DependencyInjection and QueueBox.Inbox.EntityFrameworkCore at the same version. See clients/csharp/README.md." \
             artifacts/*.nupkg
 
   typescript:
