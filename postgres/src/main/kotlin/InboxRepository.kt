@@ -58,8 +58,9 @@ class InboxRepository(
                     it[headers] = HeaderJson.toElement(message.headers)
                     it[consumption] = message.consumption
                     // Issue #84. The delay is added to the database clock, which the claims compare
-                    // against.
-                    it[scheduledAt] = databaseNowPlus(initialDelay)
+                    // against. Issue #91: a publish time replaces the database clock when it is
+                    // the earlier of the two.
+                    it[scheduledAt] = scheduledAtExpression(initialDelay, message.publishedAt)
                 }
 
                 if (inserted.insertedCount == 0) {
@@ -108,7 +109,7 @@ class InboxRepository(
                             SELECT DISTINCT $aggregateCol FROM $t
                             WHERE $aggregateCol IS NOT NULL AND $stateCol = 'processing'
                         ) )
-                ORDER BY $createdAtCol ASC
+                ORDER BY ${q(columnMapping.scheduledAt)} ASC, $createdAtCol ASC
                 LIMIT ?
                 FOR UPDATE SKIP LOCKED
             ) AS candidates
@@ -122,7 +123,7 @@ class InboxRepository(
         )}, target.${q(
             columnMapping.claimedAt
         )}, target.${q(columnMapping.claimToken)}, target.${q(columnMapping.leaseExpiresAt)},
-                      target.${q(columnMapping.headers)}
+                      target.${q(columnMapping.headers)}, target.${q(columnMapping.scheduledAt)}
         """.trimIndent()
 
         val now = Clock.System.now()
@@ -161,7 +162,9 @@ class InboxRepository(
         val released = mutableListOf<InboxMessage>()
         val seenAggregates = mutableSetOf<String>()
 
-        claimed.sortedBy { it.createdAt }.forEach { message ->
+        // Issue #91. The relay forwards in the order of `scheduled_at`, which holds the publish
+        // time plus the delay for a source that reads it, and the receipt time otherwise.
+        claimed.sortedWith(compareBy({ it.scheduledAt }, { it.createdAt })).forEach { message ->
             val aggregateId = message.aggregateId
             if (aggregateId == null || seenAggregates.add(aggregateId)) {
                 kept.add(message)
@@ -207,12 +210,23 @@ class InboxRepository(
         }
     }
 
-    /** The database clock plus [delay]. The value is a whole number, so it is safe in the text. */
-    private fun databaseNowPlus(delay: Duration) = object : org.jetbrains.exposed.v1.core.Expression<Instant>() {
-        override fun toQueryBuilder(queryBuilder: org.jetbrains.exposed.v1.core.QueryBuilder) {
-            queryBuilder.append("clock_timestamp() + INTERVAL '1 millisecond' * ${delay.inWholeMilliseconds}")
+    /**
+     * The earlier of the database clock and [publishedAt], plus [delay]. A publish time in the
+     * future must not hold a row longer than the delay. Both values are whole numbers, so they
+     * are safe in the text.
+     */
+    private fun scheduledAtExpression(delay: Duration, publishedAt: Instant?) =
+        object : org.jetbrains.exposed.v1.core.Expression<Instant>() {
+            override fun toQueryBuilder(queryBuilder: org.jetbrains.exposed.v1.core.QueryBuilder) {
+                val base = if (publishedAt == null) {
+                    "clock_timestamp()"
+                } else {
+                    val millis = publishedAt.toEpochMilliseconds()
+                    "LEAST(clock_timestamp(), to_timestamp($millis::double precision / 1000))"
+                }
+                queryBuilder.append("$base + INTERVAL '1 millisecond' * ${delay.inWholeMilliseconds}")
+            }
         }
-    }
 
     private val databaseNow = object : org.jetbrains.exposed.v1.core.Expression<Instant>() {
         override fun toQueryBuilder(queryBuilder: org.jetbrains.exposed.v1.core.QueryBuilder) {
@@ -295,7 +309,10 @@ class InboxRepository(
         claimedAt = getTimestamp(columnMapping.claimedAt)?.toInstant()?.let {
             kotlin.time.Instant.fromEpochSeconds(it.epochSecond, it.nano)
         },
-        headers = HeaderJson.decode(getString(columnMapping.headers))
+        headers = HeaderJson.decode(getString(columnMapping.headers)),
+        scheduledAt = getTimestamp(columnMapping.scheduledAt).toInstant().let {
+            kotlin.time.Instant.fromEpochSeconds(it.epochSecond, it.nano)
+        }
     )
 
     private fun stringToMessageState(state: String): MessageState = when (state) {

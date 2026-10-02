@@ -32,6 +32,7 @@ import java.time.Duration
 import java.util.Properties
 import java.util.UUID
 import kotlin.time.Clock
+import kotlin.time.Instant
 
 data class KafkaConsumerConfig(
     val sourceName: String,
@@ -46,6 +47,9 @@ data class KafkaConsumerConfig(
     val idempotencyKeyExpression: String? = null,
     val aggregateIdExpression: String? = null,
     val eventTypeExpression: String? = null,
+    /** Where the publish time of a message comes from. Issue #91. */
+    val scheduledAtHeader: String? = null,
+    val scheduledAtPath: KeyPaths? = null,
     val autoOffsetReset: String = "earliest",
     val maxPollRecords: Int = 100,
     val securityProtocol: String = "PLAINTEXT",
@@ -200,7 +204,15 @@ class KafkaInboxConsumer(
                 eventType = extractEventType(record, payload),
                 payload = payload,
                 correlationId = correlationId,
-                headers = headers
+                headers = headers,
+                // Issue #91. The header and the body come first, then the record timestamp.
+                publishedAt = keyReader.publishedAt(
+                    config.sourceName,
+                    payload,
+                    headers,
+                    PublishTimeKeys(config.scheduledAtHeader, config.scheduledAtPath),
+                    record.timestamp().takeIf { it >= 0 }?.let(Instant::fromEpochMilliseconds)
+                )
             )
 
             val transformed = applyTransform(message) ?: return true

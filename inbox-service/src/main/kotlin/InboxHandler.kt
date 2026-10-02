@@ -78,7 +78,8 @@ class InboxHandler(
             payload = transformedPayload,
             correlationId = correlationId,
             consumption = sourceConfig.consumption,
-            headers = headers
+            headers = headers,
+            publishedAt = publishedAt(source, sourceConfig, payload, headers)
         )
 
         // Store with deduplication
@@ -97,6 +98,19 @@ class InboxHandler(
             }
         }
     }
+
+    /** Issue #91. The original payload carries the publish time, as it carries the keys. */
+    private fun publishedAt(
+        source: String,
+        sourceConfig: SourceConfig.Http,
+        payload: JsonElement,
+        headers: Map<String, String>
+    ) = keyReader.publishedAt(
+        source,
+        payload,
+        headers,
+        PublishTimeKeys(sourceConfig.scheduledAtHeader, sourceConfig.scheduledAtPath)
+    )
 
     /** Counts and logs one request that the header filter of its source dropped. */
     fun recordFiltered(source: String, rule: String) {

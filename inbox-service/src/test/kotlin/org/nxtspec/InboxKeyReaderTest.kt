@@ -4,6 +4,7 @@ import kotlinx.serialization.json.Json
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
+import kotlin.time.Instant
 
 /** Issues #83 and #85. See `docs/specs/inbox-keys-and-delay.md`. */
 class InboxKeyReaderTest {
@@ -55,5 +56,45 @@ class InboxKeyReaderTest {
         assertEquals("2", read("""{"OrderId":"2"}""", null, "$.orderId", "$.OrderId"))
         assertEquals("1", read("""{"orderId":"1","OrderId":"2"}""", null, "$.orderId", "$.OrderId"))
         assertNull(read("""{"other":"3"}""", null, "$.orderId", "$.OrderId"))
+    }
+
+    // Issue #91. See `docs/specs/publish-time-order.md`.
+
+    private val keys = PublishTimeKeys(header = "timestamp_in_ms", paths = KeyPaths("$.time"))
+    private val body = Json.parseToJsonElement("""{"time":"2026-09-21T10:00:00Z"}""")
+
+    @Test
+    fun `a publish time is milliseconds, seconds or an ISO time`() {
+        val expected = Instant.parse("2026-09-21T10:00:00Z")
+
+        assertEquals(expected, InboxKeyReader.parsePublishTime("1789984800000"))
+        assertEquals(expected, InboxKeyReader.parsePublishTime("1789984800"))
+        assertEquals(expected, InboxKeyReader.parsePublishTime("2026-09-21T12:00:00+02:00"))
+        assertNull(InboxKeyReader.parsePublishTime("yesterday"))
+        assertNull(InboxKeyReader.parsePublishTime("-5"))
+    }
+
+    @Test
+    fun `the header comes before the path, and the broker time is last`() {
+        val broker = Instant.parse("2026-09-21T09:00:00Z")
+        val fromHeader = reader.publishedAt("orders", body, mapOf("Timestamp_In_Ms" to "1789984801000"), keys, broker)
+        val fromPath = reader.publishedAt("orders", body, emptyMap(), keys, broker)
+        val fromBroker = reader.publishedAt("orders", Json.parseToJsonElement("{}"), emptyMap(), keys, broker)
+
+        assertEquals(Instant.parse("2026-09-21T10:00:01Z"), fromHeader)
+        assertEquals(Instant.parse("2026-09-21T10:00:00Z"), fromPath)
+        assertEquals(broker, fromBroker)
+    }
+
+    @Test
+    fun `a value that is not a time falls through, and a source without the keys reads nothing`() {
+        val broker = Instant.parse("2026-09-21T09:00:00Z")
+
+        assertEquals(
+            Instant.parse("2026-09-21T10:00:00Z"),
+            reader.publishedAt("orders", body, mapOf("timestamp_in_ms" to "yesterday"), keys)
+        )
+        assertNull(reader.publishedAt("orders", Json.parseToJsonElement("""{"time":"soon"}"""), emptyMap(), keys))
+        assertNull(reader.publishedAt("orders", body, mapOf("timestamp_in_ms" to "1"), PublishTimeKeys(), broker))
     }
 }

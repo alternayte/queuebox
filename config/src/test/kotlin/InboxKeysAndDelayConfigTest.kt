@@ -125,4 +125,42 @@ class InboxKeysAndDelayConfigTest {
         )
         assertEquals("id", config.sources.getValue("orders").idempotencyKeyExpression)
     }
+
+    // Issue #91. See `docs/specs/publish-time-order.md`.
+
+    @Test
+    fun `the publish time keys load from YAML and from variables to the same source`() {
+        val fromYaml = load(
+            rabbit + "\n" + """
+            |    scheduledAtHeader: timestamp_in_ms
+            |    scheduledAtPath: ${'$'}.time
+            |    initialDelay: 30s
+            """.trimMargin()
+        )
+        val fromEnv = loadEnv(
+            "QUEUEBOX_SOURCES_ORDERS_TYPE" to "rabbitmq",
+            "QUEUEBOX_SOURCES_ORDERS_QUEUENAME" to "orders",
+            "QUEUEBOX_SOURCES_ORDERS_CONNECTIONURL" to "amqp://broker",
+            "QUEUEBOX_SOURCES_ORDERS_SCHEDULEDATHEADER" to "timestamp_in_ms",
+            "QUEUEBOX_SOURCES_ORDERS_SCHEDULEDATPATH" to "\$.time",
+            "QUEUEBOX_SOURCES_ORDERS_INITIALDELAY" to "30s"
+        )
+
+        val source = fromYaml.sources.getValue("orders")
+        assertEquals("timestamp_in_ms", source.scheduledAtHeader)
+        assertEquals(KeyPaths("\$.time"), source.scheduledAtPath)
+        assertEquals(fromYaml.sources, fromEnv.sources)
+    }
+
+    @Test
+    fun `a publish time key without a delay above zero stops the start`() {
+        val missing = assertFailsWith<IllegalArgumentException> { load("$rabbit\n    scheduledAtPath: ${'$'}.time") }
+        assertContains(missing.message!!, "sources.orders.initialDelay")
+        assertContains(missing.message!!, "scheduledAtPath")
+
+        val zero = assertFailsWith<IllegalArgumentException> {
+            load("$rabbit\n    scheduledAtHeader: timestamp_in_ms\n    initialDelay: 0s")
+        }
+        assertContains(zero.message!!, "sources.orders.initialDelay")
+    }
 }

@@ -421,4 +421,36 @@ class SqlServerInboxRepositoryTest : SqlServerTestBase() {
 
         assertEquals(listOf("held"), repository.claimPending(10).map { it.idempotencyKey })
     }
+
+    // --- Publish time order. Issue #91. ---
+
+    private fun published(key: String, aggregate: String, at: kotlin.time.Instant) = InboxMessage(
+        source = "orders",
+        idempotencyKey = key,
+        aggregateId = aggregate,
+        payload = JsonObject(emptyMap()),
+        publishedAt = at
+    )
+
+    @Test
+    fun `rows stored in reverse publish order leave the claim in publish order`() = runBlocking {
+        val now = Clock.System.now()
+        // The later message of the aggregate arrives first, as it does with two consumers.
+        repository.store(published("second", "article-1", now - 5.seconds), 30.seconds)
+        repository.store(published("first", "article-1", now - 10.seconds), 30.seconds)
+        repository.store(published("ahead", "article-2", now + 3600.seconds), 30.seconds)
+
+        assertTrue(secondsUntilScheduled("first") in 15..20, "scheduled_at must be the publish time plus the delay.")
+        assertTrue(secondsUntilScheduled("second") in 20..25, "scheduled_at must be the publish time plus the delay.")
+        assertTrue(
+            secondsUntilScheduled("ahead") in 25..30,
+            "A publish time in the future must not hold a row longer than the delay."
+        )
+        assertEquals(emptyList(), repository.claimPending(10).map { it.idempotencyKey })
+
+        transaction { exec("UPDATE inbox SET scheduled_at = DATEADD(second, -60, scheduled_at)") }
+
+        // One aggregate gives one row per claim, and the earlier publish time wins.
+        assertEquals(listOf("first", "ahead"), repository.claimPending(10).map { it.idempotencyKey })
+    }
 }

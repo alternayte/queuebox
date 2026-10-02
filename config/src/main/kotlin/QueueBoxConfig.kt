@@ -393,6 +393,16 @@ sealed class SourceConfig {
      */
     abstract val initialDelay: String?
 
+    /**
+     * The header that carries the publish time of a message. Issue #91. With this key or
+     * [scheduledAtPath], the store sets `scheduled_at` to the publish time plus [initialDelay],
+     * so a claim takes the messages of one aggregate in publish order.
+     */
+    abstract val scheduledAtHeader: String?
+
+    /** The JSONPaths of the publish time in the body. The header comes first. Issue #91. */
+    abstract val scheduledAtPath: KeyPaths?
+
     /** [initialDelay] as a duration. A source without the key has no delay. */
     fun initialDelayDuration(): Duration = initialDelay?.let(DurationParser::parse) ?: Duration.ZERO
 
@@ -440,6 +450,8 @@ sealed class SourceConfig {
         override val rateLimit: RateLimitConfig? = null,
         override val filter: HeaderFilterConfig? = null,
         override val initialDelay: String? = null,
+        override val scheduledAtHeader: String? = null,
+        override val scheduledAtPath: KeyPaths? = null,
         val auth: InboxAuthConfig? = null
     ) : SourceConfig()
 
@@ -494,7 +506,9 @@ sealed class SourceConfig {
         override val consumption: String = "push",
         override val rateLimit: RateLimitConfig? = null,
         override val filter: HeaderFilterConfig? = null,
-        override val initialDelay: String? = null
+        override val initialDelay: String? = null,
+        override val scheduledAtHeader: String? = null,
+        override val scheduledAtPath: KeyPaths? = null
     ) : SourceConfig() {
         override fun toString(): String = "Kafka(bootstrapServers=$bootstrapServers, topics=$topics, " +
             "groupId=$groupId, idempotencyKeyPath=$idempotencyKeyPath, aggregateIdPath=$aggregateIdPath, " +
@@ -504,7 +518,9 @@ sealed class SourceConfig {
             "autoOffsetReset=$autoOffsetReset, maxPollRecords=$maxPollRecords, " +
             "securityProtocol=$securityProtocol, saslMechanism=$saslMechanism, " +
             "saslUsername=$saslUsername, attributeHeaders=$attributeHeaders, transform=$transform, " +
-            "topic=$topic, consumption=$consumption, rateLimit=$rateLimit, filter=$filter, initialDelay=$initialDelay)"
+            "topic=$topic, consumption=$consumption, rateLimit=$rateLimit, filter=$filter, " +
+            "initialDelay=$initialDelay, " +
+            "scheduledAtHeader=$scheduledAtHeader, scheduledAtPath=$scheduledAtPath)"
     }
 
     /**
@@ -551,7 +567,9 @@ sealed class SourceConfig {
         override val consumption: String = "push",
         override val rateLimit: RateLimitConfig? = null,
         override val filter: HeaderFilterConfig? = null,
-        override val initialDelay: String? = null
+        override val initialDelay: String? = null,
+        override val scheduledAtHeader: String? = null,
+        override val scheduledAtPath: KeyPaths? = null
     ) : SourceConfig() {
         override fun toString(): String = "Nats(servers=${CredentialMasking.maskUrl(servers)}, " +
             "stream=$stream, durable=$durable, filterSubject=$filterSubject, " +
@@ -561,7 +579,8 @@ sealed class SourceConfig {
             "eventTypeFromHeader=$eventTypeFromHeader, " +
             "ackWaitMs=$ackWaitMs, batchSize=$batchSize, username=$username, " +
             "attributeHeaders=$attributeHeaders, transform=$transform, topic=$topic, " +
-            "consumption=$consumption, rateLimit=$rateLimit, filter=$filter, initialDelay=$initialDelay)"
+            "consumption=$consumption, rateLimit=$rateLimit, filter=$filter, initialDelay=$initialDelay, " +
+            "scheduledAtHeader=$scheduledAtHeader, scheduledAtPath=$scheduledAtPath)"
     }
 
     @Serializable
@@ -612,7 +631,9 @@ sealed class SourceConfig {
         override val consumption: String = "push",
         override val rateLimit: RateLimitConfig? = null,
         override val filter: HeaderFilterConfig? = null,
-        override val initialDelay: String? = null
+        override val initialDelay: String? = null,
+        override val scheduledAtHeader: String? = null,
+        override val scheduledAtPath: KeyPaths? = null
     ) : SourceConfig() {
         /**
          * F-038: an AMQP URI carries the broker password, so the printed form masks it.
@@ -625,7 +646,8 @@ sealed class SourceConfig {
             "eventTypeFromHeader=$eventTypeFromHeader, " +
             "prefetchCount=$prefetchCount, declareQueue=$declareQueue, " +
             "attributeHeaders=$attributeHeaders, transform=$transform, " +
-            "topic=$topic, rateLimit=$rateLimit, filter=$filter, initialDelay=$initialDelay)"
+            "topic=$topic, rateLimit=$rateLimit, filter=$filter, initialDelay=$initialDelay, " +
+            "scheduledAtHeader=$scheduledAtHeader, scheduledAtPath=$scheduledAtPath)"
     }
 }
 

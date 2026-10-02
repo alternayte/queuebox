@@ -556,6 +556,8 @@ The permitted names are `aggregate_type`, `topic` and `key`, with the underscore
 | `aggregateIdExpression` | string | none | A JSONata expression that computes the aggregate identifier. It comes before `aggregateIdPath`. |
 | `eventTypeExpression` | string | none | A JSONata expression that computes the event type. It comes before `eventTypePath`. |
 | `initialDelay` | duration | none | The time that a received row waits before a claim can take it, such as `30s`. See [initialDelay](#initialdelay). |
+| `scheduledAtHeader` | string | none | The header that carries the publish time of a message. It needs `initialDelay`. See [scheduledAtHeader and scheduledAtPath](#scheduledatheader-and-scheduledatpath). |
+| `scheduledAtPath` | string or list | none | The JSONPath of the publish time in the body, or a list of JSONPaths. It comes after `scheduledAtHeader`, and it needs `initialDelay`. |
 | `transform` | block | none | A JSONata transform that runs before the store. See [transform](#transform). |
 | `filter` | block | none | A header filter. See [filter](#filter). |
 | `rateLimit.requestsPerMinute` | integer | none | The request limit of an HTTP source. A request over it gets `429`. QueueBox ignores the key on the other kinds. It must be above 0. |
@@ -631,6 +633,35 @@ sources:
 The key applies to a pull source and to a push source. A held row keeps state `pending` and uses no handler slot.
 A row that QueueBox stores in state `dead` gets no delay.
 A held row counts in `queuebox_inbox_oldest_pending_age_seconds`, so keep the alert threshold above the delay.
+
+### scheduledAtHeader and scheduledAtPath
+
+The two keys make QueueBox read the publish time of each message. QueueBox then sets `scheduled_at` to the publish time plus `initialDelay`, in place of the receipt time plus `initialDelay`. A claim takes the rows of one aggregate in the order of `scheduled_at`, so the messages leave in publish order. [Ordering](/concepts/ordering/#receipt-order-and-publish-order) states what the order holds for, and its limits.
+
+```yaml
+# fragment
+sources:
+  articles:
+    type: rabbitmq
+    queueName: articles
+    connectionUrl: amqp://broker:5672
+    consumption: pull
+    aggregateIdPath: $.articleId
+    scheduledAtHeader: timestamp_in_ms
+    scheduledAtPath: $.time
+    initialDelay: 30s
+```
+
+These rules apply:
+
+- A source that sets either key must set an `initialDelay` above zero. A source without it stops the start, because the delay is the time that a late message has to arrive.
+- QueueBox reads the header first, then the path. A header name matches in any letter case. A JSONPath must be definite.
+- A broker source then reads the time of the broker protocol: the AMQP `timestamp` property, the Kafka record timestamp, or the time at which JetStream stored the message. This step applies only when the source sets one of the two keys.
+- A message with no publish time gets the receipt time.
+- A value is an ISO-8601 time with an offset, such as `2026-09-21T10:00:00Z`, or a whole number. A number below 100000000000 is seconds since 1970. A larger number is milliseconds.
+- A value that is not a time counts as missing, and QueueBox writes one warning to the log.
+- A publish time later than the receipt time counts as the receipt time. A producer clock that runs ahead therefore holds a row no longer than the delay.
+- On an HTTP source, `scheduledAtHeader` must not name a credential header, as with the other key headers.
 
 ### HTTP source
 

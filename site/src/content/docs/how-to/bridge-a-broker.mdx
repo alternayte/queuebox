@@ -163,6 +163,28 @@ sources:
 
 A push source takes the key too. The relay copies the row into the outbox when the delay has passed.
 
+### Keep the publish order of one aggregate
+
+A RabbitMQ source stores several deliveries at the same time, and two QueueBox instances compete for one queue. Two messages of one aggregate can therefore reach the inbox in the opposite order.
+Let the source read the publish time, and QueueBox orders the rows by it:
+
+```yaml
+# fragment
+sources:
+  articles:
+    type: rabbitmq
+    queueName: articles
+    connectionUrl: amqp://broker:5672
+    consumption: pull
+    aggregateIdPath: $.articleId
+    scheduledAtHeader: timestamp_in_ms
+    scheduledAtPath: $.time
+    initialDelay: 30s
+```
+
+`timestamp_in_ms` is the header that RabbitMQ 3.12 and later add when the broker sets `message_interceptors.incoming.set_header_timestamp.overwrite`. `$.time` is the fallback for a message without the header, for example the `time` of a CloudEvent.
+`initialDelay` is required. It is the time that a late message has to arrive and still take its place. [Ordering](/concepts/ordering/#receipt-order-and-publish-order) states the limits.
+
 ### Rename the attribute headers
 
 `attributeHeaders` renames the three headers that a broker source reads. The defaults are `x-idempotency-key`, `x-aggregate-id` and `x-event-type`. A Debezium producer, for example, sends `id`, `aggregateId` and `eventType`:
