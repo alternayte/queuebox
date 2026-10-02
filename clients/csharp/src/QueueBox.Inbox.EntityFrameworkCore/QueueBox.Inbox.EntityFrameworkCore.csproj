@@ -1,17 +1,17 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <RootNamespace>QueueBox.Inbox.DependencyInjection</RootNamespace>
-    <AssemblyName>QueueBox.Inbox.DependencyInjection</AssemblyName>
+    <RootNamespace>QueueBox.Inbox.EntityFrameworkCore</RootNamespace>
+    <AssemblyName>QueueBox.Inbox.EntityFrameworkCore</AssemblyName>
 
-    <PackageId>QueueBox.Inbox.DependencyInjection</PackageId>
+    <PackageId>QueueBox.Inbox.EntityFrameworkCore</PackageId>
     <Version>0.1.0</Version>
-    <Description>Dependency injection registration for QueueBox.Inbox. It adds one named worker as a hosted service per call, so a host with several workers keeps every one of them running.</Description>
+    <Description>Entity Framework Core helper for QueueBox.Inbox. It builds a context on the transaction of the message, so the application write and the inbox completion commit together.</Description>
     <Authors>AlterNayte</Authors>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageProjectUrl>https://github.com/alternayte/queuebox</PackageProjectUrl>
     <RepositoryUrl>https://github.com/alternayte/queuebox</RepositoryUrl>
-    <PackageTags>queuebox;inbox;outbox;transactional;dependencyinjection;hosting</PackageTags>
+    <PackageTags>queuebox;inbox;outbox;transactional;entityframeworkcore;efcore</PackageTags>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <!-- NuGet shows this file on the package page. Without it the page carries the description
          and nothing else. -->
@@ -21,11 +21,6 @@
   <ItemGroup>
     <!-- The README travels inside the package, so the page on NuGet shows it. -->
     <None Include="../../README.md" Pack="true" PackagePath="/" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <!-- The test project asserts each worker's own options through an internal property. -->
-    <InternalsVisibleTo Include="QueueBox.Inbox.DependencyInjection.Tests" />
   </ItemGroup>
 
   <ItemGroup>
@@ -48,12 +43,9 @@
   </Target>
 
   <ItemGroup>
-    <!-- The core package stays free of a container and a host. A consumer with no container pays
-         nothing, because only this package carries these two references. Entity Framework Core
-         lives in QueueBox.Inbox.EntityFrameworkCore, so this package forces no database library
-         on a consumer. Issue #90. -->
-    <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" Version="8.0.1" />
-    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="8.0.2" />
+    <!-- The helper needs the relational abstractions alone. The caller adds the provider package
+         that its build delegate uses. -->
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="8.0.11" />
   </ItemGroup>
 
 </Project>

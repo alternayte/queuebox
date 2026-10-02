@@ -103,10 +103,14 @@ An event-sourced application on [Deedbox](https://deedbox-docs.pages.dev) does n
 ## Consume the inbox with a DbContext
 
 A pull worker from `QueueBox.Inbox.DependencyInjection` claims inbox messages and gives each handler an open transaction. The handler writes through that transaction. The library completes the message in the same transaction and commits it.
+`QueueBox.Inbox.EntityFrameworkCore` holds `InboxDbContextFactory`.
 
 ```sh
 dotnet add package QueueBox.Inbox.DependencyInjection
+dotnet add package QueueBox.Inbox.EntityFrameworkCore
 ```
+
+Versions before 0.5.0 ship `InboxDbContextFactory` in `QueueBox.Inbox.DependencyInjection`, with that namespace. From 0.5.0, add the second package and the second `using` below.
 
 Build the context with `InboxDbContextFactory.CreateOn`. It hands the handler connection to your `build` delegate and enlists the context in the handler transaction.
 
@@ -117,6 +121,7 @@ Build the context with `InboxDbContextFactory.CreateOn`. It hands the handler co
 using Npgsql;
 using QueueBox.Inbox;
 using QueueBox.Inbox.DependencyInjection;
+using QueueBox.Inbox.EntityFrameworkCore;
 
 var builder = Host.CreateApplicationBuilder(args);
 
@@ -146,6 +151,7 @@ await builder.Build().RunAsync();
 using Microsoft.Data.SqlClient;
 using QueueBox.Inbox;
 using QueueBox.Inbox.DependencyInjection;
+using QueueBox.Inbox.EntityFrameworkCore;
 
 var builder = Host.CreateApplicationBuilder(args);
 

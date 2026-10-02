@@ -90,7 +90,7 @@ An HTTP source accepts `POST /inbox/<path>` (the prefix is `inbox.basePath`).
 |---|---|---|
 | Go | `github.com/alternayte/queuebox/clients/go` (package `queuebox`) | `queuebox.NewInboxWorker(db, queuebox.Options{Source: "orders"})`, then `worker.Run(ctx, func(ctx, message, tx *sql.Tx) error)` |
 | TypeScript | `@alternayte/queuebox-inbox` | `new InboxWorker(fromPg(pool), { source: "orders" })` or `fromMssql(mssql, pool)`, then `worker.run(async (message, tx, signal) => ...)` |
-| C# | `QueueBox.Inbox` (hosted service: `QueueBox.Inbox.DependencyInjection`) | `new InboxWorker(InboxConnections.From(dataSource), new InboxOptions { Source = "orders" })`, then `worker.RunAsync(async (message, transaction, token) => ...)`, or `services.AddQueueBoxInbox(...)` |
+| C# | `QueueBox.Inbox` (hosted service: `QueueBox.Inbox.DependencyInjection`; EF Core context on the handler transaction: `QueueBox.Inbox.EntityFrameworkCore`) | `new InboxWorker(InboxConnections.From(dataSource), new InboxOptions { Source = "orders" })`, then `worker.RunAsync(async (message, transaction, token) => ...)`, or `services.AddQueueBoxInbox(...)` |
 
 Handler rules: write every change through the transaction the handler receives. Do not commit or roll back; the library does. Return an error or throw to fail the message. Honour the context, signal or token; it fires when the lease is lost. On SQL Server set `Dialect`/`dialect` to SQL Server and give the driver a request or command timeout of at least 30 seconds. In C# with EF Core, build the context with `InboxDbContextFactory.CreateOn(transaction, ...)`. Defaults: `BatchSize` 10, `LeaseMs` 30000, `MaxConcurrency` 1. A retry policy returns dead-letter or retry-after.
 

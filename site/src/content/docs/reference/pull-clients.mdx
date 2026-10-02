@@ -180,7 +180,7 @@ On SQL Server, set the `mssql` request timeout to at least 30 seconds. Its defau
 
 | | |
 | --- | --- |
-| Packages | `QueueBox.Inbox`, and `QueueBox.Inbox.DependencyInjection` for a hosted service, on NuGet |
+| Packages | `QueueBox.Inbox`, `QueueBox.Inbox.DependencyInjection` for a hosted service, and `QueueBox.Inbox.EntityFrameworkCore` for a context on the handler transaction, on NuGet |
 | Framework | .NET 8.0 or later |
 | Drivers | `Npgsql` for PostgreSQL or `Microsoft.Data.SqlClient` for SQL Server, through `System.Data.Common`. The package depends on no driver. |
 | Release tag | `csharp-vX.Y.Z` |
@@ -227,7 +227,7 @@ await worker.RunAsync(async (message, transaction, cancellationToken) =>
 | `transaction.CreateCommand()`, `command.WithParameter(name, value)` | extension methods | Helpers for a command on the handler transaction. |
 | `services.AddQueueBoxInbox(name, options, handler, connections?)` | extension method | `QueueBox.Inbox.DependencyInjection`. Registers a named worker as a hosted service. |
 | `services.AddQueueBoxInbox(name, options, handlerFactory, connections?)` | extension method | `QueueBox.Inbox.DependencyInjection` 0.4.0. The factory receives the root provider and returns the handler. It runs once, when the host creates the worker. |
-| `InboxDbContextFactory.CreateOn(transaction, build)` | method | `QueueBox.Inbox.DependencyInjection`. Builds an Entity Framework Core context on the handler transaction. |
+| `InboxDbContextFactory.CreateOn(transaction, build)` | method | `QueueBox.Inbox.EntityFrameworkCore`, from 0.5.0. Earlier versions ship it in `QueueBox.Inbox.DependencyInjection`. Builds an Entity Framework Core context on the handler transaction. |
 
 ### Options
 

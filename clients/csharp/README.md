@@ -182,10 +182,23 @@ handler that needs a scoped service opens one scope for each message through
 
 ## Entity Framework Core
 
-`QueueBox.Inbox.DependencyInjection` ships `InboxDbContextFactory`, a helper for a handler that
-writes through Entity Framework Core. Build the context on the handler's own transaction:
+A third package, `QueueBox.Inbox.EntityFrameworkCore`, ships `InboxDbContextFactory`, a helper for
+a handler that writes through Entity Framework Core.
+
+```
+dotnet add package QueueBox.Inbox.EntityFrameworkCore
+```
+
+Versions before 0.5.0 ship the helper inside `QueueBox.Inbox.DependencyInjection`, in the namespace
+`QueueBox.Inbox.DependencyInjection`. From 0.5.0, add this package and change the `using` to
+`QueueBox.Inbox.EntityFrameworkCore`. `QueueBox.Inbox.DependencyInjection` then carries no
+Entity Framework Core dependency.
+
+Build the context on the handler's own transaction:
 
 ```csharp
+using QueueBox.Inbox.EntityFrameworkCore;
+
 builder.Services.AddQueueBoxInbox("orders", new InboxOptions { Source = "orders" }, async (message, transaction, token) =>
 {
     await using var context = InboxDbContextFactory.CreateOn(
@@ -220,7 +233,7 @@ InboxDbContextFactory.CreateOn(
 ```
 
 `InboxDbContextFactory` itself references only `Microsoft.EntityFrameworkCore.Relational`, for
-`UseTransaction`. It carries no database provider, so a SQL Server consumer of this package never
+`UseTransaction`. It carries no database provider, so a SQL Server consumer of the package never
 pulls Npgsql, and a PostgreSQL consumer never pulls `Microsoft.Data.SqlClient`. Add whichever
 provider package the `build` delegate above needs.
 

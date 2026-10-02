@@ -308,7 +308,7 @@ Delivery is at least once on both paths. A lease can expire while a handler runs
 
 The identity of a message is `(source, idempotency_key)`. Two sources can send the same event ID for two different events, so always include the source.
 
-In C#, an Entity Framework Core context opens its own connection by default. Build the context on the handler transaction with `InboxDbContextFactory.CreateOn` from `QueueBox.Inbox.DependencyInjection`. A context on a second connection commits on its own, and a later failure then repeats a write that already exists.
+In C#, an Entity Framework Core context opens its own connection by default. Build the context on the handler transaction with `InboxDbContextFactory.CreateOn` from `QueueBox.Inbox.EntityFrameworkCore`. A context on a second connection commits on its own, and a later failure then repeats a write that already exists.
 
 ### At a push destination
 

@@ -2,6 +2,7 @@ using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
 using Xunit;
+using QueueBox.Inbox.EntityFrameworkCore;
 
 namespace QueueBox.Inbox.DependencyInjection.Tests;
 

@@ -1,7 +1,7 @@
 using System.Data.Common;
 using Microsoft.EntityFrameworkCore;
 
-namespace QueueBox.Inbox.DependencyInjection;
+namespace QueueBox.Inbox.EntityFrameworkCore;
 
 /// <summary>Enlists an Entity Framework Core context on the transaction of the message.</summary>
 /// <remarks>
