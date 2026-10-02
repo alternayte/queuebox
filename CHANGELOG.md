@@ -9,6 +9,21 @@ the configuration schema and for the database schema.
 
 ## [Unreleased]
 
+## Client libraries: C# 0.4.0 — 2026-10-02
+
+The tag `csharp-v0.4.0` ships `QueueBox.Inbox` and `QueueBox.Inbox.DependencyInjection` 0.4.0 on
+NuGet. The server image stays at 0.7.0. The TypeScript client and the Go client did not change
+and stay at 0.3.1.
+
+### Added
+
+- **`AddQueueBoxInbox` takes a handler factory.** The new overload takes a
+  `Func<IServiceProvider, InboxHandler>` in place of the handler. The factory receives the root
+  provider and runs once, when the host creates the worker, so a handler can take a logger, a
+  `TimeProvider` or an `IServiceScopeFactory` from the container. The worker opens no scope for a
+  message. The overload with a handler value stays as it is. `QueueBox.Inbox` has no change and
+  moves to 0.4.0 only because the two packages ship at one version. Fixes #88.
+
 ## [0.7.0] — 2026-10-01
 
 This release ships the server image alone, as `v0.7.0`. No client library changed, so all four

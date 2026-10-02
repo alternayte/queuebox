@@ -162,6 +162,24 @@ builder.Services.AddQueueBoxInbox(
     connections: InboxConnections.From(NpgsqlDataSource.Create(paymentsConnectionString)));
 ```
 
+A handler often needs services that the container holds, such as a logger or an
+`IServiceScopeFactory`. Those services do not exist while the host registers the worker. Pass a
+factory in place of the handler. The factory runs once, when the host creates the worker, and it
+receives the root provider:
+
+```csharp
+builder.Services.AddSingleton<OrderHandler>();
+
+builder.Services.AddQueueBoxInbox(
+    "orders",
+    new InboxOptions { Source = "orders" },
+    provider => provider.GetRequiredService<OrderHandler>().HandleAsync);
+```
+
+`OrderHandler.HandleAsync` has the signature of `InboxHandler`. The worker opens no scope. A
+handler that needs a scoped service opens one scope for each message through
+`IServiceScopeFactory`.
+
 ## Entity Framework Core
 
 `QueueBox.Inbox.DependencyInjection` ships `InboxDbContextFactory`, a helper for a handler that

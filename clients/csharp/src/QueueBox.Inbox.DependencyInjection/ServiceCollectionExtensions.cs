@@ -30,10 +30,42 @@ public static class ServiceCollectionExtensions
         InboxHandler handler,
         IInboxConnectionSource? connections = null)
     {
+        ArgumentNullException.ThrowIfNull(handler);
+
+        return services.AddQueueBoxInbox(name, options, _ => handler, connections);
+    }
+
+    /// <summary>
+    /// Add one named worker whose handler comes from the container. Use this overload when the
+    /// handler needs services that exist only after the host builds the provider.
+    /// </summary>
+    /// <param name="services">The container.</param>
+    /// <param name="name">A name that is unique among the workers of this container.</param>
+    /// <param name="options">The worker's own options. No other worker must share this instance.</param>
+    /// <param name="handlerFactory">
+    /// Builds the handler. It runs once, when the host creates the worker, and it receives the
+    /// root provider. A scope for each message is the business of the handler, not of the worker.
+    /// </param>
+    /// <param name="connections">
+    /// The connection source for this worker only. When null, the worker resolves
+    /// <see cref="IInboxConnectionSource"/> from the container instead.
+    /// </param>
+    /// <returns>The same container, for chaining.</returns>
+    /// <exception cref="InvalidOperationException">
+    /// The name repeats an earlier registration, or the factory returns null when the host
+    /// creates the worker.
+    /// </exception>
+    public static IServiceCollection AddQueueBoxInbox(
+        this IServiceCollection services,
+        string name,
+        InboxOptions options,
+        Func<IServiceProvider, InboxHandler> handlerFactory,
+        IInboxConnectionSource? connections = null)
+    {
         ArgumentNullException.ThrowIfNull(services);
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
         ArgumentNullException.ThrowIfNull(options);
-        ArgumentNullException.ThrowIfNull(handler);
+        ArgumentNullException.ThrowIfNull(handlerFactory);
 
         var names = GetRegisteredNames(services);
         if (!names.Add(name))
@@ -53,6 +85,9 @@ public static class ServiceCollectionExtensions
             var resolvedConnections = connections ?? provider.GetRequiredService<IInboxConnectionSource>();
             var logger = provider.GetService<Microsoft.Extensions.Logging.ILogger<InboxWorker>>();
             var timeProvider = provider.GetService<TimeProvider>();
+            var handler = handlerFactory(provider)
+                ?? throw new InvalidOperationException(
+                    $"The handler factory of the worker '{name}' returned null.");
             return new InboxWorkerHostedService(resolvedConnections, options, handler, logger, timeProvider);
         });
 

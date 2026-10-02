@@ -226,6 +226,7 @@ await worker.RunAsync(async (message, transaction, cancellationToken) =>
 | `SqlDialect` | enum | `PostgreSql` or `SqlServer`. |
 | `transaction.CreateCommand()`, `command.WithParameter(name, value)` | extension methods | Helpers for a command on the handler transaction. |
 | `services.AddQueueBoxInbox(name, options, handler, connections?)` | extension method | `QueueBox.Inbox.DependencyInjection`. Registers a named worker as a hosted service. |
+| `services.AddQueueBoxInbox(name, options, handlerFactory, connections?)` | extension method | `QueueBox.Inbox.DependencyInjection` 0.4.0. The factory receives the root provider and returns the handler. It runs once, when the host creates the worker. |
 | `InboxDbContextFactory.CreateOn(transaction, build)` | method | `QueueBox.Inbox.DependencyInjection`. Builds an Entity Framework Core context on the handler transaction. |
 
 ### Options
