@@ -9,6 +9,12 @@ the configuration schema and for the database schema.
 
 ## [Unreleased]
 
+## [0.8.0] — 2026-10-02
+
+This release ships the server image alone, as `v0.8.0`. It has no migration. The C# client ships
+on its own tag, `csharp-v0.5.0`; see the entry below. The TypeScript client and the Go client stay
+at 0.3.1.
+
 ### Added
 
 - **A source reads the publish time of a message.** The optional keys `scheduledAtHeader` and
@@ -655,7 +661,8 @@ release exists.
   cannot push a credential into a log.
 - The admin surface is off by default.
 
-[Unreleased]: https://github.com/AlterNayte/queuebox/compare/v0.7.0...HEAD
+[Unreleased]: https://github.com/AlterNayte/queuebox/compare/v0.8.0...HEAD
+[0.8.0]: https://github.com/AlterNayte/queuebox/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/AlterNayte/queuebox/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/AlterNayte/queuebox/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/AlterNayte/queuebox/compare/v0.4.1...v0.5.0
