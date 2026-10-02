@@ -192,6 +192,19 @@ await worker.RunAsync(async (message, transaction, cancellationToken) =>
 
 Throw to fail the message. Cancel the token that you pass to `RunAsync` to stop the worker. `QueueBox.Inbox.DependencyInjection` runs a worker as an `IHostedService` through `AddQueueBoxInbox`.
 
+A handler that needs services of the container takes them through a factory. The factory receives the root provider and runs once, when the host creates the worker. This overload needs version 0.4.0 of the package.
+
+```csharp
+builder.Services.AddSingleton<OrderHandler>();
+
+builder.Services.AddQueueBoxInbox(
+    "orders",
+    new InboxOptions { Source = "orders" },
+    provider => provider.GetRequiredService<OrderHandler>().HandleAsync);
+```
+
+The worker opens no scope. A handler that needs a scoped service opens one scope for each message through `IServiceScopeFactory`.
+
 </TabItem>
 </Tabs>
 

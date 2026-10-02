@@ -97,4 +97,59 @@ public class ServiceCollectionExtensionsTests
         Assert.Same(ordersConnections, bySource["orders"].Connections);
         Assert.Same(paymentsConnections, bySource["payments"].Connections);
     }
+
+    /// A handler that needs a service of the container, as in issue #88.
+    public sealed class ContainerHandler(TimeProvider clock)
+    {
+        public DateTimeOffset? LastHandledAt { get; private set; }
+
+        public Task HandleAsync(InboxMessage message, DbTransaction transaction, CancellationToken token)
+        {
+            LastHandledAt = clock.GetUtcNow();
+            return Task.CompletedTask;
+        }
+    }
+
+    [Fact]
+    public void A_handler_factory_runs_on_the_root_provider_when_the_host_creates_the_worker()
+    {
+        var services = new ServiceCollection();
+        services.AddSingleton<IInboxConnectionSource>(new FakeConnectionSource());
+        services.AddSingleton(TimeProvider.System);
+        services.AddSingleton<ContainerHandler>();
+
+        var calls = 0;
+        IServiceProvider? seen = null;
+        services.AddQueueBoxInbox("orders", new InboxOptions { Source = "orders" }, provider =>
+        {
+            calls++;
+            seen = provider;
+            return provider.GetRequiredService<ContainerHandler>().HandleAsync;
+        });
+
+        // The registration must not run the factory, because no provider exists yet.
+        Assert.Equal(0, calls);
+
+        // ValidateScopes makes a scoped provider differ from the root one, so the assertion below
+        // fails if the factory ever receives a scope.
+        using var root = services.BuildServiceProvider(new ServiceProviderOptions { ValidateScopes = true });
+        var hosted = root.GetServices<IHostedService>().ToList();
+
+        Assert.Single(hosted);
+        Assert.Equal(1, calls);
+        Assert.Same(root.GetRequiredService<ContainerHandler>(), seen!.GetRequiredService<ContainerHandler>());
+    }
+
+    [Fact]
+    public void A_handler_factory_that_returns_null_names_the_worker()
+    {
+        var services = new ServiceCollection();
+        services.AddSingleton<IInboxConnectionSource>(new FakeConnectionSource());
+        services.AddQueueBoxInbox("orders", new InboxOptions { Source = "orders" }, _ => null!);
+
+        var error = Assert.Throws<InvalidOperationException>(
+            () => services.BuildServiceProvider().GetServices<IHostedService>().ToList());
+
+        Assert.Contains("orders", error.Message);
+    }
 }
