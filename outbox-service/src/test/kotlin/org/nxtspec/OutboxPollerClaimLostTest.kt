@@ -1,11 +1,11 @@
 package org.nxtspec
 
+import io.mockk.MockKVerificationScope
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -43,11 +43,17 @@ class OutboxPollerClaimLostTest {
         createdAt = Clock.System.now()
     )
 
+    /**
+     * Runs the poller until it reaches the terminal write that [terminal] names, then stops it.
+     *
+     * A fixed wait failed on a busy CI runner, where one polling round took longer than the wait.
+     */
     private fun runPoller(
         repository: OutboxRepositoryInterface,
         router: MessageRouter,
         publisher: Publisher,
-        metrics: MetricsCollectorInterface
+        metrics: MetricsCollectorInterface,
+        terminal: suspend MockKVerificationScope.(OutboxRepositoryInterface) -> Unit
     ) = runBlocking {
         val poller = OutboxPoller(
             config = config,
@@ -58,7 +64,7 @@ class OutboxPollerClaimLostTest {
             metricsCollector = metrics
         )
         poller.start()
-        delay(150)
+        coVerify(timeout = 10_000) { terminal(repository) }
         poller.shutdown()
     }
 
@@ -79,7 +85,7 @@ class OutboxPollerClaimLostTest {
         every { publisher.supports(any()) } returns true
         coEvery { publisher.publish(any(), any(), any()) } returns Result.success(Unit)
 
-        runPoller(repository, router, publisher, metrics)
+        runPoller(repository, router, publisher, metrics) { it.markSent(any(), any()) }
 
         verify { metrics.recordClaimLost("outbox") }
         verify(exactly = 0) { metrics.recordMessageSent() }
@@ -104,7 +110,7 @@ class OutboxPollerClaimLostTest {
         every { publisher.supports(any()) } returns true
         coEvery { publisher.publish(any(), any(), any()) } returns Result.failure(RuntimeException("boom"))
 
-        runPoller(repository, router, publisher, metrics)
+        runPoller(repository, router, publisher, metrics) { it.scheduleRetry(any(), any(), any(), any()) }
 
         verify { metrics.recordClaimLost("outbox") }
         verify(exactly = 0) { metrics.recordMessageFailed() }
@@ -124,7 +130,7 @@ class OutboxPollerClaimLostTest {
         coEvery { repository.markDead(any(), any(), any()) } returns false
         every { router.route(any()) } returns null
 
-        runPoller(repository, router, publisher, metrics)
+        runPoller(repository, router, publisher, metrics) { it.markDead(any(), any(), any()) }
 
         verify { metrics.recordClaimLost("outbox") }
         verify(exactly = 0) { metrics.recordMessageDead() }
@@ -147,7 +153,7 @@ class OutboxPollerClaimLostTest {
         every { publisher.supports(any()) } returns true
         coEvery { publisher.publish(any(), any(), any()) } returns Result.success(Unit)
 
-        runPoller(repository, router, publisher, metrics)
+        runPoller(repository, router, publisher, metrics) { it.markSent(any(), any()) }
 
         verify { metrics.recordMessageSent() }
         verify(exactly = 0) { metrics.recordClaimLost(any()) }
