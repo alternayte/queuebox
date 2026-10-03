@@ -184,13 +184,104 @@ The inbox source must use pull consumption. See [Consume the inbox](/how-to/cons
 
 Follow these rules in a handler:
 
-1. Build every `DbContext` through `InboxDbContextFactory.CreateOn`. A context from dependency injection or from `new` opens its own connection. Its write then commits on its own, and a later failure makes QueueBox deliver the message again after the write already exists.
+1. Build every `DbContext` through `InboxDbContextFactory.CreateOn`. A context from dependency injection or from `new` opens its own connection. Its write then commits on its own, and a later failure makes QueueBox deliver the message again after the write already exists. [Write outside the message transaction](#write-outside-the-message-transaction) states when that trade is worth it.
 2. Do not call `BeginTransaction`, `Commit` or `Rollback`. The library owns the transaction.
 3. Throw to fail the message. The library rolls back every write of the handler.
 4. Pass the cancellation token on. It fires when the lease is lost.
 5. Make a call to another system safe to repeat. Deduplicate it on the source and the idempotency key.
 
 `InboxDbContextFactory` references only `Microsoft.EntityFrameworkCore.Relational`. Add the provider package that your `build` delegate uses: `Npgsql.EntityFrameworkCore.PostgreSQL` or `Microsoft.EntityFrameworkCore.SqlServer`.
+
+### Build the context in one place
+
+`CreateOn` must run in every handler, but its arguments do not change. Put the call on the context, once:
+
+```csharp
+using System.Data.Common;
+using Microsoft.EntityFrameworkCore;
+using QueueBox.Inbox.EntityFrameworkCore;
+
+public sealed class OrderContext(DbContextOptions<OrderContext> options) : DbContext(options)
+{
+    public DbSet<Order> Orders => Set<Order>();
+
+    /// A context that writes in the transaction of the message.
+    public static OrderContext On(DbTransaction transaction) =>
+        InboxDbContextFactory.CreateOn(
+            transaction,
+            connection => new OrderContext(
+                new DbContextOptionsBuilder<OrderContext>().UseNpgsql(connection).Options));
+}
+```
+
+A handler then needs one line:
+
+```csharp
+await using var context = OrderContext.On(transaction);
+```
+
+On SQL Server, call `UseSqlServer(connection)` in place of `UseNpgsql(connection)`.
+
+### Handle the message in a class
+
+A handler can be a method of a class that the container builds. This needs `QueueBox.Inbox.DependencyInjection` 0.4.0 or later.
+
+```csharp
+using System.Data.Common;
+using QueueBox.Inbox;
+
+public sealed class OrderHandler(ILogger<OrderHandler> logger, TimeProvider clock)
+{
+    public async Task HandleAsync(InboxMessage message, DbTransaction transaction, CancellationToken token)
+    {
+        await using var context = OrderContext.On(transaction);
+
+        context.Orders.Add(new Order { Id = message.Id, ReceivedAt = clock.GetUtcNow() });
+        await context.SaveChangesAsync(token);
+
+        logger.LogInformation("Stored order {Id}", message.Id);
+    }
+}
+```
+
+```csharp
+builder.Services.AddSingleton<OrderHandler>();
+
+builder.Services.AddQueueBoxInbox(
+    "orders",
+    new InboxOptions { Source = "orders" },
+    provider => provider.GetRequiredService<OrderHandler>().HandleAsync);
+```
+
+The factory runs once, on the root provider, so the worker keeps one `OrderHandler` for its whole life. Register the class as a singleton.
+
+- Build the context inside the method, with `OrderContext.On`. Do not take a `DbContext` through the constructor. A context from the container opens its own connection.
+- For a scoped service, take `IServiceScopeFactory` and open one scope for each message.
+
+### Write outside the message transaction
+
+A handler can also ignore the message transaction, and write through its own context and its own transaction.
+
+<Aside type="caution" title="The write and the completion commit apart">
+QueueBox completes the message after the handler returns, in the message transaction. A write in another transaction commits before that. A crash, a lost lease or a failed completion between the two commits leaves the write in place, and QueueBox delivers the message again. The handler must then find its earlier write and do nothing. Use this pattern only when the gains below apply to you, and only with an idempotent handler.
+</Aside>
+
+What you gain:
+
+- The application tables can live in another database than the inbox. The message transaction cannot reach that database, so this is the only pattern that works there.
+- The handler can open its own transactions. Npgsql refuses a second transaction on one connection, so code that calls `BeginTransaction`, such as a MediatR pipeline behaviour, cannot run on the message transaction.
+- The handler can use the `DbContext` that the container already registers, with its interceptors and its pooling.
+
+What you lose:
+
+- The write and the completion no longer commit together. A message can take effect twice.
+- A throw no longer undoes the write. The library rolls back the message transaction only.
+- A lost lease no longer stops a write. The cancellation token fires, but a write that committed stays.
+
+Make the handler idempotent before you use this pattern. Two ways work:
+
+- Record each handled message in your own table, keyed on the source and the idempotency key, in the same transaction as the write. Skip a message whose key is already there.
+- Make the write an upsert on a natural key, so a second run changes nothing.
 
 ## Next steps
 
