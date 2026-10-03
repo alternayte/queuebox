@@ -5,6 +5,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
+import org.jetbrains.exposed.v1.jdbc.transactions.transaction
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Tag
 import org.junit.jupiter.api.Test
@@ -111,5 +112,46 @@ class SqlServerInboxRepositoryConcurrencyTest : SqlServerTestBase() {
         assertEquals(1, claimed.size, "Only the oldest message of the aggregate stays claimed")
         assertEquals(1L, repository.countByState("processing"))
         assertEquals(2L, repository.countByState("pending"))
+    }
+
+    /**
+     * The claim lock lasts until the claim commits. A lock released before the commit let the
+     * second claimer run while the first claim still held its row locks. When the scan of the
+     * first claim had read every pending row, the READPAST scan of the second then returned
+     * nothing although 50 rows were free. Whether the scan reads every row depends on the plan, so
+     * the test checks the cause: the second claim must wait for the commit of the first.
+     */
+    @Test
+    fun `a second claim waits until the first claim commits, then takes the free rows`() {
+        repeat(100) { index -> insertInboxMessage(source = "stripe", idempotencyKey = "evt_$index") }
+
+        val firstClaimed = java.util.concurrent.CountDownLatch(1)
+        val firstCommittedAt = java.util.concurrent.atomic.AtomicLong()
+        val pool = java.util.concurrent.Executors.newFixedThreadPool(2)
+        try {
+            val first = pool.submit<Int> {
+                val claimed = transaction {
+                    val size = runBlocking { repository.claimPending(50) }.size
+                    firstClaimed.countDown()
+                    // Keep the claim open, so the second claimer starts before this commit.
+                    Thread.sleep(500)
+                    size
+                }
+                firstCommittedAt.set(System.nanoTime())
+                claimed
+            }
+            val second = pool.submit<Pair<Int, Long>> {
+                firstClaimed.await()
+                val size = transaction { runBlocking { repository.claimPending(50) }.size }
+                size to System.nanoTime()
+            }
+
+            assertEquals(50, first.get())
+            val (secondClaimed, secondDoneAt) = second.get()
+            assertTrue(secondDoneAt >= firstCommittedAt.get(), "The second claim must wait for the first commit")
+            assertEquals(50, secondClaimed, "The second claim must take the 50 rows that the first left")
+        } finally {
+            pool.shutdown()
+        }
     }
 }

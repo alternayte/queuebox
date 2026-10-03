@@ -129,9 +129,8 @@ class SqlServerInboxRepository(
 
         val conn = TransactionManager.current().connection.connection as java.sql.Connection
 
-        // Hold the aggregate exclusion lock through the full claim-and-filter operation.
-        // Exposed can run this repository with JDBC auto-commit enabled, so a transaction-owned
-        // application lock is not available reliably on every connection.
+        // Hold the aggregate exclusion lock through the full claim-and-filter operation, and
+        // until the claim commits. See withClaimLock.
         withClaimLock(conn, claimLockResource) {
             // The aggregate exclusion runs as its own statement. Inside the claim statement the
             // subquery reads the same table without the locking hints, and SQL Server then returns

@@ -9,6 +9,16 @@ the configuration schema and for the database schema.
 
 ## [Unreleased]
 
+### Fixed
+
+- **A SQL Server claim no longer comes back empty while another claim commits.** The inbox relay
+  claim and the outbox claim on SQL Server take an application lock, so one claim runs at a time.
+  The lock was released before the claim transaction committed, so a second claimer could run
+  while the first still held its row locks. Its `READPAST` scan then skipped those rows, and with
+  some query plans every pending row, so it claimed nothing although rows were free. Delivery was
+  never wrong, but a replica lost a polling round. The lock now lasts until the claim commits or
+  rolls back. PostgreSQL is not affected.
+
 ## [0.8.0] — 2026-10-02
 
 This release ships the server image alone, as `v0.8.0`. It has no migration. The C# client ships
