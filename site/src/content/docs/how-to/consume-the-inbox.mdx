@@ -295,6 +295,75 @@ PostgreSQL has neither limit. Its claim uses `SKIP LOCKED`, so workers on one so
 - Run the completion in the transaction of the business writes. If it changes no row, roll the whole transaction back.
 - On SQL Server, treat Msg 51000 as a temporary failure. Wait before the next claim.
 
+## Route and fan out in one worker
+
+A worker takes one handler. That handler can send each message to the right code, or to several pieces of code. The examples use C#. A Go or TypeScript handler takes the same shape, because each library also takes one handler function.
+
+### Send each event type to its own handler
+
+Switch on the event type of the message:
+
+```csharp
+public sealed class ArticleInbox(EditorAssigned assigned, EditorRevoked revoked)
+{
+    public Task HandleAsync(InboxMessage message, DbTransaction transaction, CancellationToken token) =>
+        message.EventType switch
+        {
+            "Editor.Assigned" => assigned.HandleAsync(message, transaction, token),
+            "Editor.Revoked" => revoked.HandleAsync(message, transaction, token),
+            _ => throw new InvalidOperationException($"No handler for '{message.EventType}'."),
+        };
+}
+```
+
+Decide what an unknown event type does. A throw retries the message and then dead-letters it, so a missing handler shows up. A return completes the message and drops it.
+
+One source with a dispatcher keeps the order of one aggregate across every event type. One source for each event type loses that order.
+
+### Run several handlers on one message
+
+Register each handler, and run them in a loop:
+
+```csharp
+public interface IArticleHandler
+{
+    Task HandleAsync(InboxMessage message, DbTransaction transaction, CancellationToken token);
+}
+
+public sealed class ArticleInbox(IEnumerable<IArticleHandler> handlers)
+{
+    public async Task HandleAsync(InboxMessage message, DbTransaction transaction, CancellationToken token)
+    {
+        foreach (var handler in handlers)
+        {
+            await handler.HandleAsync(message, transaction, token);
+        }
+    }
+}
+```
+
+```csharp
+builder.Services.AddSingleton<IArticleHandler, UpdateSearchIndex>();
+builder.Services.AddSingleton<IArticleHandler, NotifyEditor>();
+builder.Services.AddSingleton<ArticleInbox>();
+
+builder.Services.AddQueueBoxInbox(
+    "articles",
+    new InboxOptions { Source = "articles" },
+    provider => provider.GetRequiredService<ArticleInbox>().HandleAsync);
+```
+
+Every handler writes in the one message transaction:
+
+- The database writes of every handler commit with the completion, or none of them does.
+- A throw in one handler rolls back the writes of all of them, and the message retries. A database write therefore never happens twice.
+- A call to another system, such as an email or an HTTP request, does not roll back. It repeats on each retry. Make it safe to repeat, or write an outbox row in the transaction and let QueueBox deliver it.
+- A handler that keeps failing holds back the others until the message succeeds or goes dead.
+
+This loop does the work of a MediatR `Publish` in the inbox path, with one transaction for every handler in place of one transaction for each.
+
+When the handlers are independent, and one must not hold back the others, give each handler its own source. On RabbitMQ, bind one queue for each handler to the exchange, and configure each queue as a source with its own worker. Each handler then retries and dead-letters on its own, but the handlers no longer commit together.
+
 ## Write an idempotent handler
 
 Delivery is at least once on both paths. A lease can expire while a handler runs, and a worker can stop after its work but before the commit. The message then runs again. Write every handler so that a second run changes nothing.
