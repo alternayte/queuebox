@@ -222,6 +222,10 @@ await using var context = OrderContext.On(transaction);
 
 On SQL Server, call `UseSqlServer(connection)` in place of `UseNpgsql(connection)`.
 
+The options of `AddDbContext`, which include its interceptors, do not apply to a context that `CreateOn` builds.
+Attach the configuration that every context needs, such as a soft delete interceptor, in `OnConfiguring` of the context or in its `On` method.
+An interceptor must not open its own connection or its own transaction, because its write then commits apart from the message.
+
 ### Handle the message in a class
 
 A handler can be a method of a class that the container builds. This needs `QueueBox.Inbox.DependencyInjection` 0.4.0 or later.
