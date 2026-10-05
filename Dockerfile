@@ -11,7 +11,7 @@ ARG BUILD_VERSION=0.0.0-SNAPSHOT
 RUN gradle :app:installDist --no-daemon -PqueueboxVersion=${BUILD_VERSION}
 
 # Runtime stage
-FROM eclipse-temurin:21-jre-alpine@sha256:974b08960c5d96694c780e65b2d5705268ab1e1ca1a0dd0caf4ba6c3fe34d699
+FROM eclipse-temurin:21-jre-alpine@sha256:51ab5e3302e7141ce665ca3ea85e8b5cd648eafbc3c0c90dd79d6537684e4555
 WORKDIR /app
 
 # The base image lags the Alpine security branch, and a released image must not carry a known
