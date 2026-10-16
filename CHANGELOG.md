@@ -41,6 +41,12 @@ the V12 schema.
   run in UTC wrote a local time before, so the existing rows of such a deployment are off by the
   UTC offset until retention removes them. The image runs in UTC.
 
+### Security
+
+- **`lz4-java` moves to 1.11.4.** `kafka-clients` brought `at.yawk.lz4:lz4-java` 1.10.1, which
+  carries CVE-2026-106451, a HIGH advisory for arbitrary code execution through an insecure
+  temporary file. A dependency floor raises it to 1.11.4.
+
 ### Upgrade
 
 - A replica of 0.8.x keeps running against V12, but it does not set the inbox `updated_at`. A

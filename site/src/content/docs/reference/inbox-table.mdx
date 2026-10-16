@@ -106,7 +106,8 @@ For a push row, it means that the relay copied the row into the outbox. For a pu
 ### updated_at
 
 The time of the last state change, from the database clock. On SQL Server the value is UTC.
-These writes set it: the store at receipt, a claim, the release of a row that the relay claim does not keep, the recovery of an expired claim, the change to `processed`, a pull retry and the change to `dead`.
+These writes set it: the store at receipt, a claim, the recovery of an expired claim, the change to `processed`, a pull retry and the change to `dead`.
+The relay claim also sets it when it releases a row that it does not keep.
 A lease renewal does not change it.
 The retention age policy of the inbox measures from it.
 QueueBox stops at start when the table has no `updated_at` column. The error holds the `ALTER TABLE` statement that adds it.
