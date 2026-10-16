@@ -42,6 +42,10 @@ export class SqlServerHarness implements DatabaseHarness {
       await this.#run(script);
     }
 
+    // The same column as migration V12. It is a no-op once V12 is in the migration directory.
+    await this.#run(`IF COL_LENGTH('inbox', 'updated_at') IS NULL
+      ALTER TABLE inbox ADD updated_at DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME()`);
+
     await this.#run("CREATE TABLE app_orders ([key] NVARCHAR(255) PRIMARY KEY)");
   }
 
@@ -90,6 +94,13 @@ export class SqlServerHarness implements DatabaseHarness {
     return new Date(`${new Date(result.recordset[0].scheduled_at).toISOString().replace("Z", "")}Z`);
   }
 
+  async readUpdatedAt(id: string): Promise<bigint> {
+    const result = await this.#requirePool().request().input("id", id)
+      .query("SELECT CAST(DATEDIFF_BIG(microsecond, '1970-01-01', updated_at) AS VARCHAR(32)) AS us FROM inbox WHERE id = @id");
+
+    return BigInt(result.recordset[0].us);
+  }
+
   async stealClaim(id: string): Promise<void> {
     await this.#requirePool().request().input("id", id).query(
       `UPDATE inbox SET state = 'processing', claim_token = NEWID(),
@@ -127,7 +138,8 @@ export class SqlServerHarness implements DatabaseHarness {
         consumption NVARCHAR(4) NOT NULL DEFAULT 'push',
         scheduled_at DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
         tries INT NOT NULL DEFAULT 0,
-        last_error NVARCHAR(MAX)
+        last_error NVARCHAR(MAX),
+        changed_at DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME()
       )`);
 
     return schema;

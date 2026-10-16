@@ -19,6 +19,8 @@ export interface DatabaseHarness {
   insertPending(row: PendingRow): Promise<string>;
   readRow(id: string): Promise<{ state: string; attempt: number; lastError: string | null }>;
   readScheduledAt(id: string): Promise<Date>;
+  /** The updated_at column in microseconds since the epoch, so two close writes still compare. */
+  readUpdatedAt(id: string): Promise<bigint>;
   stealClaim(id: string): Promise<void>;
   countApplicationRows(key: string): Promise<number>;
   createMappedSchema(): Promise<InboxSchema>;
@@ -72,5 +74,6 @@ export function mappedSchema(base: InboxSchema): InboxSchema {
     idempotencyKey: "dedup_key",
     claimToken: "lease_token",
     attempt: "tries",
+    updatedAt: "changed_at",
   };
 }

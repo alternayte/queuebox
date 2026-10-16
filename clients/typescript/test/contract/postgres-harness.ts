@@ -27,6 +27,9 @@ export class PostgresHarness implements DatabaseHarness {
       await this.#run(script);
     }
 
+    // The same column as migration V12. It is a no-op once V12 is in the migration directory.
+    await this.#run("ALTER TABLE inbox ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp()");
+
     await this.#run("CREATE TABLE app_orders (key TEXT PRIMARY KEY)");
   }
 
@@ -63,6 +66,12 @@ export class PostgresHarness implements DatabaseHarness {
   async readScheduledAt(id: string): Promise<Date> {
     const result = await this.#requirePool().query("SELECT scheduled_at FROM inbox WHERE id = $1", [id]);
     return new Date(result.rows[0].scheduled_at);
+  }
+
+  async readUpdatedAt(id: string): Promise<bigint> {
+    const result = await this.#requirePool().query(
+      "SELECT (EXTRACT(EPOCH FROM updated_at) * 1000000)::bigint AS us FROM inbox WHERE id = $1", [id]);
+    return BigInt(result.rows[0].us);
   }
 
   async stealClaim(id: string): Promise<void> {
@@ -103,7 +112,8 @@ export class PostgresHarness implements DatabaseHarness {
         consumption VARCHAR(4) NOT NULL DEFAULT 'push',
         scheduled_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
         tries INT NOT NULL DEFAULT 0,
-        last_error TEXT
+        last_error TEXT,
+        changed_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp()
       )`);
 
     return schema;
