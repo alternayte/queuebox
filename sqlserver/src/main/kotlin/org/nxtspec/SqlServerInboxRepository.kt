@@ -150,7 +150,9 @@ class SqlServerInboxRepository(
             WITH candidates AS (
                 SELECT TOP (?) ${quoteSqlServerIdentifier(
                 columnMapping.claimToken
-            )}, ${quoteSqlServerIdentifier(columnMapping.leaseExpiresAt)}, $idCol, $stateCol, $claimedAtCol, ${quoteSqlServerIdentifier(
+            )}, ${quoteSqlServerIdentifier(
+                columnMapping.leaseExpiresAt
+            )}, $idCol, $stateCol, $claimedAtCol, ${quoteSqlServerIdentifier(
                 columnMapping.updatedAt
             )}
                 FROM $t WITH (ROWLOCK, UPDLOCK, READPAST)

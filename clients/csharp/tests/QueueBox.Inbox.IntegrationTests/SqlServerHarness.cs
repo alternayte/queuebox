@@ -29,8 +29,6 @@ public sealed class SqlServerHarness : IDatabaseHarness, IAsyncLifetime
             await ExecuteAsync(script);
         }
 
-        // V12 adds this column. The statement is a no-op once the migration is in the repository.
-        await ExecuteAsync("IF COL_LENGTH('inbox', 'updated_at') IS NULL ALTER TABLE inbox ADD updated_at DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME()");
 
         await ExecuteAsync("CREATE TABLE app_orders ([key] NVARCHAR(255) PRIMARY KEY)");
     }

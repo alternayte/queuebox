@@ -31,8 +31,6 @@ public sealed class PostgreSqlHarness : IDatabaseHarness, IAsyncLifetime
             await ExecuteAsync(script);
         }
 
-        // V12 adds this column. The statement is a no-op once the migration is in the repository.
-        await ExecuteAsync("ALTER TABLE inbox ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp()");
 
         await ExecuteAsync("CREATE TABLE app_orders (key TEXT PRIMARY KEY)");
     }

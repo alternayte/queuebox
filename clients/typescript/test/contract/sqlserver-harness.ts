@@ -42,10 +42,6 @@ export class SqlServerHarness implements DatabaseHarness {
       await this.#run(script);
     }
 
-    // The same column as migration V12. It is a no-op once V12 is in the migration directory.
-    await this.#run(`IF COL_LENGTH('inbox', 'updated_at') IS NULL
-      ALTER TABLE inbox ADD updated_at DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME()`);
-
     await this.#run("CREATE TABLE app_orders ([key] NVARCHAR(255) PRIMARY KEY)");
   }
 

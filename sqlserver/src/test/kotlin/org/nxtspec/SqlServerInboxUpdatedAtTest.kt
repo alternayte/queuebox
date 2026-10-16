@@ -58,7 +58,12 @@ class SqlServerInboxUpdatedAtTest : SqlServerTestBase() {
 
         val storedDead = UUID.randomUUID()
         repository.storeDead(
-            InboxMessage(id = storedDead, source = "src", idempotencyKey = "evt_dead_store", payload = JsonObject(emptyMap()))
+            InboxMessage(
+                id = storedDead,
+                source = "src",
+                idempotencyKey = "evt_dead_store",
+                payload = JsonObject(emptyMap())
+            )
         )
         assertTrue(movedSinceBackdate(storedDead), "store dead must set updated_at")
     }

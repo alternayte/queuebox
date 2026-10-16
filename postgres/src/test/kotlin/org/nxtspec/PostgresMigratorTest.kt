@@ -414,8 +414,14 @@ class PostgresMigratorTest {
             // key, created_at, scheduled_at, claimed_at, processed_at, expected updated_at
             val rows = listOf(
                 listOf("pending", "2026-01-01 00:01:00", "2026-01-01 00:05:00", null, null, "2026-01-01 00:05:00"),
-                listOf("processed", "2026-01-01 00:01:00", "2026-01-01 00:01:00", "2026-01-01 00:02:00",
-                    "2026-01-01 00:03:00", "2026-01-01 00:03:00"),
+                listOf(
+                    "processed",
+                    "2026-01-01 00:01:00",
+                    "2026-01-01 00:01:00",
+                    "2026-01-01 00:02:00",
+                    "2026-01-01 00:03:00",
+                    "2026-01-01 00:03:00"
+                ),
                 listOf("dead", "2026-01-01 00:04:00", "2026-01-01 00:01:00", null, null, "2026-01-01 00:04:00")
             )
             dataSource.connection.use { connection ->

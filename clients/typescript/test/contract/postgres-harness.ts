@@ -27,9 +27,6 @@ export class PostgresHarness implements DatabaseHarness {
       await this.#run(script);
     }
 
-    // The same column as migration V12. It is a no-op once V12 is in the migration directory.
-    await this.#run("ALTER TABLE inbox ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp()");
-
     await this.#run("CREATE TABLE app_orders (key TEXT PRIMARY KEY)");
   }
 

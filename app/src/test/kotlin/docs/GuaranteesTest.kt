@@ -167,7 +167,8 @@ class GuaranteesTest {
     private fun sourceFileOf(simpleName: String): File? {
         val root = File("..").canonicalFile
         return root.walkTopDown()
-            .onEnter { it.name != "build" && it.name != ".git" }
+            // A hidden directory holds tooling copies of the tree, for example agent worktrees.
+            .onEnter { it.name != "build" && !it.name.startsWith(".") }
             .firstOrNull { it.isFile && it.name == "$simpleName.kt" && it.path.contains(TEST_SOURCE_PATH) }
     }
 

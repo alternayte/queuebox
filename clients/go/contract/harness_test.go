@@ -208,10 +208,6 @@ func (h *postgresHarness) start(t *testing.T) {
 		mustExec(t, pool, script)
 	}
 
-	// The client requires the V12 column. The statement matches V12 and is a no-op once the
-	// repository carries V12.
-	mustExec(t, pool, "ALTER TABLE inbox ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp()")
-
 	mustExec(t, pool, "CREATE TABLE app_orders (key TEXT PRIMARY KEY)")
 }
 
@@ -397,11 +393,6 @@ func (h *sqlServerHarness) start(t *testing.T) {
 	for _, script := range migrations(t, "sqlserver") {
 		mustExec(t, pool, script)
 	}
-
-	// The client requires the V12 column. The statement matches V12 and is a no-op once the
-	// repository carries V12.
-	mustExec(t, pool, `IF COL_LENGTH('inbox', 'updated_at') IS NULL
-		ALTER TABLE inbox ADD updated_at DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME()`)
 
 	mustExec(t, pool, "CREATE TABLE app_orders ([key] NVARCHAR(255) PRIMARY KEY)")
 }
