@@ -83,13 +83,15 @@ crashed replica left in processing` for the delivery that follows it. The duplic
 consequence of that second delivery.
 
 **The inbox deduplicates on `(source, idempotency_key)`.** The deduplication window is the
-retention period, because retention deletes the first row. A retention period shorter than the
+retention period after the last state change of the first row, because retention measures age from
+`updated_at` and then deletes the row. A retention period shorter than the
 retry window of the source therefore reopens duplicates. Set retention longer than that window. No
 test proves that reopening, so treat the last two sentences as a design note, not as a tested
 promise.
 Proved by `E2EInboxFlowTest.should detect duplicate when same webhook sent twice` for the
-deduplication, and by `RetentionSemanticsTest.inbox age uses created_at, which is the receipt time`
-for the age that retention measures.
+deduplication, and by
+`RetentionSemanticsTest.inbox age uses updated_at, which is the last state change` for the age
+that retention measures.
 
 **A transform error follows the strategy you configure.** `fail` sends the message to the retry
 path. `skip` keeps the original payload and continues. `dead` moves the message to the dead-letter

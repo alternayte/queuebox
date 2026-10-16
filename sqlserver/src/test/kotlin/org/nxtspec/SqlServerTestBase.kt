@@ -126,7 +126,8 @@ abstract class SqlServerTestBase {
                 it[SqlServerOutboxTable.attempt] = attempt
                 it[SqlServerOutboxTable.scheduledAt] = scheduledAt
                 it[createdAt] = now
-                it[SqlServerOutboxTable.updatedAt] = updatedAt
+                // QueueBox writes `updated_at` from SYSUTCDATETIME(), and cleanup compares in UTC.
+                it[SqlServerOutboxTable.updatedAt] = utcMoment(updatedAt)
             }
         }
         return id

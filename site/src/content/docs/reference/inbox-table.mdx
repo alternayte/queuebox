@@ -27,6 +27,7 @@ QueueBox writes one row for each accepted message of a source. The application r
 | `state` | `VARCHAR(50)` | `NVARCHAR(50)` | no | `'pending'` | QueueBox, the relay or a pull client |
 | `created_at` | `TIMESTAMP WITH TIME ZONE` | `DATETIME2` | no | `CURRENT_TIMESTAMP` / `GETUTCDATE()` | The default |
 | `processed_at` | `TIMESTAMP WITH TIME ZONE` | `DATETIME2` | yes | none | The relay or a pull client |
+| `updated_at` | `TIMESTAMPTZ` | `DATETIME2` | no | `clock_timestamp()` / `SYSUTCDATETIME()` | QueueBox, the relay or a pull client, on each state change |
 | `scheduled_at` | `TIMESTAMPTZ` | `DATETIME2` | no | `CURRENT_TIMESTAMP` / `SYSUTCDATETIME()` | QueueBox at receipt, then a pull client on a retry |
 | `attempt` | `INT` | `INT` | no | `0` | A pull client on a retry |
 | `last_error` | `TEXT` | `NVARCHAR(MAX)` | yes | none | A pull client on a retry or a dead letter |
@@ -100,8 +101,18 @@ For a push row, it means that the relay copied the row into the outbox. For a pu
 
 ### created_at and processed_at
 
-`created_at` is the receipt time. The retention age policy of the inbox measures from it.
-`processed_at` is the time of completion. The inbox has no `updated_at` column.
+`created_at` is the receipt time. `processed_at` is the time of completion.
+
+### updated_at
+
+The time of the last state change, from the database clock. On SQL Server the value is UTC.
+These writes set it: the store at receipt, a claim, the release of a row that the relay claim does not keep, the recovery of an expired claim, the change to `processed`, a pull retry and the change to `dead`.
+A lease renewal does not change it.
+The retention age policy of the inbox measures from it.
+QueueBox stops at start when the table has no `updated_at` column. The error holds the `ALTER TABLE` statement that adds it.
+
+A pull client sets `updated_at` only from these releases: Go `0.4.0`, TypeScript `0.4.0` and C# `0.6.0`.
+An older pull client does not set it, so the rows that it claims and finishes do not move the column.
 
 ### scheduled_at and attempt
 
@@ -122,6 +133,23 @@ An update that matches no row means that the claim was lost.
 A pull completion, retry or dead letter clears `claim_token` and `lease_expires_at`.
 [Claims and leases](/concepts/claims-and-leases/) explains the model.
 
+## Incremental loading
+
+A downstream loader, for example dlt or an ELT job, can copy the rows that changed after its last run.
+It keeps the largest `updated_at` that it read as its cursor, and reads `WHERE updated_at > cursor - lag` on the next run.
+
+1. Set a lag longer than the longest transaction that writes inbox rows.
+   QueueBox writes the time of the statement, and the transaction commits later.
+   A row whose transaction commits after the loader reads can carry a time before the cursor.
+   Without the lag, the loader misses that row.
+2. Load each row by `id`, as an insert or an update. The lag reads some rows twice.
+3. Keep the lag plus the load interval shorter than `retention.inbox.maxAge`.
+   Cleanup deletes a finished row only after `maxAge` has passed since its last change, so the loader sees the final state first.
+4. Cleanup deletes rows, and the loader does not see a delete. A loader that needs deletes uses change data capture.
+
+The column is complete only after every QueueBox replica and every pull client runs a release that sets it. During a rolling upgrade, a replica of an older release does not set it.
+A loader that runs during the upgrade does one full reload after the last old replica stops.
+
 ## Indexes
 
 <Tabs>
@@ -139,6 +167,7 @@ A pull completion, retry or dead letter clears `claim_token` and `lease_expires_
 | `idx_inbox_consumption_pending` | `consumption`, `state`, `scheduled_at` | none |
 | `idx_inbox_pull_pending` | `source`, `scheduled_at`, `created_at`, `id` | pending pull rows |
 | `idx_inbox_pull_busy` | `source`, `aggregate_id`, `lease_expires_at` | processing pull rows |
+| `idx_inbox_updated_at` | `updated_at` | none |
 
   </TabItem>
   <TabItem label="SQL Server">
@@ -154,6 +183,7 @@ A pull completion, retry or dead letter clears `claim_token` and `lease_expires_
 | `idx_inbox_consumption_pending` | `consumption`, `state`, `scheduled_at` | none |
 | `idx_inbox_pull_pending` | `source`, `scheduled_at`, `created_at`, `id` | pending pull rows |
 | `idx_inbox_pull_busy` | `source`, `aggregate_id`, `lease_expires_at` | processing pull rows |
+| `idx_inbox_updated_at` | `updated_at` | none |
 
   </TabItem>
 </Tabs>

@@ -9,6 +9,46 @@ the configuration schema and for the database schema.
 
 ## [Unreleased]
 
+This release ships migration V12. The pull clients that set the new column ship on their own
+tags: Go `clients/go/v0.4.0`, TypeScript `typescript-v0.4.0` and C# `csharp-v0.6.0`. Each needs
+the V12 schema.
+
+### Added
+
+- **The inbox has an `updated_at` column that every state change sets.** A downstream loader can
+  read the rows that changed after its cursor, the change to `dead` included. The store, a claim,
+  the recovery of an expired claim, the change to `processed`, a pull retry and the change to
+  `dead` set it from the database clock. A lease renewal does not. The cursor is a time, so a
+  loader must re-read a lag window that is longer than the longest write transaction; the
+  [inbox table](site/src/content/docs/reference/inbox-table.mdx) page states the rules. Migration
+  V12 adds the column, fills it for the existing rows with the latest of `created_at`,
+  `scheduled_at`, `claimed_at` and `processed_at`, and adds `idx_inbox_updated_at`. The fill
+  writes every inbox row once. QueueBox stops at start when a custom inbox table has no such
+  column, and it prints the `ALTER TABLE` statement. The column mapping key is
+  `database.columnMapping.inbox.updatedAt`. Fixes #100.
+- **The PostgreSQL outbox has an index on `updated_at`.** V12 adds `idx_outbox_updated_at`, so a
+  loader can read the outbox the same way. SQL Server already has `idx_outbox_state_updated`.
+
+### Changed
+
+- **Inbox retention measures from `updated_at`.** It measured from `created_at`, so a row that
+  finished after a long retry, or a replayed row, could go in the same moment it finished. A row
+  now stays for the full `maxAge` after its last change.
+- **QueueBox writes the outbox `updated_at` from the database clock.** It wrote the clock of the
+  replica, so two replicas with different clocks wrote values out of order. On PostgreSQL the
+  column default becomes `clock_timestamp()`, the statement time, instead of the transaction
+  start. On SQL Server the value is now UTC, from `SYSUTCDATETIME()`. A replica whose JVM did not
+  run in UTC wrote a local time before, so the existing rows of such a deployment are off by the
+  UTC offset until retention removes them. The image runs in UTC.
+
+### Upgrade
+
+- A replica of 0.8.x keeps running against V12, but it does not set the inbox `updated_at`. A
+  loader that reads by `updated_at` during the rollout does one full reload after the last old
+  replica stops.
+- A pull consumer on Go 0.3, TypeScript 0.3 or C# 0.5 does not set the column either. The rows
+  that it claims and finishes move the cursor only after it moves to the new client release.
+
 ## [0.8.1] — 2026-10-03
 
 This release ships the server image alone, as `v0.8.1`. It has no migration and no configuration

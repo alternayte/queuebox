@@ -52,6 +52,31 @@ fun requireOutboxSequenceColumn(dataSource: DataSource, database: DatabaseConfig
     )
 }
 
+/**
+ * Stops the start when the inbox table has no updated_at column.
+ *
+ * The bundled migration V12 adds the column to the default schema. A custom inbox table does not
+ * get the migration, and every inbox write would then fail.
+ */
+fun requireInboxUpdatedAtColumn(dataSource: DataSource, database: DatabaseConfig, type: DatabaseType) {
+    val table = database.inboxTableName
+    val column = database.columnMapping.inbox.updatedAt
+    if (hasColumn(dataSource, table, column)) return
+
+    val alter = when (type) {
+        DatabaseType.POSTGRESQL ->
+            "ALTER TABLE \"$table\" ADD COLUMN \"$column\" TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(); " +
+                "CREATE INDEX ON \"$table\" (\"$column\");"
+        DatabaseType.SQLSERVER ->
+            "ALTER TABLE [$table] ADD [$column] DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(); " +
+                "CREATE INDEX ix_${table}_updated_at ON [$table] ([$column]);"
+    }
+    throw StartupFailedException(
+        "The inbox table '$table' has no column '$column'. QueueBox sets it on each state change, " +
+            "and retention cleanup counts from it. Add the column, then start QueueBox again: $alter"
+    )
+}
+
 private fun hasColumn(dataSource: DataSource, table: String, column: String): Boolean =
     dataSource.connection.use { conn ->
         // Postgres folds an unquoted name to lower case, and the metadata lookup matches exactly.

@@ -90,14 +90,14 @@ class SqlServerMigratorTest {
     }
 
     @Test
-    fun `baseline 10 records the hand-applied files and applies V11`() {
+    fun `baseline 10 records the hand-applied files and applies the later files`() {
         val dataSource = newDatabase("queuebox_baseline")
         try {
             applyByHand(dataSource, bundledVersions().filter { it.toInt() <= 10 })
 
-            assertEquals(listOf("11"), SqlServerMigrator().baseline(dataSource, "10"))
+            assertEquals(listOf("11", "12"), SqlServerMigrator().baseline(dataSource, "10"))
             assertTrue(hasColumn(dataSource, "outbox", "sequence"), "V11 must run after the baseline")
-            assertEquals(listOf("10", "11"), historyVersions(dataSource))
+            assertEquals(listOf("10", "11", "12"), historyVersions(dataSource))
 
             // The database is a normal one now.
             assertEquals(emptyList(), SqlServerMigrator().migrate(dataSource, QUEUEBOX_TABLES))
@@ -216,6 +216,81 @@ class SqlServerMigratorTest {
                     }
                 }
             }
+        } finally {
+            SqlServerDatabaseFactory.close(dataSource)
+        }
+    }
+
+    /**
+     * V12 gives each existing inbox row the latest of its known times, and a second run of the
+     * file changes nothing. See docs/specs/updated-at-cursor.md.
+     */
+    @Test
+    fun `V12 backfills inbox updated_at from the latest known time`() = runBlocking {
+        val databaseName = "queuebox_v12_populated"
+        createEmptyDatabase(databaseName)
+        val config = DatabaseConfig(
+            type = "sqlserver",
+            url = SqlServerTestBase.sqlserver.jdbcUrl + ";databaseName=$databaseName",
+            username = SqlServerTestBase.sqlserver.username,
+            password = Secret(SqlServerTestBase.sqlserver.password),
+            poolSize = 5
+        )
+        val dataSource = SqlServerDatabaseFactory.create(config)
+        try {
+            Flyway.configure()
+                .dataSource(dataSource)
+                .locations(SqlServerMigrator.LOCATION)
+                .baselineOnMigrate(true)
+                .baselineVersion("0")
+                .target("11")
+                .load()
+                .migrate()
+
+            // key, created_at, scheduled_at, claimed_at, processed_at, expected updated_at
+            val rows = listOf(
+                listOf("pending", "2026-01-01 00:01:00", "2026-01-01 00:05:00", null, null, "2026-01-01 00:05:00"),
+                listOf("processed", "2026-01-01 00:01:00", "2026-01-01 00:01:00", "2026-01-01 00:02:00",
+                    "2026-01-01 00:03:00", "2026-01-01 00:03:00"),
+                listOf("dead", "2026-01-01 00:04:00", "2026-01-01 00:01:00", null, null, "2026-01-01 00:04:00")
+            )
+            dataSource.connection.use { connection ->
+                connection.prepareStatement(
+                    "INSERT INTO inbox (id, source, idempotency_key, payload, state, created_at, scheduled_at, " +
+                        "claimed_at, processed_at) VALUES (NEWID(), 'src', ?, '{}', ?, ?, ?, ?, ?)"
+                ).use { stmt ->
+                    rows.forEach { row ->
+                        stmt.setString(1, row[0])
+                        stmt.setString(2, row[0])
+                        (1..4).forEach { i -> stmt.setTimestamp(i + 2, row[i]?.let(java.sql.Timestamp::valueOf)) }
+                        stmt.executeUpdate()
+                    }
+                }
+                connection.commit()
+            }
+
+            SqlServerMigrator().migrate(dataSource, QUEUEBOX_TABLES)
+
+            fun updatedAtByKey(): Map<String, java.sql.Timestamp> = dataSource.connection.use { connection ->
+                connection.createStatement().use { stmt ->
+                    stmt.executeQuery("SELECT idempotency_key, updated_at FROM inbox").use { rs ->
+                        buildMap { while (rs.next()) put(rs.getString(1), rs.getTimestamp(2)) }
+                    }
+                }
+            }
+            val backfilled = updatedAtByKey()
+            rows.forEach { row ->
+                assertEquals(java.sql.Timestamp.valueOf(row[5]), backfilled.getValue(row[0]!!), "row ${row[0]}")
+            }
+
+            // A second run of the file must keep every value.
+            val sql = requireNotNull(javaClass.getResourceAsStream("/db/sqlserver/V12__add_updated_at_cursor.sql"))
+                .bufferedReader().readText()
+            dataSource.connection.use { connection ->
+                connection.createStatement().use { it.execute(sql) }
+                connection.commit()
+            }
+            assertEquals(backfilled, updatedAtByKey())
         } finally {
             SqlServerDatabaseFactory.close(dataSource)
         }

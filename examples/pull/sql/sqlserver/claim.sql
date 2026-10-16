@@ -95,7 +95,7 @@ eligible AS (
 )
 UPDATE target
 SET state = 'processing', claim_token = NEWID(), claimed_at = SYSUTCDATETIME(),
-    lease_expires_at = DATEADD(millisecond, @qbLeaseMs, SYSUTCDATETIME())
+    lease_expires_at = DATEADD(millisecond, @qbLeaseMs, SYSUTCDATETIME()), updated_at = SYSUTCDATETIME()
 OUTPUT inserted.*
 FROM inbox AS target WITH (UPDLOCK, ROWLOCK)
 JOIN eligible AS e ON target.id = e.id

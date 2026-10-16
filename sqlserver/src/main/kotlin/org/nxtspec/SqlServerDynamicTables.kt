@@ -3,6 +3,7 @@ package org.nxtspec
 import org.jetbrains.exposed.v1.core.Column
 import org.jetbrains.exposed.v1.core.dao.id.java.UUIDTable
 import org.jetbrains.exposed.v1.core.java.javaUUID
+import org.jetbrains.exposed.v1.datetime.CurrentTimestamp
 import org.jetbrains.exposed.v1.datetime.timestamp
 
 /**
@@ -71,9 +72,11 @@ class SqlServerDynamicInboxTable(val mapping: InboxColumnMapping, tableName: Str
     val scheduledAt = timestamp(mapping.scheduledAt).clientDefault { kotlin.time.Clock.System.now() }
     val attempt = integer(mapping.attempt).default(0)
     val lastError = text(mapping.lastError).nullable()
+    val updatedAt = timestamp(mapping.updatedAt).defaultExpression(CurrentTimestamp)
 
     init {
         uniqueIndex(messageSrc, idempotencyKey)
+        index(false, updatedAt)
         index(false, aggregateId, state)
         // Supports the claim seek: state = 'pending' ordered by created_at.
         index(false, state, createdAt)

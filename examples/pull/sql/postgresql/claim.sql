@@ -63,7 +63,7 @@ locked AS (
 )
 UPDATE inbox AS target
 SET state = 'processing', claim_token = gen_random_uuid(), claimed_at = clock_timestamp(),
-    lease_expires_at = clock_timestamp() + :lease_ms * INTERVAL '1 millisecond'
+    lease_expires_at = clock_timestamp() + :lease_ms * INTERVAL '1 millisecond', updated_at = clock_timestamp()
 FROM locked
 WHERE target.id = locked.id
   AND target.consumption = 'pull' AND target.source = :source

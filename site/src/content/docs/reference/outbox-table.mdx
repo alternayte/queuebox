@@ -26,7 +26,7 @@ The migrations live in [`postgres/src/main/resources/db/postgresql`](https://git
 | `max_attempts` | `INTEGER` | `INT` | no | `5` | The application, or the default. The relay writes `outbox.maxAttempts`. |
 | `scheduled_at` | `TIMESTAMP WITH TIME ZONE` | `DATETIME2` | no | `CURRENT_TIMESTAMP` / `GETUTCDATE()` | The application, or the default. QueueBox on a retry. |
 | `created_at` | `TIMESTAMP WITH TIME ZONE` | `DATETIME2` | no | `CURRENT_TIMESTAMP` / `GETUTCDATE()` | The default |
-| `updated_at` | `TIMESTAMP WITH TIME ZONE` | `DATETIME2` | no | `CURRENT_TIMESTAMP` / `GETUTCDATE()` | QueueBox |
+| `updated_at` | `TIMESTAMP WITH TIME ZONE` | `DATETIME2` | no | `clock_timestamp()` / `GETUTCDATE()` | QueueBox |
 | `claimed_at` | `TIMESTAMP WITH TIME ZONE` | `DATETIME2` | yes | none | QueueBox |
 | `claim_token` | `UUID` | `UNIQUEIDENTIFIER` | yes | none | QueueBox |
 | `lease_expires_at` | `TIMESTAMPTZ` | `DATETIME2` | yes | none | QueueBox |
@@ -104,7 +104,11 @@ A replay resets it to `0`.
 ### created_at and updated_at
 
 `created_at` is the insert time. `updated_at` is the time of the last state change.
+QueueBox writes it from the database clock on the insert, the claim, a retry, the change to `sent` or `dead`, the recovery of an expired claim and a replay. A lease renewal does not change it.
+On SQL Server the value is UTC.
 The retention age policy of the outbox measures from `updated_at`.
+A downstream loader can read the table by `updated_at`. The [inbox table](/reference/inbox-table/#incremental-loading) page states the rules, and they apply to the outbox too.
+On the outbox, the lag must also cover the longest application transaction that inserts outbox rows, because QueueBox does not control it.
 
 ### claimed_at, claim_token and lease_expires_at
 
@@ -137,6 +141,7 @@ Migration V11 adds the column and numbers the rows that exist, in `created_at` o
 | `idx_outbox_topic` | `topic` | none |
 | `idx_outbox_processing_claimed` | `claimed_at` | processing rows |
 | `idx_outbox_key_sequence` | `key`, `sequence` | pending and processing rows |
+| `idx_outbox_updated_at` | `updated_at` | none |
 
   </TabItem>
   <TabItem label="SQL Server">
