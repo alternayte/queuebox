@@ -86,6 +86,21 @@ public sealed class InboxSqlTest
         }
     }
 
+    [Theory]
+    [InlineData(SqlDialect.PostgreSql, "\"updated_at\"")]
+    [InlineData(SqlDialect.SqlServer, "[updated_at]")]
+    public void EveryWriteExceptTheRenewalSetsUpdatedAt(SqlDialect dialect, string column)
+    {
+        var sql = InboxSql.For(dialect, InboxSchema.Default);
+
+        foreach (var statement in new[] { sql.Claim, sql.Complete, sql.Retry, sql.Dead })
+        {
+            Assert.Contains(column + " = ", statement, StringComparison.Ordinal);
+        }
+
+        Assert.DoesNotContain(column, sql.Renew, StringComparison.Ordinal);
+    }
+
     [Fact]
     public void AMappedSchemaRenamesTheTableAndTheColumn()
     {

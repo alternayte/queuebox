@@ -29,6 +29,9 @@ public sealed class SqlServerHarness : IDatabaseHarness, IAsyncLifetime
             await ExecuteAsync(script);
         }
 
+        // V12 adds this column. The statement is a no-op once the migration is in the repository.
+        await ExecuteAsync("IF COL_LENGTH('inbox', 'updated_at') IS NULL ALTER TABLE inbox ADD updated_at DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME()");
+
         await ExecuteAsync("CREATE TABLE app_orders ([key] NVARCHAR(255) PRIMARY KEY)");
     }
 
@@ -100,6 +103,17 @@ public sealed class SqlServerHarness : IDatabaseHarness, IAsyncLifetime
         return new DateTimeOffset((DateTime)(await command.ExecuteScalarAsync())!, TimeSpan.Zero);
     }
 
+    public async Task<DateTimeOffset> ReadUpdatedAtAsync(Guid id)
+    {
+        await using var connection = (SqlConnection)await OpenAsync();
+        await using var command = connection.CreateCommand();
+
+        command.CommandText = "SELECT updated_at FROM inbox WHERE id = @id";
+        command.Parameters.AddWithValue("@id", id);
+
+        return new DateTimeOffset((DateTime)(await command.ExecuteScalarAsync())!, TimeSpan.Zero);
+    }
+
     public Task StealClaimAsync(Guid id) => ExecuteAsync($"""
         UPDATE inbox SET state = 'processing', claim_token = NEWID(),
                          lease_expires_at = DATEADD(minute, 10, SYSUTCDATETIME())
@@ -136,6 +150,7 @@ public sealed class SqlServerHarness : IDatabaseHarness, IAsyncLifetime
             ClaimToken = "lease_token",
             Attempt = "tries",
             Headers = "meta",
+            UpdatedAt = "changed_at",
         };
 
         await ExecuteAsync("IF OBJECT_ID('qb_messages', 'U') IS NOT NULL DROP TABLE qb_messages");
@@ -158,7 +173,8 @@ public sealed class SqlServerHarness : IDatabaseHarness, IAsyncLifetime
                 consumption NVARCHAR(4) NOT NULL DEFAULT 'push',
                 scheduled_at DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
                 tries INT NOT NULL DEFAULT 0,
-                last_error NVARCHAR(MAX)
+                last_error NVARCHAR(MAX),
+                changed_at DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME()
             )
             """);
 

@@ -132,7 +132,7 @@ public sealed class InboxSql
             )
             UPDATE {Q(s.Table)} AS target
             SET {Q(s.State)} = 'processing', {Q(s.ClaimToken)} = gen_random_uuid(), {Q(s.ClaimedAt)} = clock_timestamp(),
-                {Q(s.LeaseExpiresAt)} = clock_timestamp() + @lease_ms * INTERVAL '1 millisecond'
+                {Q(s.LeaseExpiresAt)} = clock_timestamp() + @lease_ms * INTERVAL '1 millisecond', {Q(s.UpdatedAt)} = clock_timestamp()
             FROM locked
             WHERE target.{Q(s.Id)} = locked.{Q(s.Id)}
               AND target.{Q(s.Consumption)} = 'pull' AND target.{Q(s.Source)} = @source
@@ -154,17 +154,17 @@ public sealed class InboxSql
             """;
 
         var complete = $"""
-            UPDATE {Q(s.Table)} SET {Q(s.State)} = 'processed', {Q(s.ProcessedAt)} = clock_timestamp(), {Q(s.ClaimToken)} = NULL, {Q(s.LeaseExpiresAt)} = NULL
+            UPDATE {Q(s.Table)} SET {Q(s.State)} = 'processed', {Q(s.ProcessedAt)} = clock_timestamp(), {Q(s.ClaimToken)} = NULL, {Q(s.LeaseExpiresAt)} = NULL, {Q(s.UpdatedAt)} = clock_timestamp()
             {fence};
             """;
 
         var retry = $"""
-            UPDATE {Q(s.Table)} SET {Q(s.State)} = 'pending', {Q(s.ScheduledAt)} = clock_timestamp() + @delay_ms * INTERVAL '1 millisecond', {Q(s.Attempt)} = {Q(s.Attempt)} + 1, {Q(s.LastError)} = @error, {Q(s.ClaimToken)} = NULL, {Q(s.LeaseExpiresAt)} = NULL
+            UPDATE {Q(s.Table)} SET {Q(s.State)} = 'pending', {Q(s.ScheduledAt)} = clock_timestamp() + @delay_ms * INTERVAL '1 millisecond', {Q(s.Attempt)} = {Q(s.Attempt)} + 1, {Q(s.LastError)} = @error, {Q(s.ClaimToken)} = NULL, {Q(s.LeaseExpiresAt)} = NULL, {Q(s.UpdatedAt)} = clock_timestamp()
             {fence};
             """;
 
         var dead = $"""
-            UPDATE {Q(s.Table)} SET {Q(s.State)} = 'dead', {Q(s.LastError)} = @error, {Q(s.ClaimToken)} = NULL, {Q(s.LeaseExpiresAt)} = NULL
+            UPDATE {Q(s.Table)} SET {Q(s.State)} = 'dead', {Q(s.LastError)} = @error, {Q(s.ClaimToken)} = NULL, {Q(s.LeaseExpiresAt)} = NULL, {Q(s.UpdatedAt)} = clock_timestamp()
             {fence};
             """;
 
@@ -240,7 +240,7 @@ public sealed class InboxSql
             )
             UPDATE target
             SET {Q(s.State)} = 'processing', {Q(s.ClaimToken)} = NEWID(), {Q(s.ClaimedAt)} = SYSUTCDATETIME(),
-                {Q(s.LeaseExpiresAt)} = DATEADD(millisecond, @qbLeaseMs, SYSUTCDATETIME())
+                {Q(s.LeaseExpiresAt)} = DATEADD(millisecond, @qbLeaseMs, SYSUTCDATETIME()), {Q(s.UpdatedAt)} = SYSUTCDATETIME()
             OUTPUT inserted.*
             FROM {Q(s.Table)} AS target WITH (UPDLOCK, ROWLOCK)
             JOIN eligible AS e ON target.{Q(s.Id)} = e.{Q(s.Id)}
@@ -263,17 +263,17 @@ public sealed class InboxSql
             """;
 
         var complete = $"""
-            UPDATE {Q(s.Table)} SET {Q(s.State)} = 'processed', {Q(s.ProcessedAt)} = SYSUTCDATETIME(), {Q(s.ClaimToken)} = NULL, {Q(s.LeaseExpiresAt)} = NULL
+            UPDATE {Q(s.Table)} SET {Q(s.State)} = 'processed', {Q(s.ProcessedAt)} = SYSUTCDATETIME(), {Q(s.ClaimToken)} = NULL, {Q(s.LeaseExpiresAt)} = NULL, {Q(s.UpdatedAt)} = SYSUTCDATETIME()
             {fence};
             """;
 
         var retry = $"""
-            UPDATE {Q(s.Table)} SET {Q(s.State)} = 'pending', {Q(s.ScheduledAt)} = DATEADD(millisecond, @delay_ms, SYSUTCDATETIME()), {Q(s.Attempt)} = {Q(s.Attempt)} + 1, {Q(s.LastError)} = @error, {Q(s.ClaimToken)} = NULL, {Q(s.LeaseExpiresAt)} = NULL
+            UPDATE {Q(s.Table)} SET {Q(s.State)} = 'pending', {Q(s.ScheduledAt)} = DATEADD(millisecond, @delay_ms, SYSUTCDATETIME()), {Q(s.Attempt)} = {Q(s.Attempt)} + 1, {Q(s.LastError)} = @error, {Q(s.ClaimToken)} = NULL, {Q(s.LeaseExpiresAt)} = NULL, {Q(s.UpdatedAt)} = SYSUTCDATETIME()
             {fence};
             """;
 
         var dead = $"""
-            UPDATE {Q(s.Table)} SET {Q(s.State)} = 'dead', {Q(s.LastError)} = @error, {Q(s.ClaimToken)} = NULL, {Q(s.LeaseExpiresAt)} = NULL
+            UPDATE {Q(s.Table)} SET {Q(s.State)} = 'dead', {Q(s.LastError)} = @error, {Q(s.ClaimToken)} = NULL, {Q(s.LeaseExpiresAt)} = NULL, {Q(s.UpdatedAt)} = SYSUTCDATETIME()
             {fence};
             """;
 

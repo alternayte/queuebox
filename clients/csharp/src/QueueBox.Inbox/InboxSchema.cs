@@ -12,7 +12,7 @@ public sealed record InboxSchema
     // A mapping comes from configuration, and configuration is not a trusted SQL fragment.
     private static readonly Regex SafeIdentifier = new(@"^[A-Za-z_][A-Za-z0-9_$]{0,62}$", RegexOptions.Compiled | RegexOptions.CultureInvariant);
 
-    /// <summary>The default QueueBox V6 names.</summary>
+    /// <summary>The default QueueBox V12 names.</summary>
     public static InboxSchema Default { get; } = new();
 
     /// <summary>The table that holds the inbox rows.</summary>
@@ -44,6 +44,9 @@ public sealed record InboxSchema
 
     /// <summary>The time at which the lease ends.</summary>
     public string LeaseExpiresAt { get; init; } = "lease_expires_at";
+
+    /// <summary>The time of the last state change, which every pull write except a lease renewal sets.</summary>
+    public string UpdatedAt { get; init; } = "updated_at";
 
     /// <summary>The time at which the application finished the work.</summary>
     public string ProcessedAt { get; init; } = "processed_at";
@@ -97,6 +100,7 @@ public sealed record InboxSchema
         yield return (nameof(ClaimToken), ClaimToken);
         yield return (nameof(ClaimedAt), ClaimedAt);
         yield return (nameof(LeaseExpiresAt), LeaseExpiresAt);
+        yield return (nameof(UpdatedAt), UpdatedAt);
         yield return (nameof(ProcessedAt), ProcessedAt);
         yield return (nameof(Attempt), Attempt);
         yield return (nameof(LastError), LastError);

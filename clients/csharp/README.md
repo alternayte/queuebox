@@ -21,7 +21,7 @@ rolls your writes back and reports nothing as done.
 |---|---|
 | Framework | .NET 8.0 or later |
 | Database | PostgreSQL, through `Npgsql`, or SQL Server, through `Microsoft.Data.SqlClient` |
-| QueueBox | The V10 schema or later, which adds the inbox `headers` column |
+| QueueBox | The V12 schema or later, which adds the inbox `updated_at` column |
 
 The package itself depends on no database driver. It talks to `System.Data.Common`, so one
 package serves both dialects, and your application brings the driver it already has.
