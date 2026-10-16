@@ -37,6 +37,8 @@ type harness interface {
 	insertPending(t *testing.T, row pendingRow) string
 	readRow(t *testing.T, id string) (state string, attempt int, lastError *string)
 	readScheduledAt(t *testing.T, id string) time.Time
+	readUpdatedAt(t *testing.T, id string) time.Time
+	readClaimToken(t *testing.T, id string) string
 	stealClaim(t *testing.T, id string)
 	countApplicationRows(t *testing.T, key string) int
 	createMappedSchema(t *testing.T) queuebox.Schema
@@ -151,6 +153,7 @@ func mappedSchema() queuebox.Schema {
 	schema.ClaimToken = "lease_token"
 	schema.Attempt = "tries"
 	schema.Headers = "meta"
+	schema.UpdatedAt = "changed_at"
 
 	return schema
 }
@@ -205,6 +208,10 @@ func (h *postgresHarness) start(t *testing.T) {
 		mustExec(t, pool, script)
 	}
 
+	// The client requires the V12 column. The statement matches V12 and is a no-op once the
+	// repository carries V12.
+	mustExec(t, pool, "ALTER TABLE inbox ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp()")
+
 	mustExec(t, pool, "CREATE TABLE app_orders (key TEXT PRIMARY KEY)")
 }
 
@@ -256,6 +263,26 @@ func (h *postgresHarness) readScheduledAt(t *testing.T, id string) time.Time {
 	return at
 }
 
+func (h *postgresHarness) readUpdatedAt(t *testing.T, id string) time.Time {
+	var at time.Time
+
+	if err := h.pool.QueryRow("SELECT updated_at FROM inbox WHERE id = $1", id).Scan(&at); err != nil {
+		t.Fatalf("the update time did not read: %v", err)
+	}
+
+	return at
+}
+
+func (h *postgresHarness) readClaimToken(t *testing.T, id string) string {
+	var token string
+
+	if err := h.pool.QueryRow("SELECT claim_token::text FROM inbox WHERE id = $1", id).Scan(&token); err != nil {
+		t.Fatalf("the claim token did not read: %v", err)
+	}
+
+	return token
+}
+
 func (h *postgresHarness) stealClaim(t *testing.T, id string) {
 	// A real second worker also takes the row into 'processing'.
 	mustExecArgs(t, h.pool, `
@@ -295,7 +322,8 @@ func (h *postgresHarness) createMappedSchema(t *testing.T) queuebox.Schema {
 			scheduled_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
 			tries INT NOT NULL DEFAULT 0,
 			last_error TEXT,
-			meta JSONB NOT NULL DEFAULT '{}'
+			meta JSONB NOT NULL DEFAULT '{}',
+			changed_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp()
 		)`)
 
 	return mappedSchema()
@@ -370,6 +398,11 @@ func (h *sqlServerHarness) start(t *testing.T) {
 		mustExec(t, pool, script)
 	}
 
+	// The client requires the V12 column. The statement matches V12 and is a no-op once the
+	// repository carries V12.
+	mustExec(t, pool, `IF COL_LENGTH('inbox', 'updated_at') IS NULL
+		ALTER TABLE inbox ADD updated_at DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME()`)
+
 	mustExec(t, pool, "CREATE TABLE app_orders ([key] NVARCHAR(255) PRIMARY KEY)")
 }
 
@@ -423,6 +456,26 @@ func (h *sqlServerHarness) readScheduledAt(t *testing.T, id string) time.Time {
 	return at
 }
 
+func (h *sqlServerHarness) readUpdatedAt(t *testing.T, id string) time.Time {
+	var at time.Time
+
+	if err := h.pool.QueryRow("SELECT updated_at FROM inbox WHERE id = @p1", id).Scan(&at); err != nil {
+		t.Fatalf("the update time did not read: %v", err)
+	}
+
+	return at
+}
+
+func (h *sqlServerHarness) readClaimToken(t *testing.T, id string) string {
+	var token string
+
+	if err := h.pool.QueryRow("SELECT CONVERT(VARCHAR(36), claim_token) FROM inbox WHERE id = @p1", id).Scan(&token); err != nil {
+		t.Fatalf("the claim token did not read: %v", err)
+	}
+
+	return token
+}
+
 func (h *sqlServerHarness) stealClaim(t *testing.T, id string) {
 	mustExecArgs(t, h.pool, `
 		UPDATE inbox SET state = 'processing', claim_token = NEWID(),
@@ -461,7 +514,8 @@ func (h *sqlServerHarness) createMappedSchema(t *testing.T) queuebox.Schema {
 			scheduled_at DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
 			tries INT NOT NULL DEFAULT 0,
 			last_error NVARCHAR(MAX),
-			meta NVARCHAR(MAX) NOT NULL DEFAULT '{}'
+			meta NVARCHAR(MAX) NOT NULL DEFAULT '{}',
+			changed_at DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME()
 		)`)
 
 	return mappedSchema()

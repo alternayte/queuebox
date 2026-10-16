@@ -18,7 +18,7 @@ rolls your writes back and reports nothing as done.
 |---|---|
 | Go | 1.24 or later |
 | Database | PostgreSQL through `pgx`, or SQL Server through `go-mssqldb` |
-| QueueBox | The V10 schema or later, which adds the inbox `headers` column |
+| QueueBox | The V12 schema or later, which adds the inbox `updated_at` column |
 
 The library talks to `database/sql`, so it needs no driver of its own. Your application registers
 the driver it already uses.
@@ -215,6 +215,11 @@ worker, err := queuebox.NewInboxWorker(db, queuebox.Options{Source: "orders", Sc
 ```
 
 Every name is quoted and checked before it reaches the database, so a mapping cannot carry SQL.
+
+The library sets the `updated_at` column (`Schema.UpdatedAt`) on claim, complete, retry and dead.
+A lease renewal does not set it. A mapped table needs this column with the V12 type and default:
+`TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp()` on PostgreSQL and
+`DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME()` on SQL Server.
 
 ## Tests
 

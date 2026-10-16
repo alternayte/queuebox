@@ -38,9 +38,10 @@ type Schema struct {
 	Payload        string
 	CorrelationID  string
 	Headers        string
+	UpdatedAt      string
 }
 
-// DefaultSchema returns the QueueBox V10 names.
+// DefaultSchema returns the QueueBox V12 names.
 func DefaultSchema() Schema {
 	return Schema{
 		Table:          "inbox",
@@ -62,6 +63,7 @@ func DefaultSchema() Schema {
 		Payload:        "payload",
 		CorrelationID:  "correlation_id",
 		Headers:        "headers",
+		UpdatedAt:      "updated_at",
 	}
 }
 
@@ -203,7 +205,7 @@ locked AS (
     FOR UPDATE SKIP LOCKED
 )
 UPDATE %[2]s AS target
-SET %[5]s = 'processing', %[10]s = gen_random_uuid(), %[11]s = clock_timestamp(),
+SET %[5]s = 'processing', %[10]s = gen_random_uuid(), %[11]s = clock_timestamp(), %[12]s = clock_timestamp(),
     %[7]s = clock_timestamp() + $3 * INTERVAL '1 millisecond'
 FROM locked
 WHERE target.%[1]s = locked.%[1]s
@@ -219,7 +221,8 @@ WHERE target.%[1]s = locked.%[1]s
           AND busy.%[7]s > clock_timestamp()))
 RETURNING target.*`,
 		q(s.ID), q(s.Table), q(s.Consumption), q(s.Source), q(s.State), q(s.ScheduledAt),
-		q(s.LeaseExpiresAt), q(s.CreatedAt), q(s.AggregateID), q(s.ClaimToken), q(s.ClaimedAt))
+		q(s.LeaseExpiresAt), q(s.CreatedAt), q(s.AggregateID), q(s.ClaimToken), q(s.ClaimedAt),
+		q(s.UpdatedAt))
 
 	return Statements{
 		Claim: claim,
@@ -227,15 +230,15 @@ RETURNING target.*`,
 		Renew: fmt.Sprintf("UPDATE %s SET %s = clock_timestamp() + $1 * INTERVAL '1 millisecond'%s",
 			q(s.Table), q(s.LeaseExpiresAt), fence("$2", "$3")),
 
-		Complete: fmt.Sprintf("UPDATE %s SET %s = 'processed', %s = clock_timestamp(), %s = NULL, %s = NULL%s",
-			q(s.Table), q(s.State), q(s.ProcessedAt), q(s.ClaimToken), q(s.LeaseExpiresAt), fence("$1", "$2")),
+		Complete: fmt.Sprintf("UPDATE %s SET %s = 'processed', %s = clock_timestamp(), %s = clock_timestamp(), %s = NULL, %s = NULL%s",
+			q(s.Table), q(s.State), q(s.ProcessedAt), q(s.UpdatedAt), q(s.ClaimToken), q(s.LeaseExpiresAt), fence("$1", "$2")),
 
-		Retry: fmt.Sprintf("UPDATE %s SET %s = 'pending', %s = clock_timestamp() + $1 * INTERVAL '1 millisecond', %s = %s + 1, %s = $2, %s = NULL, %s = NULL%s",
-			q(s.Table), q(s.State), q(s.ScheduledAt), q(s.Attempt), q(s.Attempt), q(s.LastError),
+		Retry: fmt.Sprintf("UPDATE %s SET %s = 'pending', %s = clock_timestamp() + $1 * INTERVAL '1 millisecond', %s = clock_timestamp(), %s = %s + 1, %s = $2, %s = NULL, %s = NULL%s",
+			q(s.Table), q(s.State), q(s.ScheduledAt), q(s.UpdatedAt), q(s.Attempt), q(s.Attempt), q(s.LastError),
 			q(s.ClaimToken), q(s.LeaseExpiresAt), fence("$3", "$4")),
 
-		Dead: fmt.Sprintf("UPDATE %s SET %s = 'dead', %s = $1, %s = NULL, %s = NULL%s",
-			q(s.Table), q(s.State), q(s.LastError), q(s.ClaimToken), q(s.LeaseExpiresAt), fence("$2", "$3")),
+		Dead: fmt.Sprintf("UPDATE %s SET %s = 'dead', %s = clock_timestamp(), %s = $1, %s = NULL, %s = NULL%s",
+			q(s.Table), q(s.State), q(s.UpdatedAt), q(s.LastError), q(s.ClaimToken), q(s.LeaseExpiresAt), fence("$2", "$3")),
 	}
 }
 
@@ -305,7 +308,7 @@ eligible AS (
     ORDER BY r.%[6]s, r.%[8]s, r.%[1]s
 )
 UPDATE target
-SET %[5]s = 'processing', %[10]s = NEWID(), %[11]s = SYSUTCDATETIME(),
+SET %[5]s = 'processing', %[10]s = NEWID(), %[11]s = SYSUTCDATETIME(), %[12]s = SYSUTCDATETIME(),
     %[7]s = DATEADD(millisecond, @qbLeaseMs, SYSUTCDATETIME())
 OUTPUT inserted.*
 FROM %[2]s AS target WITH (UPDLOCK, ROWLOCK)
@@ -322,7 +325,8 @@ WHERE target.%[3]s = 'pull' AND target.%[4]s = @src
           AND busy.%[7]s > SYSUTCDATETIME()));
 COMMIT TRANSACTION;`,
 		q(s.ID), q(s.Table), q(s.Consumption), q(s.Source), q(s.State), q(s.ScheduledAt),
-		q(s.LeaseExpiresAt), q(s.CreatedAt), q(s.AggregateID), q(s.ClaimToken), q(s.ClaimedAt))
+		q(s.LeaseExpiresAt), q(s.CreatedAt), q(s.AggregateID), q(s.ClaimToken), q(s.ClaimedAt),
+		q(s.UpdatedAt))
 
 	return Statements{
 		Claim: claim,
@@ -330,14 +334,14 @@ COMMIT TRANSACTION;`,
 		Renew: fmt.Sprintf("UPDATE %s SET %s = DATEADD(millisecond, @p1, SYSUTCDATETIME())%s",
 			q(s.Table), q(s.LeaseExpiresAt), fence("@p2", "@p3")),
 
-		Complete: fmt.Sprintf("UPDATE %s SET %s = 'processed', %s = SYSUTCDATETIME(), %s = NULL, %s = NULL%s",
-			q(s.Table), q(s.State), q(s.ProcessedAt), q(s.ClaimToken), q(s.LeaseExpiresAt), fence("@p1", "@p2")),
+		Complete: fmt.Sprintf("UPDATE %s SET %s = 'processed', %s = SYSUTCDATETIME(), %s = SYSUTCDATETIME(), %s = NULL, %s = NULL%s",
+			q(s.Table), q(s.State), q(s.ProcessedAt), q(s.UpdatedAt), q(s.ClaimToken), q(s.LeaseExpiresAt), fence("@p1", "@p2")),
 
-		Retry: fmt.Sprintf("UPDATE %s SET %s = 'pending', %s = DATEADD(millisecond, @p1, SYSUTCDATETIME()), %s = %s + 1, %s = @p2, %s = NULL, %s = NULL%s",
-			q(s.Table), q(s.State), q(s.ScheduledAt), q(s.Attempt), q(s.Attempt), q(s.LastError),
+		Retry: fmt.Sprintf("UPDATE %s SET %s = 'pending', %s = DATEADD(millisecond, @p1, SYSUTCDATETIME()), %s = SYSUTCDATETIME(), %s = %s + 1, %s = @p2, %s = NULL, %s = NULL%s",
+			q(s.Table), q(s.State), q(s.ScheduledAt), q(s.UpdatedAt), q(s.Attempt), q(s.Attempt), q(s.LastError),
 			q(s.ClaimToken), q(s.LeaseExpiresAt), fence("@p3", "@p4")),
 
-		Dead: fmt.Sprintf("UPDATE %s SET %s = 'dead', %s = @p1, %s = NULL, %s = NULL%s",
-			q(s.Table), q(s.State), q(s.LastError), q(s.ClaimToken), q(s.LeaseExpiresAt), fence("@p2", "@p3")),
+		Dead: fmt.Sprintf("UPDATE %s SET %s = 'dead', %s = SYSUTCDATETIME(), %s = @p1, %s = NULL, %s = NULL%s",
+			q(s.Table), q(s.State), q(s.UpdatedAt), q(s.LastError), q(s.ClaimToken), q(s.LeaseExpiresAt), fence("@p2", "@p3")),
 	}
 }
