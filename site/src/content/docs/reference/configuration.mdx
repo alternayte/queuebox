@@ -326,8 +326,9 @@ The [inbox table](/reference/inbox-table/) page describes each column.
 | `attempt` | `attempt` |
 | `lastError` | `last_error` |
 | `headers` | `headers` |
+| `updatedAt` | `updated_at` |
 
-At start, QueueBox reads the columns of the inbox table. It stops when the column that `headers` names does not exist.
+At start, QueueBox reads the columns of the inbox table. It stops when the column that `headers` or `updatedAt` names does not exist.
 The error message holds the `ALTER TABLE` statement that adds the column.
 
 ## outbox
@@ -835,7 +836,8 @@ Retention deletes old rows in batches. It never deletes a row that waits or runs
 | `batchSize` | integer | `1000` | The largest number of rows that one delete statement removes. It must be above 0. |
 
 The outbox age policy measures from `updated_at`. It deletes rows in state `sent` or `dead`.
-The inbox age policy measures from `created_at`. It deletes rows in state `processed` or `dead`.
+The inbox age policy measures from `updated_at`. It deletes rows in state `processed` or `dead`.
+Both columns hold the time of the last state change, so a row that finishes late stays for the full `maxAge` after it finishes.
 The outbox count policy keeps `maxCount` sent rows and, apart from them, `maxCount` dead rows.
 
 <Aside type="caution">

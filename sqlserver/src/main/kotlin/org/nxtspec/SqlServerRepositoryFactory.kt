@@ -55,7 +55,8 @@ class SqlServerRepositoryFactory(
         scheduledAt = columnMapping.inbox.scheduledAt,
         attempt = columnMapping.inbox.attempt,
         lastError = columnMapping.inbox.lastError,
-        correlationId = columnMapping.inbox.correlationId
+        correlationId = columnMapping.inbox.correlationId,
+        updatedAt = columnMapping.inbox.updatedAt
     )
 
     override fun createOutboxRepository(): OutboxRepositoryInterface =

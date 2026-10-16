@@ -158,17 +158,27 @@ public abstract class InboxWorkerContractTest : IAsyncLifetime
     public async Task ASlowHandlerRenewsAndKeepsOwnership()
     {
         var id = await Harness.InsertPendingAsync(Source, "key-6", "{}");
+        var inserted = await Harness.ReadUpdatedAtAsync(id);
+        var claimed = DateTimeOffset.MinValue;
+        var renewed = DateTimeOffset.MinValue;
 
         // The lease is one second and the renewal runs every third of it, so a handler of three
         // seconds needs several renewals to survive.
         await RunUntilAsync(1, async (_, transaction, token) =>
         {
+            claimed = await Harness.ReadUpdatedAtAsync(id);
             await Task.Delay(TimeSpan.FromSeconds(3), token);
+            renewed = await Harness.ReadUpdatedAtAsync(id);
             await WriteApplicationRowAsync(transaction, "row-6", token);
         }, leaseMs: 1_000);
 
         Assert.Equal("processed", (await Harness.ReadRowAsync(id)).State);
         Assert.Equal(1, await Harness.CountApplicationRowsAsync("row-6"));
+
+        // The claim and the completion move updated_at forward. A renewal leaves it alone.
+        Assert.True(claimed > inserted, "The claim must move updated_at forward.");
+        Assert.Equal(claimed, renewed);
+        Assert.True(await Harness.ReadUpdatedAtAsync(id) > renewed, "The completion must move updated_at forward.");
     }
 
     // Item 7.
@@ -204,8 +214,13 @@ public abstract class InboxWorkerContractTest : IAsyncLifetime
     {
         var id = await Harness.InsertPendingAsync(Source, "key-9", "{}");
         var before = await Harness.ReadScheduledAtAsync(id);
+        var claimed = DateTimeOffset.MinValue;
 
-        await RunUntilAsync(1, (_, _, _) => throw new InvalidOperationException("no"),
+        await RunUntilAsync(1, async (_, _, _) =>
+        {
+            claimed = await Harness.ReadUpdatedAtAsync(id);
+            throw new InvalidOperationException("no");
+        },
             policy: new DefaultRetryPolicy(maxAttempts: 5, baseDelay: TimeSpan.FromMinutes(1), maxDelay: TimeSpan.FromMinutes(1), jitter: 0));
 
         var row = await Harness.ReadRowAsync(id);
@@ -214,6 +229,7 @@ public abstract class InboxWorkerContractTest : IAsyncLifetime
         Assert.Equal(1, row.Attempt);
         Assert.NotNull(row.LastError);
         Assert.True(await Harness.ReadScheduledAtAsync(id) > before.AddSeconds(30), "The backoff must move the schedule forward.");
+        Assert.True(await Harness.ReadUpdatedAtAsync(id) > claimed, "The retry must move updated_at forward.");
     }
 
     // Item 10.
@@ -221,14 +237,20 @@ public abstract class InboxWorkerContractTest : IAsyncLifetime
     public async Task TheDeadLetterIsReachedAtTheCeiling()
     {
         var id = await Harness.InsertPendingAsync(Source, "key-10", "{}", attempt: 3);
+        var claimed = DateTimeOffset.MinValue;
 
-        await RunUntilAsync(1, (_, _, _) => throw new InvalidOperationException("no"),
+        await RunUntilAsync(1, async (_, _, _) =>
+        {
+            claimed = await Harness.ReadUpdatedAtAsync(id);
+            throw new InvalidOperationException("no");
+        },
             policy: new DefaultRetryPolicy(maxAttempts: 3, baseDelay: TimeSpan.FromSeconds(1), maxDelay: TimeSpan.FromSeconds(1), jitter: 0));
 
         var row = await Harness.ReadRowAsync(id);
 
         Assert.Equal("dead", row.State);
         Assert.NotNull(row.LastError);
+        Assert.True(await Harness.ReadUpdatedAtAsync(id) > claimed, "The dead letter must move updated_at forward.");
     }
 
     // Item 15. The failure text reaches the database, so a secret must not travel with it.

@@ -498,6 +498,58 @@ func runContract(t *testing.T, h harness) {
 		}
 	})
 
+	// Issue #100. Every pull write moves updated_at forward, and a renewal leaves it alone.
+	t.Run("moves updated_at on claim, complete, retry and dead, and not on renew", func(t *testing.T) {
+		reset(t)
+		id := h.insertPending(t, pendingRow{source: source, idempotencyKey: "key-100", payload: "{}"})
+		statements := mustStatements(t, h.dialect())
+		last := h.readUpdatedAt(t, id)
+
+		step := func(name string, moves bool, text string, args ...any) {
+			t.Helper()
+
+			// The database clock must tick between two writes for the comparison to mean anything.
+			time.Sleep(20 * time.Millisecond)
+
+			if _, err := h.db().Exec(text, args...); err != nil {
+				t.Fatalf("the %s statement failed: %v", name, err)
+			}
+
+			now := h.readUpdatedAt(t, id)
+
+			switch {
+			case moves && !now.After(last):
+				t.Errorf("%s left updated_at at %s, and it must move past %s", name, now, last)
+			case !moves && !now.Equal(last):
+				t.Errorf("%s moved updated_at from %s to %s", name, last, now)
+			}
+
+			last = now
+		}
+
+		// A one-millisecond lease expires at once, so the second claim takes the reclaim branch.
+		step("claim", true, statements.Claim, source, 10, 1, 50)
+		step("reclaim", true, statements.Claim, source, 10, 60_000, 50)
+		step("renew", false, statements.Renew, 60_000, id, h.readClaimToken(t, id))
+		step("retry", true, statements.Retry, 0, "no", id, h.readClaimToken(t, id))
+		step("claim after retry", true, statements.Claim, source, 10, 60_000, 50)
+		step("dead", true, statements.Dead, "no", id, h.readClaimToken(t, id))
+
+		if state, _, _ := h.readRow(t, id); state != "dead" {
+			t.Fatalf("the state is %q and it must be dead", state)
+		}
+
+		id = h.insertPending(t, pendingRow{source: source, idempotencyKey: "key-100-b", payload: "{}"})
+		last = h.readUpdatedAt(t, id)
+
+		step("claim", true, statements.Claim, source, 10, 60_000, 50)
+		step("complete", true, statements.Complete, id, h.readClaimToken(t, id))
+
+		if state, _, _ := h.readRow(t, id); state != "processed" {
+			t.Errorf("the state is %q and it must be processed", state)
+		}
+	})
+
 	// Item 12.
 	t.Run("claims nothing new after a stop and abandons rather than completes", func(t *testing.T) {
 		reset(t)

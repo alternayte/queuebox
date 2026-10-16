@@ -7,6 +7,7 @@ import org.nxtspec.OutboxColumnMapping
 import org.nxtspec.Secret
 import org.nxtspec.app.StartupFailedException
 import org.nxtspec.app.requireInboxHeadersColumn
+import org.nxtspec.app.requireInboxUpdatedAtColumn
 import org.nxtspec.app.requireOutboxSequenceColumn
 import org.nxtspec.repository.DatabaseType
 import kotlin.test.Test
@@ -63,5 +64,26 @@ class SchemaGuardTest : E2ETestBase() {
 
         execute(error.message!!.substringAfter("start QueueBox again: "))
         requireOutboxSequenceColumn(sharedDataSource(), config, DatabaseType.POSTGRESQL)
+    }
+
+    @Test
+    fun `a custom inbox table without the updated_at column stops the start and gives the statement that adds it`() {
+        val config = DatabaseConfig(
+            url = "unused",
+            username = "unused",
+            password = Secret("unused"),
+            inboxTableName = "custom_inbox_updated_guard",
+            columnMapping = ColumnMappingConfig(inbox = InboxColumnMapping(updatedAt = "changed_at"))
+        )
+        execute("DROP TABLE IF EXISTS custom_inbox_updated_guard")
+        execute("CREATE TABLE custom_inbox_updated_guard (id UUID PRIMARY KEY)")
+
+        val error = assertFailsWith<StartupFailedException> {
+            requireInboxUpdatedAtColumn(sharedDataSource(), config, DatabaseType.POSTGRESQL)
+        }
+        assertTrue(error.message!!.contains("'changed_at'"), error.message)
+
+        execute(error.message!!.substringAfter("start QueueBox again: "))
+        requireInboxUpdatedAtColumn(sharedDataSource(), config, DatabaseType.POSTGRESQL)
     }
 }

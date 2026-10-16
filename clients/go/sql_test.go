@@ -132,6 +132,33 @@ func TestEveryFencedStatementCarriesTheToken(t *testing.T) {
 	}
 }
 
+func TestEveryStateChangeSetsTheUpdateTimeAndARenewalDoesNot(t *testing.T) {
+	for dialect, want := range map[Dialect]string{
+		DialectPostgreSQL: `"updated_at" = clock_timestamp()`,
+		DialectSQLServer:  "[updated_at] = SYSUTCDATETIME()",
+	} {
+		statements, err := NewStatements(dialect, DefaultSchema())
+		if err != nil {
+			t.Fatalf("the statements did not render: %v", err)
+		}
+
+		for name, statement := range map[string]string{
+			"claim":    statements.Claim,
+			"complete": statements.Complete,
+			"retry":    statements.Retry,
+			"dead":     statements.Dead,
+		} {
+			if !strings.Contains(statement, want) {
+				t.Errorf("%s of %s does not contain %q", name, dialect, want)
+			}
+		}
+
+		if strings.Contains(statements.Renew, "updated_at") {
+			t.Errorf("renew of %s sets updated_at", dialect)
+		}
+	}
+}
+
 func TestAMappedSchemaRenamesTheTableAndTheColumn(t *testing.T) {
 	schema := DefaultSchema()
 	schema.Table = "qb_messages"

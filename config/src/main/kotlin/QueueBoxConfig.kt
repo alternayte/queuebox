@@ -148,7 +148,8 @@ data class InboxColumnMapping(
     val scheduledAt: String = "scheduled_at",
     val attempt: String = "attempt",
     val lastError: String = "last_error",
-    val headers: String = "headers"
+    val headers: String = "headers",
+    val updatedAt: String = "updated_at"
 )
 
 @Serializable

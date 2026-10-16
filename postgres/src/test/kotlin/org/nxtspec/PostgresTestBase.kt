@@ -146,11 +146,13 @@ abstract class PostgresTestBase {
         payload: JsonElement = JsonObject(emptyMap()),
         state: String = "pending",
         aggregateId: String? = null,
-        createdAt: Instant = Clock.System.now()
+        createdAt: Instant = Clock.System.now(),
+        updatedAt: Instant? = null
     ): UUID {
         val id = UUID.randomUUID()
         transaction {
             InboxTable.insert {
+                if (updatedAt != null) it[InboxTable.updatedAt] = updatedAt
                 it[InboxTable.id] = id
                 it[messageSrc] = source
                 it[InboxTable.idempotencyKey] = idempotencyKey

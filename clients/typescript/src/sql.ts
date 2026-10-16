@@ -25,9 +25,10 @@ export interface InboxSchema {
   readonly payload: string;
   readonly headers: string;
   readonly correlationId: string;
+  readonly updatedAt: string;
 }
 
-/** The QueueBox V6 names. */
+/** The QueueBox V12 names. */
 export const defaultSchema: InboxSchema = Object.freeze({
   table: "inbox",
   id: "id",
@@ -48,6 +49,7 @@ export const defaultSchema: InboxSchema = Object.freeze({
   payload: "payload",
   headers: "headers",
   correlationId: "correlation_id",
+  updatedAt: "updated_at",
 });
 
 /**
@@ -182,7 +184,7 @@ locked AS (
 )
 UPDATE ${q(s.table)} AS target
 SET ${q(s.state)} = 'processing', ${q(s.claimToken)} = gen_random_uuid(), ${q(s.claimedAt)} = clock_timestamp(),
-    ${q(s.leaseExpiresAt)} = clock_timestamp() + $3 * INTERVAL '1 millisecond'
+    ${q(s.leaseExpiresAt)} = clock_timestamp() + $3 * INTERVAL '1 millisecond', ${q(s.updatedAt)} = clock_timestamp()
 FROM locked
 WHERE target.${q(s.id)} = locked.${q(s.id)}
   AND target.${q(s.consumption)} = 'pull' AND target.${q(s.source)} = $1
@@ -197,15 +199,15 @@ RETURNING target.*`,
       params: ["leaseMs", "id", "token"],
     },
     complete: {
-      text: `UPDATE ${q(s.table)} SET ${q(s.state)} = 'processed', ${q(s.processedAt)} = clock_timestamp(), ${q(s.claimToken)} = NULL, ${q(s.leaseExpiresAt)} = NULL${fence("$1", "$2")}`,
+      text: `UPDATE ${q(s.table)} SET ${q(s.state)} = 'processed', ${q(s.processedAt)} = clock_timestamp(), ${q(s.claimToken)} = NULL, ${q(s.leaseExpiresAt)} = NULL, ${q(s.updatedAt)} = clock_timestamp()${fence("$1", "$2")}`,
       params: ["id", "token"],
     },
     retry: {
-      text: `UPDATE ${q(s.table)} SET ${q(s.state)} = 'pending', ${q(s.scheduledAt)} = clock_timestamp() + $1 * INTERVAL '1 millisecond', ${q(s.attempt)} = ${q(s.attempt)} + 1, ${q(s.lastError)} = $2, ${q(s.claimToken)} = NULL, ${q(s.leaseExpiresAt)} = NULL${fence("$3", "$4")}`,
+      text: `UPDATE ${q(s.table)} SET ${q(s.state)} = 'pending', ${q(s.scheduledAt)} = clock_timestamp() + $1 * INTERVAL '1 millisecond', ${q(s.attempt)} = ${q(s.attempt)} + 1, ${q(s.lastError)} = $2, ${q(s.claimToken)} = NULL, ${q(s.leaseExpiresAt)} = NULL, ${q(s.updatedAt)} = clock_timestamp()${fence("$3", "$4")}`,
       params: ["delayMs", "error", "id", "token"],
     },
     dead: {
-      text: `UPDATE ${q(s.table)} SET ${q(s.state)} = 'dead', ${q(s.lastError)} = $1, ${q(s.claimToken)} = NULL, ${q(s.leaseExpiresAt)} = NULL${fence("$2", "$3")}`,
+      text: `UPDATE ${q(s.table)} SET ${q(s.state)} = 'dead', ${q(s.lastError)} = $1, ${q(s.claimToken)} = NULL, ${q(s.leaseExpiresAt)} = NULL, ${q(s.updatedAt)} = clock_timestamp()${fence("$2", "$3")}`,
       params: ["error", "id", "token"],
     },
   };
@@ -287,7 +289,7 @@ eligible AS (
 )
 UPDATE target
 SET ${q(s.state)} = 'processing', ${q(s.claimToken)} = NEWID(), ${q(s.claimedAt)} = SYSUTCDATETIME(),
-    ${q(s.leaseExpiresAt)} = DATEADD(millisecond, @qbLeaseMs, SYSUTCDATETIME())
+    ${q(s.leaseExpiresAt)} = DATEADD(millisecond, @qbLeaseMs, SYSUTCDATETIME()), ${q(s.updatedAt)} = SYSUTCDATETIME()
 OUTPUT inserted.*
 FROM ${q(s.table)} AS target WITH (UPDLOCK, ROWLOCK)
 JOIN eligible AS e ON target.${q(s.id)} = e.${q(s.id)}
@@ -303,15 +305,15 @@ COMMIT TRANSACTION;`,
       params: ["leaseMs", "id", "token"],
     },
     complete: {
-      text: `UPDATE ${q(s.table)} SET ${q(s.state)} = 'processed', ${q(s.processedAt)} = SYSUTCDATETIME(), ${q(s.claimToken)} = NULL, ${q(s.leaseExpiresAt)} = NULL${fence("@p1", "@p2")}`,
+      text: `UPDATE ${q(s.table)} SET ${q(s.state)} = 'processed', ${q(s.processedAt)} = SYSUTCDATETIME(), ${q(s.claimToken)} = NULL, ${q(s.leaseExpiresAt)} = NULL, ${q(s.updatedAt)} = SYSUTCDATETIME()${fence("@p1", "@p2")}`,
       params: ["id", "token"],
     },
     retry: {
-      text: `UPDATE ${q(s.table)} SET ${q(s.state)} = 'pending', ${q(s.scheduledAt)} = DATEADD(millisecond, @p1, SYSUTCDATETIME()), ${q(s.attempt)} = ${q(s.attempt)} + 1, ${q(s.lastError)} = @p2, ${q(s.claimToken)} = NULL, ${q(s.leaseExpiresAt)} = NULL${fence("@p3", "@p4")}`,
+      text: `UPDATE ${q(s.table)} SET ${q(s.state)} = 'pending', ${q(s.scheduledAt)} = DATEADD(millisecond, @p1, SYSUTCDATETIME()), ${q(s.attempt)} = ${q(s.attempt)} + 1, ${q(s.lastError)} = @p2, ${q(s.claimToken)} = NULL, ${q(s.leaseExpiresAt)} = NULL, ${q(s.updatedAt)} = SYSUTCDATETIME()${fence("@p3", "@p4")}`,
       params: ["delayMs", "error", "id", "token"],
     },
     dead: {
-      text: `UPDATE ${q(s.table)} SET ${q(s.state)} = 'dead', ${q(s.lastError)} = @p1, ${q(s.claimToken)} = NULL, ${q(s.leaseExpiresAt)} = NULL${fence("@p2", "@p3")}`,
+      text: `UPDATE ${q(s.table)} SET ${q(s.state)} = 'dead', ${q(s.lastError)} = @p1, ${q(s.claimToken)} = NULL, ${q(s.leaseExpiresAt)} = NULL, ${q(s.updatedAt)} = SYSUTCDATETIME()${fence("@p2", "@p3")}`,
       params: ["error", "id", "token"],
     },
   };

@@ -65,14 +65,15 @@ class SqlServerInboxRepository(
                     "$idCol, $sourceCol, $idempotencyKeyCol, $aggregateIdCol, $eventTypeCol, " +
                         "$payloadCol, $stateCol, $createdAtCol, $correlationIdCol, ${quoteSqlServerIdentifier(
                             columnMapping.consumption
-                        )}, $headersCol, ${quoteSqlServerIdentifier(columnMapping.scheduledAt)}"
+                        )}, $headersCol, ${quoteSqlServerIdentifier(columnMapping.scheduledAt)}, " +
+                        quoteSqlServerIdentifier(columnMapping.updatedAt)
                 val sql = """
                 MERGE ${quoteSqlServerIdentifier(tableName)} WITH (HOLDLOCK) AS target
                 USING (SELECT ? AS source, ? AS idempotency_key) AS src
                 ON target.$sourceCol = src.source AND target.$idempotencyKeyCol = src.idempotency_key
                 WHEN NOT MATCHED THEN
                     INSERT ($insertColumns)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, DATEADD(second, ?, $earliestMoment));
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, DATEADD(second, ?, $earliestMoment), SYSUTCDATETIME());
                 """.trimIndent()
 
                 val conn = TransactionManager.current().connection.connection as java.sql.Connection
@@ -149,7 +150,11 @@ class SqlServerInboxRepository(
             WITH candidates AS (
                 SELECT TOP (?) ${quoteSqlServerIdentifier(
                 columnMapping.claimToken
-            )}, ${quoteSqlServerIdentifier(columnMapping.leaseExpiresAt)}, $idCol, $stateCol, $claimedAtCol
+            )}, ${quoteSqlServerIdentifier(
+                columnMapping.leaseExpiresAt
+            )}, $idCol, $stateCol, $claimedAtCol, ${quoteSqlServerIdentifier(
+                columnMapping.updatedAt
+            )}
                 FROM $t WITH (ROWLOCK, UPDLOCK, READPAST)
                 WHERE $stateCol = 'pending' AND ${quoteSqlServerIdentifier(columnMapping.consumption)} = 'push'
                 AND ${quoteSqlServerIdentifier(columnMapping.scheduledAt)} <= SYSUTCDATETIME()
@@ -161,7 +166,9 @@ class SqlServerInboxRepository(
                 columnMapping.claimToken
             )} = NEWID(), ${quoteSqlServerIdentifier(
                 columnMapping.leaseExpiresAt
-            )} = DATEADD(millisecond, $leaseMs, SYSUTCDATETIME())
+            )} = DATEADD(millisecond, $leaseMs, SYSUTCDATETIME()), ${quoteSqlServerIdentifier(
+                columnMapping.updatedAt
+            )} = SYSUTCDATETIME()
             OUTPUT INSERTED.$idCol AS $idCol
             """.trimIndent()
 
@@ -198,6 +205,7 @@ class SqlServerInboxRepository(
                     table.update({ table.id inList released.map { it.id } }) {
                         it[state] = "pending"
                         it[claimedAt] = null
+                        it[updatedAt] = databaseNow
                     }
                 }
 
@@ -253,6 +261,7 @@ class SqlServerInboxRepository(
         table.update({ claimFence(id, claimToken) }) {
             it[state] = "processed"
             it[processedAt] = now
+            it[updatedAt] = databaseNow
         } > 0
     }
 
@@ -260,6 +269,7 @@ class SqlServerInboxRepository(
         table.update({ claimFence(id, claimToken) }) {
             it[state] = "dead"
             it[this.claimedAt] = null
+            it[updatedAt] = databaseNow
         } > 0
     }
 
@@ -279,6 +289,7 @@ class SqlServerInboxRepository(
         }) {
             it[state] = "pending"
             it[claimedAt] = null
+            it[updatedAt] = databaseNow
         }
     }
 
@@ -342,7 +353,7 @@ class SqlServerInboxRepository(
         return joinOrNewTransaction {
             val ids = table
                 .select(table.id)
-                .where { (table.state eq state) and (table.createdAt less cutoff) }
+                .where { (table.state eq state) and (table.updatedAt less utcMoment(cutoff)) }
                 .limit(limit)
                 .map { it[table.id] }
 
@@ -382,12 +393,6 @@ class SqlServerInboxRepository(
         "dead" -> MessageState.Dead
         else -> MessageState.Failed(error = "Unknown state: $state", attempt = 0)
     }
-
-    /** The UTC text of [instant] that SQL Server casts to DATETIME2, with millisecond precision. */
-    private fun utcDateTime2(instant: kotlin.time.Instant): String = java.time.format.DateTimeFormatter
-        .ofPattern("yyyy-MM-dd'T'HH:mm:ss.SSS")
-        .withZone(java.time.ZoneOffset.UTC)
-        .format(java.time.Instant.ofEpochMilli(instant.toEpochMilliseconds()))
 
     /** The earlier of the database clock and the bound publish time. MIN ignores a NULL. */
     private val earliestMoment =

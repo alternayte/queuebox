@@ -37,6 +37,9 @@ public interface IDatabaseHarness
     /// <summary>Read the moment at which the row can be claimed again.</summary>
     Task<DateTimeOffset> ReadScheduledAtAsync(Guid id);
 
+    /// <summary>Read the time of the last pull write to the row.</summary>
+    Task<DateTimeOffset> ReadUpdatedAtAsync(Guid id);
+
     /// <summary>Take the claim away from the worker, as a second worker would.</summary>
     Task StealClaimAsync(Guid id);
 

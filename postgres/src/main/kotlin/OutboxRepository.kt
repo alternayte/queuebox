@@ -55,7 +55,7 @@ class OutboxRepository(
         val sql = """
             UPDATE $t AS target
             SET ${q(columnMapping.state)} = 'processing',
-                ${q(columnMapping.updatedAt)} = ?,
+                ${q(columnMapping.updatedAt)} = clock_timestamp(),
                 ${q(columnMapping.claimedAt)} = ?,
                 ${q(columnMapping.claimToken)} = gen_random_uuid(),
                 ${q(columnMapping.leaseExpiresAt)} = clock_timestamp() + INTERVAL '1 millisecond' * $leaseMs
@@ -96,8 +96,7 @@ class OutboxRepository(
         conn.prepareStatement(sql).use { stmt ->
             stmt.setTimestamp(1, nowTimestamp)
             stmt.setTimestamp(2, nowTimestamp)
-            stmt.setTimestamp(3, nowTimestamp)
-            stmt.setInt(4, batchSize)
+            stmt.setInt(3, batchSize)
             stmt.executeQuery().use { rs ->
                 val results = mutableListOf<OutboxMessage>()
                 while (rs.next()) {
@@ -123,16 +122,15 @@ class OutboxRepository(
             it[table.maxAttempts] = message.maxAttempts
             it[table.scheduledAt] = message.scheduledAt
             it[table.createdAt] = message.createdAt
-            it[table.updatedAt] = message.updatedAt
+            it[table.updatedAt] = databaseNow
         }
         Unit
     }
 
     override suspend fun markSent(id: UUID, claimToken: UUID?): Boolean = joinOrNewTransaction {
-        val now = Clock.System.now()
         table.update({ claimFence(id, claimToken) }) {
             it[table.state] = "sent"
-            it[table.updatedAt] = now
+            it[table.updatedAt] = databaseNow
         } > 0
     }
 
@@ -144,17 +142,16 @@ class OutboxRepository(
                 it[table.scheduledAt] = scheduledTime
                 it[table.state] = "pending"
                 it[table.attempt] = table.attempt + 1
-                it[table.updatedAt] = now
+                it[table.updatedAt] = databaseNow
                 it[table.claimedAt] = null
                 if (error != null) it[table.lastError] = error
             } > 0
         }
 
     override suspend fun markDead(id: UUID, claimToken: UUID?, error: String?): Boolean = joinOrNewTransaction {
-        val now = Clock.System.now()
         table.update({ claimFence(id, claimToken) }) {
             it[table.state] = "dead"
-            it[table.updatedAt] = now
+            it[table.updatedAt] = databaseNow
             it[table.claimedAt] = null
             if (error != null) it[table.lastError] = error
         } > 0
@@ -237,13 +234,12 @@ class OutboxRepository(
     }
 
     override suspend fun reclaimStale(olderThan: Duration): Int = joinOrNewTransaction {
-        val now = Clock.System.now()
         table.update({
             (table.state eq "processing") and
                 ((table.leaseExpiresAt lessEq databaseNow) or table.leaseExpiresAt.isNull())
         }) {
             it[table.state] = "pending"
-            it[table.updatedAt] = now
+            it[table.updatedAt] = databaseNow
             it[table.claimedAt] = null
         }
     }
@@ -298,7 +294,7 @@ class OutboxRepository(
             it[table.attempt] = 0
             it[table.lastError] = null
             it[table.scheduledAt] = now
-            it[table.updatedAt] = now
+            it[table.updatedAt] = databaseNow
             it[table.claimedAt] = null
             it[table.claimToken] = null
             it[table.leaseExpiresAt] = null

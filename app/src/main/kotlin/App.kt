@@ -142,6 +142,7 @@ internal fun runApp(env: () -> Map<String, String> = { System.getenv() }) {
 
     startupStep("check the inbox table") {
         requireInboxHeadersColumn(dataSource, config.database, dbType)
+        requireInboxUpdatedAtColumn(dataSource, config.database, dbType)
     }
 
     startupStep("check the outbox table") {
@@ -557,7 +558,8 @@ internal fun columnMappingData(database: DatabaseConfig): ColumnMappingData = Co
         scheduledAt = database.columnMapping.inbox.scheduledAt,
         attempt = database.columnMapping.inbox.attempt,
         lastError = database.columnMapping.inbox.lastError,
-        correlationId = database.columnMapping.inbox.correlationId
+        correlationId = database.columnMapping.inbox.correlationId,
+        updatedAt = database.columnMapping.inbox.updatedAt
     ),
     outboxTableName = database.outboxTableName,
     inboxTableName = database.inboxTableName

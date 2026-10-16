@@ -57,7 +57,6 @@ class SqlServerOutboxRepository(
                 stmt.setInt(1, batchSize)
                 stmt.setTimestamp(2, nowTimestamp)
                 stmt.setTimestamp(3, nowTimestamp)
-                stmt.setTimestamp(4, nowTimestamp)
                 stmt.executeQuery().use { rs ->
                     val ids = mutableListOf<UUID>()
                     while (rs.next()) {
@@ -98,16 +97,15 @@ class SqlServerOutboxRepository(
             it[maxAttempts] = message.maxAttempts
             it[scheduledAt] = message.scheduledAt
             it[createdAt] = message.createdAt
-            it[updatedAt] = message.updatedAt
+            it[updatedAt] = databaseNow
         }
         Unit
     }
 
     override suspend fun markSent(id: UUID, claimToken: UUID?): Boolean = joinOrNewTransaction {
-        val now = Clock.System.now()
         table.update({ claimFence(id, claimToken) }) {
             it[state] = "sent"
-            it[updatedAt] = now
+            it[updatedAt] = databaseNow
         } > 0
     }
 
@@ -119,17 +117,16 @@ class SqlServerOutboxRepository(
                 it[scheduledAt] = scheduledTime
                 it[state] = "pending"
                 it[attempt] = table.attempt + 1
-                it[updatedAt] = now
+                it[updatedAt] = databaseNow
                 it[this.claimedAt] = null
                 if (error != null) it[lastError] = error
             } > 0
         }
 
     override suspend fun markDead(id: UUID, claimToken: UUID?, error: String?): Boolean = joinOrNewTransaction {
-        val now = Clock.System.now()
         table.update({ claimFence(id, claimToken) }) {
             it[state] = "dead"
-            it[updatedAt] = now
+            it[updatedAt] = databaseNow
             it[this.claimedAt] = null
             if (error != null) it[lastError] = error
         } > 0
@@ -252,13 +249,12 @@ class SqlServerOutboxRepository(
     }
 
     override suspend fun reclaimStale(olderThan: Duration): Int = joinOrNewTransaction {
-        val now = Clock.System.now()
         table.update({
             (table.state eq "processing") and
                 ((table.leaseExpiresAt lessEq databaseNow) or table.leaseExpiresAt.isNull())
         }) {
             it[state] = "pending"
-            it[updatedAt] = now
+            it[updatedAt] = databaseNow
             it[claimedAt] = null
         }
     }
@@ -268,7 +264,7 @@ class SqlServerOutboxRepository(
         return joinOrNewTransaction {
             val ids = table
                 .select(table.id)
-                .where { (table.state eq state) and (table.updatedAt less cutoff) }
+                .where { (table.state eq state) and (table.updatedAt less utcMoment(cutoff)) }
                 .limit(limit)
                 .map { it[table.id] }
 
@@ -320,7 +316,7 @@ class SqlServerOutboxRepository(
                 ${quoteSqlServerIdentifier(columnMapping.attempt)} = 0,
                 ${quoteSqlServerIdentifier(columnMapping.lastError)} = NULL,
                 ${quoteSqlServerIdentifier(columnMapping.scheduledAt)} = ?,
-                ${quoteSqlServerIdentifier(columnMapping.updatedAt)} = ?,
+                ${quoteSqlServerIdentifier(columnMapping.updatedAt)} = SYSUTCDATETIME(),
                 ${quoteSqlServerIdentifier(columnMapping.claimedAt)} = NULL,
                 ${quoteSqlServerIdentifier(columnMapping.claimToken)} = NULL,
                 ${quoteSqlServerIdentifier(columnMapping.leaseExpiresAt)} = NULL
@@ -330,7 +326,6 @@ class SqlServerOutboxRepository(
         val conn = TransactionManager.current().connection.connection as java.sql.Connection
         conn.prepareStatement(sql).use { stmt ->
             var index = 1
-            stmt.setTimestamp(index++, nowTimestamp)
             stmt.setTimestamp(index++, nowTimestamp)
             for (param in params) {
                 when (param) {
@@ -498,7 +493,7 @@ private fun outboxClaimSql(columnMapping: OutboxColumnMapping, tableName: String
             ORDER BY $scheduledAtCol ASC, $sequenceCol ASC
         )
         UPDATE candidates
-        SET $stateCol = 'processing', $updatedAtCol = ?, $claimedAtCol = ?, ${quoteSqlServerIdentifier(
+        SET $stateCol = 'processing', $updatedAtCol = SYSUTCDATETIME(), $claimedAtCol = ?, ${quoteSqlServerIdentifier(
         columnMapping.claimToken
     )} = NEWID(), ${quoteSqlServerIdentifier(
         columnMapping.leaseExpiresAt

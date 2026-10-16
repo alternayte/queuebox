@@ -31,6 +31,7 @@ public sealed class PostgreSqlHarness : IDatabaseHarness, IAsyncLifetime
             await ExecuteAsync(script);
         }
 
+
         await ExecuteAsync("CREATE TABLE app_orders (key TEXT PRIMARY KEY)");
     }
 
@@ -105,6 +106,17 @@ public sealed class PostgreSqlHarness : IDatabaseHarness, IAsyncLifetime
         return new DateTimeOffset(DateTime.SpecifyKind((DateTime)(await command.ExecuteScalarAsync())!, DateTimeKind.Utc));
     }
 
+    public async Task<DateTimeOffset> ReadUpdatedAtAsync(Guid id)
+    {
+        await using var connection = await DataSource.OpenConnectionAsync();
+        await using var command = connection.CreateCommand();
+
+        command.CommandText = "SELECT updated_at FROM inbox WHERE id = @id";
+        command.Parameters.AddWithValue("@id", id);
+
+        return new DateTimeOffset(DateTime.SpecifyKind((DateTime)(await command.ExecuteScalarAsync())!, DateTimeKind.Utc));
+    }
+
     public Task StealClaimAsync(Guid id) => ExecuteAsync($"""
         UPDATE inbox SET state = 'processing', claim_token = gen_random_uuid(),
                          lease_expires_at = clock_timestamp() + INTERVAL '10 minutes'
@@ -141,6 +153,7 @@ public sealed class PostgreSqlHarness : IDatabaseHarness, IAsyncLifetime
             ClaimToken = "lease_token",
             Attempt = "tries",
             Headers = "meta",
+            UpdatedAt = "changed_at",
         };
 
         await ExecuteAsync("DROP TABLE IF EXISTS qb_messages");
@@ -163,7 +176,8 @@ public sealed class PostgreSqlHarness : IDatabaseHarness, IAsyncLifetime
                 consumption VARCHAR(4) NOT NULL DEFAULT 'push',
                 scheduled_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 tries INT NOT NULL DEFAULT 0,
-                last_error TEXT
+                last_error TEXT,
+                changed_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp()
             )
             """);
 

@@ -12,10 +12,9 @@ import kotlin.time.Clock
 import kotlin.time.Duration.Companion.days
 
 /**
- * Covers F-033. The age policy uses a different column per table, and the README states which.
+ * Covers F-033. The README states which column the age policy uses.
  *
- * The outbox measures age from `updated_at`, which is the moment of the last state change.
- * The inbox measures age from `created_at`, which is the moment of receipt.
+ * Both tables measure age from `updated_at`, which is the moment of the last state change.
  */
 @Tag("integration")
 class RetentionSemanticsTest : PostgresTestBase() {
@@ -56,28 +55,32 @@ class RetentionSemanticsTest : PostgresTestBase() {
     }
 
     @Test
-    fun `inbox age uses created_at, which is the receipt time`() = runBlocking {
+    fun `inbox age uses updated_at, which is the last state change`() = runBlocking {
         val now = Clock.System.now()
         val cutoff = now - 7.days
 
-        val old = insertInboxMessage(
+        // Received long ago, finished recently after a long retry. It must stay, so a loader
+        // sees its final state. See docs/specs/updated-at-cursor.md.
+        val finishedLate = insertInboxMessage(
             source = "stripe",
-            idempotencyKey = "evt_old",
+            idempotencyKey = "evt_finished_late",
             state = "processed",
-            createdAt = now - 30.days
+            createdAt = now - 30.days,
+            updatedAt = now
         )
-        val fresh = insertInboxMessage(
+        val stale = insertInboxMessage(
             source = "stripe",
-            idempotencyKey = "evt_fresh",
+            idempotencyKey = "evt_stale",
             state = "processed",
-            createdAt = now
+            createdAt = now - 30.days,
+            updatedAt = now - 30.days
         )
 
         val deleted = inboxRepository.deleteOlderThan("processed", cutoff, 100)
 
         assertEquals(1, deleted)
-        assertEquals(0L, countInboxRowsWithId(old))
-        assertEquals("processed", getInboxMessageState(fresh))
+        assertEquals(0L, countInboxRowsWithId(stale))
+        assertEquals("processed", getInboxMessageState(finishedLate))
     }
 
     private fun countOutboxRowsWithId(id: java.util.UUID): Long = transaction {

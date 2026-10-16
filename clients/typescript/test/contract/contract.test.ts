@@ -125,12 +125,15 @@ function contract(harness: DatabaseHarness): void {
     // Item 2. This is the whole point of the pull path.
     it("commits the writes and the completion together", async () => {
       const id = await harness.insertPending({ source: SOURCE, idempotencyKey: "key-2", payload: "{}" });
+      let claimedAt = 0n;
 
-      await runUntil(1, async (_message, transaction) => {
+      await runUntil(1, async (message, transaction) => {
+        claimedAt = await harness.readUpdatedAt(message.id);
         await writeApplicationRow(transaction, "row-2");
       });
 
       assert.equal((await harness.readRow(id)).state, "processed");
+      assert.ok(await harness.readUpdatedAt(id) > claimedAt, "The completion must move updated_at.");
       assert.equal(await harness.countApplicationRows("row-2"), 1);
     });
 
@@ -150,6 +153,7 @@ function contract(harness: DatabaseHarness): void {
     // Item 4.
     it("rolls the writes back when the completion affects no row", async () => {
       const id = await harness.insertPending({ source: SOURCE, idempotencyKey: "key-4", payload: "{}" });
+      const inserted = await harness.readUpdatedAt(id);
 
       // The lease is long, so no renewal notices the theft. The completion must catch it.
       await runUntil(1, async (message, transaction) => {
@@ -159,6 +163,8 @@ function contract(harness: DatabaseHarness): void {
 
       assert.equal(await harness.countApplicationRows("row-4"), 0);
       assert.equal((await harness.readRow(id)).state, "processing");
+      // The theft does not write updated_at, so the claim alone moved it.
+      assert.ok(await harness.readUpdatedAt(id) > inserted, "The claim must move updated_at.");
     });
 
     // Item 5.
@@ -201,10 +207,17 @@ function contract(harness: DatabaseHarness): void {
 
       // The lease is one second and the renewal runs every third of it, so a handler of three
       // seconds needs several renewals to survive.
-      await runUntil(1, async (_message, transaction) => {
+      let claimed = 0n;
+      let renewed = 0n;
+
+      await runUntil(1, async (message, transaction) => {
+        claimed = await harness.readUpdatedAt(message.id);
         await new Promise((resolve) => setTimeout(resolve, 3000));
+        renewed = await harness.readUpdatedAt(message.id);
         await writeApplicationRow(transaction, "row-6");
       }, { leaseMs: 1000 });
+
+      assert.equal(renewed, claimed, "A renewal must not move updated_at.");
 
       assert.equal((await harness.readRow(id)).state, "processed");
       assert.equal(await harness.countApplicationRows("row-6"), 1);
@@ -270,20 +283,26 @@ function contract(harness: DatabaseHarness): void {
       assert.equal(abandoned.attempt, 0);
 
       // The lease expires, so a second worker takes the message back.
+      const firstClaim = await harness.readUpdatedAt(id);
       let returned = false;
+      let reclaimed = 0n;
       await runUntil(1, async (message) => {
         returned = message.id.toLowerCase() === id.toLowerCase();
+        reclaimed = await harness.readUpdatedAt(message.id);
       });
 
       assert.ok(returned, "The abandoned message must return after the lease expires.");
+      assert.ok(reclaimed > firstClaim, "The reclaim must move updated_at.");
     });
 
     // Item 9.
     it("increments the attempt and applies the backoff on a retry", async () => {
       const id = await harness.insertPending({ source: SOURCE, idempotencyKey: "key-9", payload: "{}" });
       const before = await harness.readScheduledAt(id);
+      let claimed = 0n;
 
-      await runUntil(1, async () => {
+      await runUntil(1, async (message) => {
+        claimed = await harness.readUpdatedAt(message.id);
         throw new Error("no");
       }, { retryPolicy: defaultRetryPolicy({ maxAttempts: 5, baseDelayMs: 60_000, maxDelayMs: 60_000, jitter: 0 }) });
 
@@ -292,6 +311,7 @@ function contract(harness: DatabaseHarness): void {
       assert.equal(row.state, "pending");
       assert.equal(row.attempt, 1);
       assert.ok(row.lastError);
+      assert.ok(await harness.readUpdatedAt(id) > claimed, "The retry must move updated_at.");
 
       const after_ = await harness.readScheduledAt(id);
       assert.ok(after_.getTime() > before.getTime() + 30_000, "The backoff must move the schedule forward.");
@@ -300,8 +320,10 @@ function contract(harness: DatabaseHarness): void {
     // Item 10.
     it("reaches the dead letter at the ceiling", async () => {
       const id = await harness.insertPending({ source: SOURCE, idempotencyKey: "key-10", payload: "{}", attempt: 3 });
+      let claimed = 0n;
 
-      await runUntil(1, async () => {
+      await runUntil(1, async (message) => {
+        claimed = await harness.readUpdatedAt(message.id);
         throw new Error("no");
       }, { retryPolicy: defaultRetryPolicy({ maxAttempts: 3, baseDelayMs: 1000, maxDelayMs: 1000, jitter: 0 }) });
 
@@ -309,6 +331,7 @@ function contract(harness: DatabaseHarness): void {
 
       assert.equal(row.state, "dead");
       assert.ok(row.lastError);
+      assert.ok(await harness.readUpdatedAt(id) > claimed, "The dead letter must move updated_at.");
     });
 
     // Item 11.

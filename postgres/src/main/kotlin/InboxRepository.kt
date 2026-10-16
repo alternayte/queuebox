@@ -61,6 +61,7 @@ class InboxRepository(
                     // against. Issue #91: a publish time replaces the database clock when it is
                     // the earlier of the two.
                     it[scheduledAt] = scheduledAtExpression(initialDelay, message.publishedAt)
+                    it[updatedAt] = databaseNow
                 }
 
                 if (inserted.insertedCount == 0) {
@@ -98,7 +99,8 @@ class InboxRepository(
             SET $stateCol = 'processing',
                 ${q(columnMapping.claimedAt)} = ?,
                 ${q(columnMapping.claimToken)} = gen_random_uuid(),
-                ${q(columnMapping.leaseExpiresAt)} = clock_timestamp() + INTERVAL '1 millisecond' * $leaseMs
+                ${q(columnMapping.leaseExpiresAt)} = clock_timestamp() + INTERVAL '1 millisecond' * $leaseMs,
+                ${q(columnMapping.updatedAt)} = clock_timestamp()
             FROM (
                 SELECT $idCol AS claim_id
                 FROM $t
@@ -151,6 +153,7 @@ class InboxRepository(
             table.update({ table.id inList released.map { it.id } }) {
                 it[state] = "pending"
                 it[claimedAt] = null
+                it[updatedAt] = databaseNow
             }
         }
 
@@ -181,6 +184,7 @@ class InboxRepository(
         table.update({ claimFence(id, claimToken) }) {
             it[state] = "processed"
             it[processedAt] = now
+            it[updatedAt] = databaseNow
         } > 0
     }
 
@@ -188,6 +192,7 @@ class InboxRepository(
         table.update({ claimFence(id, claimToken) }) {
             it[state] = "dead"
             it[this.claimedAt] = null
+            it[updatedAt] = databaseNow
         } > 0
     }
 
@@ -207,6 +212,7 @@ class InboxRepository(
         }) {
             it[state] = "pending"
             it[claimedAt] = null
+            it[updatedAt] = databaseNow
         }
     }
 
@@ -275,7 +281,7 @@ class InboxRepository(
         return joinOrNewTransaction {
             val ids = table
                 .select(table.id)
-                .where { (table.state eq state) and (table.createdAt less cutoff) }
+                .where { (table.state eq state) and (table.updatedAt less cutoff) }
                 .limit(limit)
                 .map { it[table.id] }
 

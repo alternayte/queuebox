@@ -65,7 +65,8 @@ data class InboxColumnMappingData(
     val consumption: String = "consumption",
     val scheduledAt: String = "scheduled_at",
     val attempt: String = "attempt",
-    val lastError: String = "last_error"
+    val lastError: String = "last_error",
+    val updatedAt: String = "updated_at"
 )
 
 /**

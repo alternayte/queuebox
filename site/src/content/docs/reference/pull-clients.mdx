@@ -23,7 +23,7 @@ The README of each library holds the full text:
 | Failure | A handler error rolls the transaction back. The retry policy then retries the row later or dead-letters it. |
 | Shutdown | A stop ends the claims at once. A handler that runs past the grace period is cancelled. The library completes nothing for it and spends no attempt, and the lease expires. |
 | Redaction | Every log line and every `last_error` value passes through the redaction that QueueBox uses. |
-| Schema | The library writes no schema. It needs the V10 schema or later, which adds the inbox `headers` column. |
+| Schema | The library writes no schema. It needs the V12 schema or later, which adds the inbox `updated_at` column. Go 0.3, TypeScript 0.3 and C# 0.5 need the V10 schema or later. |
 | Claim token | The handler never sees the token. |
 
 Rules for a handler, in every language:

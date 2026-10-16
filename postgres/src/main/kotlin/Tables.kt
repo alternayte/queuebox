@@ -6,6 +6,7 @@ import kotlinx.serialization.json.JsonObject
 import org.jetbrains.exposed.v1.core.Column
 import org.jetbrains.exposed.v1.core.dao.id.java.UUIDTable
 import org.jetbrains.exposed.v1.core.java.javaUUID
+import org.jetbrains.exposed.v1.datetime.CurrentTimestamp
 import org.jetbrains.exposed.v1.datetime.timestamp
 import org.jetbrains.exposed.v1.json.jsonb
 
@@ -53,9 +54,11 @@ object InboxTable : UUIDTable("inbox") {
     val scheduledAt = timestamp("scheduled_at").clientDefault { kotlin.time.Clock.System.now() }
     val attempt = integer("attempt").default(0)
     val lastError = text("last_error").nullable()
+    val updatedAt = timestamp("updated_at").defaultExpression(CurrentTimestamp)
 
     init {
         uniqueIndex(messageSrc, idempotencyKey)
+        index(false, updatedAt)
         index(false, aggregateId, state)
         index(false, state, createdAt)
     }

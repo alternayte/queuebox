@@ -113,6 +113,17 @@ describe("every statement after the claim", () => {
         assert.match(statement.text, /'processing'/);
       }
     });
+
+    it(`moves updated_at on every state change but not on a renewal in ${dialect}`, () => {
+      const sql = inboxSql(dialect, defaultSchema);
+      const now = dialect === "postgresql" ? /"updated_at" = clock_timestamp\(\)/ : /\[updated_at\] = SYSUTCDATETIME\(\)/;
+
+      for (const statement of [sql.claim, sql.complete, sql.retry, sql.dead]) {
+        assert.match(statement.text, now);
+      }
+
+      assert.doesNotMatch(sql.renew.text, /updated_at/);
+    });
   }
 });
 

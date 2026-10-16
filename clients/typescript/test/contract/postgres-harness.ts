@@ -65,6 +65,12 @@ export class PostgresHarness implements DatabaseHarness {
     return new Date(result.rows[0].scheduled_at);
   }
 
+  async readUpdatedAt(id: string): Promise<bigint> {
+    const result = await this.#requirePool().query(
+      "SELECT (EXTRACT(EPOCH FROM updated_at) * 1000000)::bigint AS us FROM inbox WHERE id = $1", [id]);
+    return BigInt(result.rows[0].us);
+  }
+
   async stealClaim(id: string): Promise<void> {
     // A real second worker also takes the row into 'processing'.
     await this.#requirePool().query(
@@ -103,7 +109,8 @@ export class PostgresHarness implements DatabaseHarness {
         consumption VARCHAR(4) NOT NULL DEFAULT 'push',
         scheduled_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
         tries INT NOT NULL DEFAULT 0,
-        last_error TEXT
+        last_error TEXT,
+        changed_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp()
       )`);
 
     return schema;

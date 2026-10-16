@@ -53,7 +53,8 @@ internal object ColumnMappingValidator {
                 "attempt" to mapping.inbox.attempt,
                 "lastError" to mapping.inbox.lastError,
                 "correlationId" to mapping.inbox.correlationId,
-                "headers" to mapping.inbox.headers
+                "headers" to mapping.inbox.headers,
+                "updatedAt" to mapping.inbox.updatedAt
             )
         )
     }
