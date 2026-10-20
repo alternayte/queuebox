@@ -55,12 +55,21 @@ The root build file derives the version from the Git tag. An untagged build carr
    date. Add the two link definitions at the end of the file, and update the `Unreleased` link to
    compare against the new tag.
 4. Set the new version in every place that pins the image tag. These places are
-   `docker-compose.image.yml`, the quick start in `README.md`, the tutorial
-   `site/src/content/docs/tutorials/first-outbox-message.mdx`, and the deploy and security pages
-   under `site/src/content/docs/operations/`. The command below lists each line that names a tag:
+   `docker-compose.image.yml`, `examples/http-fanout/docker-compose.image.yml`, the quick start in
+   `README.md`, the tutorials `first-outbox-message.mdx` and `receive-a-webhook.mdx`, the guide
+   `how-to/fan-out-over-http.mdx`, and the deploy and security pages under
+   `site/src/content/docs/operations/`. The command below lists each line that names a tag:
 
    ```bash
-   grep -rn 'ghcr.io/alternayte/queuebox:[0-9]' README.md docker-compose.image.yml site/src/content/docs
+   grep -rn 'ghcr.io/alternayte/queuebox:[0-9]' README.md docker-compose.image.yml \
+     examples/http-fanout/docker-compose.image.yml site/src/content/docs
+   ```
+
+   A page that names a version in prose rather than in an image reference needs the same bump.
+   The command below lists those lines:
+
+   ```bash
+   grep -rn 'QueueBox `[0-9]\+\.[0-9]\+\.[0-9]\+`' README.md site/src/content/docs
    ```
 
    These documents pin a version, because a document that says `latest` ages into a wrong

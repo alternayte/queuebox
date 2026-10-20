@@ -11,31 +11,33 @@ In this tutorial you post a webhook to a QueueBox inbox source, post it a second
 
 ## Before you start
 
-You need Git, Docker with the Compose plugin, and `curl`. You also need one of these toolchains:
+You need Docker with the Compose plugin, and `curl`. There is no checkout and no build. You also need one of these toolchains:
 
 - Go 1.24 or later.
 - Node 22.18 or later, which runs a TypeScript file directly.
 - The .NET 8 SDK or later.
 
-The stack uses the ports `8080` and `5432` on your machine. If you did [the first tutorial](/tutorials/first-outbox-message/), run `docker compose -f docker-compose.yml down -v` first to start from an empty database.
+The stack uses the ports `8080` and `5432` on your machine. If you did [the first tutorial](/tutorials/first-outbox-message/), run `docker compose -f docker-compose.image.yml down -v` in its directory first to start from an empty database.
 
-## Get the repository
+## Get the stack
 
-Clone the repository and change into it. If you cloned it in the first tutorial, change into that directory instead.
+Run every command of this tutorial in one empty directory. These two downloads give you the stack file and the configuration that it mounts.
 
 ```bash
-git clone https://github.com/alternayte/queuebox.git
-cd queuebox
+curl -O https://raw.githubusercontent.com/alternayte/queuebox/main/docker-compose.image.yml
+curl -O https://raw.githubusercontent.com/alternayte/queuebox/main/examples/queuebox.yml
 ```
+
+`docker-compose.image.yml` runs QueueBox `0.9.0`, the image that the project publishes to [`ghcr.io/alternayte/queuebox`](https://github.com/alternayte/queuebox/pkgs/container/queuebox). It starts PostgreSQL beside it and mounts the `queuebox.yml` that sits next to it.
 
 ## Add a pull source
 
 An inbox source is one configured ingress. This tutorial adds an HTTP source named `orders`. Its messages stay in the inbox until your worker takes them, because the source sets `consumption: pull`.
 
-`sources` is the last block of `examples/queuebox.yml`. Append the new source to it:
+`sources` is the last block of the `queuebox.yml` that you downloaded. Append the new source to it:
 
 ```bash
-cat >> examples/queuebox.yml <<'YAML'
+cat >> queuebox.yml <<'YAML'
 
   orders:
     type: http
@@ -61,16 +63,16 @@ sources:
 - `consumption: pull` tells QueueBox not to forward the message. A pull source needs no topic, no route and no destination.
 
 <Aside>
-The Compose file mounts `examples/queuebox.yml` as a single file. Append to the file as the command above does. An editor that writes a new file in its place breaks the mount until you restart the stack.
+The Compose file mounts `queuebox.yml` as a single file. Append to the file as the command above does. An editor that writes a new file in its place breaks the mount until you restart the stack.
 </Aside>
 
 Start the stack:
 
 ```bash
-docker compose -f docker-compose.yml --env-file .env.example up -d --build
+docker compose -f docker-compose.image.yml up -d
 ```
 
-The first build compiles QueueBox. Ask QueueBox whether it is ready:
+Docker pulls the images on the first start. Ask QueueBox whether it is ready:
 
 ```bash
 curl http://localhost:8080/health
@@ -121,7 +123,7 @@ HTTP/1.1 200 OK
 Read the inbox table:
 
 ```bash
-docker compose -f docker-compose.yml exec postgres psql -U queuebox -d queuebox \
+docker compose -f docker-compose.image.yml exec postgres psql -U queuebox -d queuebox \
   -c "SELECT source, idempotency_key, consumption, state FROM inbox;"
 ```
 
@@ -139,7 +141,7 @@ The inbox holds one row, in state `pending`:
 The worker writes each order into a table that your application owns. Create it in the same database:
 
 ```bash
-docker compose -f docker-compose.yml exec postgres psql -U queuebox -d queuebox \
+docker compose -f docker-compose.image.yml exec postgres psql -U queuebox -d queuebox \
   -c "CREATE TABLE IF NOT EXISTS orders (id TEXT PRIMARY KEY, total INTEGER NOT NULL);"
 ```
 
@@ -329,10 +331,10 @@ Leave the worker running.
 
 ## Check the result
 
-Open a second terminal in the `queuebox` directory. Read the order table and the inbox row:
+Open a second terminal in the directory that holds the stack file. Read the order table and the inbox row:
 
 ```bash
-docker compose -f docker-compose.yml exec postgres psql -U queuebox -d queuebox \
+docker compose -f docker-compose.image.yml exec postgres psql -U queuebox -d queuebox \
   -c "SELECT id, total FROM orders;" \
   -c "SELECT idempotency_key, state FROM inbox WHERE source = 'orders';"
 ```
@@ -364,9 +366,11 @@ curl -X POST http://localhost:8080/inbox/orders \
 Press Ctrl+C in the worker terminal. The worker stops claiming and lets a running handler finish. Then stop the stack, delete its volume, and restore the configuration file:
 
 ```bash
-docker compose -f docker-compose.yml down -v
-git checkout examples/queuebox.yml
+docker compose -f docker-compose.image.yml down -v
+curl -O https://raw.githubusercontent.com/alternayte/queuebox/main/examples/queuebox.yml
 ```
+
+The second command overwrites `queuebox.yml`, so the appended `orders` source is gone.
 
 ## What you did
 
