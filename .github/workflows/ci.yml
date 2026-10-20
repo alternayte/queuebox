@@ -426,8 +426,10 @@ jobs:
   compose:
     name: Compose quick start
     runs-on: ubuntu-latest
-    # F-073 and F-074: the documented quick start must start a working instance. The job runs the
-    # exact commands that the first-outbox-message tutorial of the docs site gives a new user.
+    # F-073 and F-074: a Compose stack must start a working instance. This job runs
+    # `docker-compose.yml`, the stack that builds the image from the source for a contributor.
+    # The README and the first-outbox-message tutorial publish `docker-compose.image.yml`, which
+    # runs the released image, and no job covers that file.
     steps:
       - name: Check out the repository
         uses: actions/checkout@v4
