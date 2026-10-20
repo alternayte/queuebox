@@ -16,9 +16,12 @@ QueueBox publishes a multi-architecture image for `linux/amd64` and `linux/arm64
 
 | Tag | Meaning |
 | --- | --- |
-| `ghcr.io/alternayte/queuebox:1.2.3` | The exact release. |
-| `ghcr.io/alternayte/queuebox:1.2` | The newest patch of that minor release. |
+| `ghcr.io/alternayte/queuebox:0.9.0` | The exact release. |
+| `ghcr.io/alternayte/queuebox:0.9` | The newest patch of that minor release. |
 | `ghcr.io/alternayte/queuebox:latest` | The newest release. |
+
+`0.9.0` is the current release, and every example on this page names it.
+[The package page](https://github.com/alternayte/queuebox/pkgs/container/queuebox) lists every tag that the registry holds.
 
 Pin the exact version in production.
 The registry also holds the software bill of materials and the build provenance of each image.
@@ -35,7 +38,7 @@ docker run --rm -p 8080:8080 \
   -e QUEUEBOX_DATABASE_USERNAME=queuebox \
   -e QUEUEBOX_DATABASE_PASSWORD=secret \
   -v /etc/queuebox/queuebox.yml:/etc/queuebox/queuebox.yml:ro \
-  ghcr.io/alternayte/queuebox:1.2.3
+  ghcr.io/alternayte/queuebox:0.9.0
 ```
 
 ## The database
@@ -63,7 +66,7 @@ docker run --rm \
   -e QUEUEBOX_DATABASE_URL=jdbc:postgresql://db.internal:5432/queuebox \
   -e QUEUEBOX_DATABASE_USERNAME=queuebox_admin \
   -e QUEUEBOX_DATABASE_PASSWORD=secret \
-  ghcr.io/alternayte/queuebox:1.2.3 migrate
+  ghcr.io/alternayte/queuebox:0.9.0 migrate
 ```
 
 The command reads the same configuration as the service and ignores `database.migrate`.
@@ -127,7 +130,26 @@ See [Security](/operations/security/#secrets).
 
 ## Docker Compose
 
-The repository holds a Compose stack with QueueBox, PostgreSQL and a test receiver:
+`docker-compose.image.yml` runs the published image with PostgreSQL and a test receiver.
+It needs no checkout and no build.
+Run these commands in an empty directory:
+
+```bash
+curl -O https://raw.githubusercontent.com/alternayte/queuebox/main/docker-compose.image.yml
+curl -O https://raw.githubusercontent.com/alternayte/queuebox/main/examples/queuebox.yml
+docker compose -f docker-compose.image.yml up -d
+```
+
+- The second command saves [`examples/queuebox.yml`](https://github.com/alternayte/queuebox/blob/main/examples/queuebox.yml) as `queuebox.yml`, and the stack mounts that file at `/etc/queuebox/queuebox.yml`.
+  Edit it and restart the container.
+  The file must exist before the first start, because Docker creates a directory for a bind mount whose source is absent.
+- The stack file sets the three database variables itself, so it needs no `--env-file`.
+- The stack file pins the image tag.
+  Edit the tag to run another release.
+- `docker compose -f docker-compose.image.yml --profile rabbitmq up -d` also starts RabbitMQ.
+
+The repository holds a second stack that builds the image from the source.
+A contributor uses that one:
 
 ```bash
 git clone https://github.com/alternayte/queuebox.git
@@ -138,20 +160,17 @@ docker compose -f docker-compose.yml --env-file .env.example up -d --build
 - `-f docker-compose.yml` selects the shipped stack.
   Without it, Compose also reads `docker-compose.override.yml`, which runs a development loop from the source tree.
 - The stack mounts `examples/queuebox.yml` at `/etc/queuebox/queuebox.yml`.
-  Edit that file and restart the container.
 - `--env-file .env.example` supplies the database variables.
   Without it, the start fails with a message that names the variables to set.
-- `docker compose --profile rabbitmq up -d` also starts RabbitMQ.
 
-The stack builds the image from the source.
-To run a released image with it, add `docker-compose.release.yml`:
+To run a released image with the build stack, add `docker-compose.release.yml`:
 
 ```bash
-RELEASE_IMAGE=ghcr.io/alternayte/queuebox:1.2.3 \
+RELEASE_IMAGE=ghcr.io/alternayte/queuebox:0.9.0 \
   docker compose -f docker-compose.yml -f docker-compose.release.yml --env-file .env.example up -d
 ```
 
-Use this stack to learn and to test.
+Use these stacks to learn and to test.
 For production, run the image against a database that you back up and monitor.
 
 ## Run without a container
@@ -252,7 +271,7 @@ spec:
       terminationGracePeriodSeconds: 75
       containers:
         - name: queuebox
-          image: ghcr.io/alternayte/queuebox:1.2.3
+          image: ghcr.io/alternayte/queuebox:0.9.0
           ports:
             - name: http
               containerPort: 8080

@@ -54,9 +54,22 @@ The root build file derives the version from the Git tag. An untagged build carr
 3. Move the `Unreleased` entries into a new version section in `CHANGELOG.md`. Add the release
    date. Add the two link definitions at the end of the file, and update the `Unreleased` link to
    compare against the new tag.
-4. Commit the changelog with the message `docs: prepare the <version> release`.
-5. Open a pull request, get it reviewed, and merge it into `main`.
-6. Tag the merge commit on `main` and push the tag.
+4. Set the new version in every place that pins the image tag. These places are
+   `docker-compose.image.yml`, the quick start in `README.md`, the tutorial
+   `site/src/content/docs/tutorials/first-outbox-message.mdx`, and the deploy and security pages
+   under `site/src/content/docs/operations/`. The command below lists each line that names a tag:
+
+   ```bash
+   grep -rn 'ghcr.io/alternayte/queuebox:[0-9]' README.md docker-compose.image.yml site/src/content/docs
+   ```
+
+   These documents pin a version, because a document that says `latest` ages into a wrong
+   instruction. The pin therefore names an image that the registry gets in step 8. Keep this
+   commit in the same pull request as the changelog, so that window is the review time of one
+   pull request.
+5. Commit the changelog and the tag bump with the message `docs: prepare the <version> release`.
+6. Open a pull request, get it reviewed, and merge it into `main`.
+7. Tag the merge commit on `main` and push the tag.
 
    ```bash
    git checkout main
@@ -65,9 +78,9 @@ The root build file derives the version from the Git tag. An untagged build carr
    git push origin v0.1.0
    ```
 
-7. The push of a `v*` tag starts `.github/workflows/release.yml`.
-8. Watch the workflow. It must finish green.
-9. Check the published image, then edit the GitHub release notes if they need a summary.
+8. The push of a `v*` tag starts `.github/workflows/release.yml`.
+9. Watch the workflow. It must finish green.
+10. Check the published image, then edit the GitHub release notes if they need a summary.
 
 ## What the release workflow produces
 

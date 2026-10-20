@@ -1,0 +1,94 @@
+# The published image, with PostgreSQL and a test receiver. No checkout and no build.
+#
+# Download this file and the example configuration, then start the stack:
+#
+#   curl -O https://raw.githubusercontent.com/alternayte/queuebox/main/docker-compose.image.yml
+#   curl -O https://raw.githubusercontent.com/alternayte/queuebox/main/examples/queuebox.yml
+#   docker compose -f docker-compose.image.yml up -d
+#
+# `docker-compose.yml` builds the image from this repository instead. A contributor uses that
+# file; see CONTRIBUTING.md.
+#
+# The mount below names `./queuebox.yml`, so that file must exist before the first start. Inside a
+# checkout, copy it: `cp examples/queuebox.yml queuebox.yml`. Docker creates a directory for a
+# bind mount whose source is absent, and QueueBox then fails to read its configuration.
+#
+# The image tag is pinned. The registry moves on its own, so a release updates the tag here; see
+# docs/development/releasing.md.
+services:
+  queuebox:
+    image: ghcr.io/alternayte/queuebox:0.9.0
+    ports:
+      - "8080:8080"
+    volumes:
+      # F-076: the configuration lives outside the image. A change needs a restart, not a new
+      # image.
+      - ./queuebox.yml:/etc/queuebox/queuebox.yml:ro
+    environment:
+      # F-074: the application reads only the QUEUEBOX_ prefixed variables. This file sets the
+      # database variables itself, so the stack needs no `--env-file`.
+      - QUEUEBOX_CONFIG_FILE=/etc/queuebox/queuebox.yml
+      - QUEUEBOX_DATABASE_URL=jdbc:postgresql://postgres:5432/queuebox
+      - QUEUEBOX_DATABASE_USERNAME=queuebox
+      - QUEUEBOX_DATABASE_PASSWORD=queuebox
+    depends_on:
+      postgres:
+        condition: service_healthy
+      receiver:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: queuebox
+      POSTGRES_USER: queuebox
+      POSTGRES_PASSWORD: queuebox
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U queuebox"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  receiver:
+    # The destination of the quick start. It answers 200 and prints the body, so a first run ends
+    # with a delivered message and not only with an accepted one. Node ships in the base image.
+    image: node:22
+    command:
+      - node
+      - -e
+      - |
+        require("http").createServer((req, res) => {
+          let body = "";
+          req.on("data", (chunk) => { body += chunk; });
+          req.on("end", () => {
+            console.log("delivered " + req.method + " " + req.url + " " + body);
+            res.writeHead(200, { "Content-Type": "application/json" });
+            res.end("{\"received\":true}");
+          });
+        }).listen(8080, () => console.log("receiver listening on 8080"));
+
+  # Optional: for testing RabbitMQ integration.
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    healthcheck:
+      test: rabbitmq-diagnostics check_port_connectivity
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    profiles:
+      - rabbitmq
+
+volumes:
+  postgres_data:
