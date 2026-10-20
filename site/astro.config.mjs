@@ -45,7 +45,7 @@ export default defineConfig({
       social: [{ icon: "github", label: "GitHub", href: "https://github.com/alternayte/queuebox" }],
       editLink: { baseUrl: "https://github.com/alternayte/queuebox/edit/main/site/" },
       lastUpdated: false,
-      components: { PageTitle: "./src/components/PageTitle.astro" },
+      components: { PageTitle: "./src/components/PageTitle.astro", Footer: "./src/components/Footer.astro" },
       head: beacon
         ? [
             {
