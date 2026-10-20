@@ -59,6 +59,9 @@ dev-debug.log
 node_modules/
 # Environment variables
 .env
+# The configuration that docker-compose.image.yml mounts. Inside a checkout it is a copy of
+# examples/queuebox.yml, which is the file that the repository carries.
+/queuebox.yml
 # Editor directories and files
 .idea
 .vscode
