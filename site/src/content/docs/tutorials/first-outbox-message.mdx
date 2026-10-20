@@ -11,16 +11,16 @@ In this tutorial you start QueueBox with Docker Compose, insert one row into the
 
 ## Before you start
 
-You need Git, Docker with the Compose plugin, and `curl`. The stack uses the ports `8080` and `5432` on your machine, so stop anything else that listens on them.
+You need Docker with the Compose plugin, and `curl`. There is no checkout and no build. The stack uses the ports `8080` and `5432` on your machine, so stop anything else that listens on them.
 
 ## Start the stack
 
-Clone the repository and start the Compose stack.
+Run these commands in an empty directory. The first two download the stack file and the configuration that it mounts.
 
 ```bash
-git clone https://github.com/alternayte/queuebox.git
-cd queuebox
-docker compose -f docker-compose.yml --env-file .env.example up -d --build
+curl -O https://raw.githubusercontent.com/alternayte/queuebox/main/docker-compose.image.yml
+curl -O https://raw.githubusercontent.com/alternayte/queuebox/main/examples/queuebox.yml
+docker compose -f docker-compose.image.yml up -d
 ```
 
 The stack runs three services:
@@ -28,10 +28,10 @@ The stack runs three services:
 | Service | What it does |
 |---------|--------------|
 | `postgres` | PostgreSQL 16. QueueBox creates its tables in it at startup. |
-| `queuebox` | QueueBox, built from the repository. It reads `examples/queuebox.yml`. |
+| `queuebox` | QueueBox `0.9.0`, the image that the project publishes to `ghcr.io/alternayte/queuebox`. It reads the `queuebox.yml` beside the stack file. |
 | `receiver` | A small HTTP server. It answers `200` and prints every request body it receives. |
 
-The first build compiles QueueBox, so it takes some time. Ask QueueBox whether it is ready:
+Docker pulls the three images on the first start. Ask QueueBox whether it is ready:
 
 ```bash
 curl http://localhost:8080/health
@@ -40,12 +40,12 @@ curl http://localhost:8080/health
 A ready instance answers with status `200` and a body that starts with `{"status":"healthy"`. If `curl` cannot connect, wait a moment and send the request again.
 
 <Aside>
-`-f docker-compose.yml` selects the shipped stack. Without it, Docker Compose also reads `docker-compose.override.yml`, which holds a development loop that this tutorial does not need. Every command below names the file for the same reason.
+`docker-compose.image.yml` runs the published image. The repository also holds `docker-compose.yml`, which builds the image from the source for a contributor, and `docker-compose.override.yml`, which holds a development loop. Compose reads those two files when a command names no file, so every command below names the file it wants.
 </Aside>
 
 ## Read the route
 
-Open `examples/queuebox.yml`. The configuration names one HTTP destination and a route to it:
+Open the `queuebox.yml` that you downloaded. The configuration names one HTTP destination and a route to it:
 
 ```yaml
 # fragment
@@ -68,7 +68,7 @@ A row whose topic matches `order.*` goes to `webhook-api`. QueueBox sends it as 
 Your application sends a message with one `INSERT` into the `outbox` table. Run that insert through `psql` in the `postgres` container:
 
 ```bash
-docker compose -f docker-compose.yml exec -T postgres psql -U queuebox -d queuebox <<'SQL'
+docker compose -f docker-compose.image.yml exec -T postgres psql -U queuebox -d queuebox <<'SQL'
 BEGIN;
 INSERT INTO outbox (topic, key, payload)
 VALUES ('order.created', 'order-1001', '{"orderId":"1001","amount":42}');
@@ -89,7 +89,7 @@ In a real application, the same transaction also writes the business row, for ex
 Read the log of the receiver:
 
 ```bash
-docker compose -f docker-compose.yml logs receiver
+docker compose -f docker-compose.image.yml logs receiver
 ```
 
 The last line shows the delivery:
@@ -108,7 +108,7 @@ QueueBox polls the outbox every 100 milliseconds in this configuration, so the l
 Read the row back from the outbox table:
 
 ```bash
-docker compose -f docker-compose.yml exec postgres psql -U queuebox -d queuebox \
+docker compose -f docker-compose.image.yml exec postgres psql -U queuebox -d queuebox \
   -c "SELECT topic, key, state, attempt FROM outbox;"
 ```
 
@@ -128,7 +128,7 @@ The output shows the row in state `sent`:
 Stop the stack and delete its database volume:
 
 ```bash
-docker compose -f docker-compose.yml down -v
+docker compose -f docker-compose.image.yml down -v
 ```
 
 ## What you did
