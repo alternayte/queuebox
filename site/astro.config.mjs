@@ -46,18 +46,33 @@ export default defineConfig({
       editLink: { baseUrl: "https://github.com/alternayte/queuebox/edit/main/site/" },
       lastUpdated: false,
       components: { PageTitle: "./src/components/PageTitle.astro", Footer: "./src/components/Footer.astro" },
-      head: beacon
-        ? [
-            {
-              tag: "script",
-              attrs: {
-                defer: true,
-                src: "https://static.cloudflareinsights.com/beacon.min.js",
-                "data-cf-beacon": JSON.stringify({ token: beacon }),
+      head: [
+        // Starlight sets twitter:card to summary_large_image, so a page with no og:image shares as a blank card.
+        // public/og.png carries the product name and the one-line description on a flat background.
+        { tag: "meta", attrs: { property: "og:image", content: new URL("/og.png", site).href } },
+        { tag: "meta", attrs: { property: "og:image:width", content: "1200" } },
+        { tag: "meta", attrs: { property: "og:image:height", content: "630" } },
+        {
+          tag: "meta",
+          attrs: {
+            property: "og:image:alt",
+            content:
+              "QueueBox. A message relay that implements the transactional outbox and the idempotent inbox. Your application writes a row, and QueueBox handles the delivery, the retries, the deduplication and the cleanup.",
+          },
+        },
+        ...(beacon
+          ? [
+              {
+                tag: "script",
+                attrs: {
+                  defer: true,
+                  src: "https://static.cloudflareinsights.com/beacon.min.js",
+                  "data-cf-beacon": JSON.stringify({ token: beacon }),
+                },
               },
-            },
-          ]
-        : [],
+            ]
+          : []),
+      ],
       sidebar: sections.map(([dir, label]) => ({ label, items: [{ autogenerate: { directory: dir } }] })),
       plugins: [
         starlightLlmsTxt({

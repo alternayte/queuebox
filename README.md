@@ -25,14 +25,34 @@ deduplication check again. QueueBox is that code, written once.
 
 ## Quick start
 
-You need Docker. The stack starts PostgreSQL and QueueBox.
+You need Docker. These commands run the published image against a PostgreSQL container. There is
+no checkout and no build.
 
 ```bash
-git clone https://github.com/AlterNayte/queuebox.git
-cd queuebox
-docker compose -f docker-compose.yml --env-file .env.example up -d --build
+docker network create qbnet
+
+docker run -d --name qb-pg --network qbnet \
+  -e POSTGRES_DB=queuebox -e POSTGRES_USER=queuebox -e POSTGRES_PASSWORD=queuebox \
+  postgres:16-alpine
+
+curl -O https://raw.githubusercontent.com/alternayte/queuebox/main/examples/queuebox.yml
+
+docker run -d --name queuebox --network qbnet -p 8080:8080 \
+  -e QUEUEBOX_DATABASE_URL=jdbc:postgresql://qb-pg:5432/queuebox \
+  -e QUEUEBOX_DATABASE_USERNAME=queuebox \
+  -e QUEUEBOX_DATABASE_PASSWORD=queuebox \
+  -v "$PWD/queuebox.yml:/etc/queuebox/queuebox.yml:ro" \
+  ghcr.io/alternayte/queuebox:0.9.0
+
 curl http://localhost:8080/health
 ```
+
+The third command downloads [examples/queuebox.yml](examples/queuebox.yml) as `queuebox.yml`, and
+the fourth mounts it at `/etc/queuebox/queuebox.yml`. QueueBox needs that file: a destination, a
+route and a source are nested structures, so an environment variable cannot carry them.
+
+A ready instance answers `200` with a body that starts with `{"status":"healthy"`. The first start
+applies the migrations, so send the request again if `curl` cannot connect yet.
 
 Send a message to the example inbox source.
 
@@ -45,13 +65,23 @@ curl -X POST http://localhost:8080/inbox/stripe \
 The first request answers `202 Accepted`. The same request again answers `200 OK` with
 `{"status":"duplicate"}`.
 
-`docker-compose.yml` mounts [examples/queuebox.yml](examples/queuebox.yml) at
-`/etc/queuebox/queuebox.yml`. Edit that file and restart the container. You do not rebuild.
+Edit `queuebox.yml` and run `docker restart queuebox`. You do not rebuild.
 
-The database credentials come from [.env.example](.env.example), which the Compose file names in
-its `env_file` block. `--env-file .env.example` is therefore optional above, and the command works
-without it. Copy `.env.example` to your own file and point `env_file` at it for a real
-deployment.
+These two containers run no destination, so QueueBox retries the delivery of the accepted message
+and then marks it dead. To watch a delivery arrive, start the stack that
+[docker-compose.image.yml](docker-compose.image.yml) describes. It runs the same image with
+PostgreSQL and an HTTP receiver.
+
+`0.9.0` is the current release. Pin a version rather than `latest`;
+[the deploy page](https://queuebox-docs.pages.dev/operations/deploy/) holds the tag list and the
+production setup.
+
+Remove the containers and the network when you finish:
+
+```bash
+docker rm -f queuebox qb-pg
+docker network rm qbnet
+```
 
 [Deliver your first message](https://queuebox-docs.pages.dev/tutorials/first-outbox-message/) holds the full walkthrough, and
 [Write outbox rows](https://queuebox-docs.pages.dev/how-to/write-outbox-rows/) holds the contract your application writes against.

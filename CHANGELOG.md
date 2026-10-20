@@ -9,6 +9,26 @@ the configuration schema and for the database schema.
 
 ## [Unreleased]
 
+### Added
+
+- **A Compose stack that runs the published image.** `docker-compose.image.yml` starts
+  `ghcr.io/alternayte/queuebox:0.9.0` with PostgreSQL and the test receiver, so a first run needs
+  no checkout and no build. It mounts the `queuebox.yml` beside it, and `examples/queuebox.yml` is
+  that file. `docker-compose.yml` still builds the image from the source for a contributor.
+
+### Fixed
+
+- **Every documented first run uses the published image.** The quick start in `README.md` and the
+  [first outbox message](site/src/content/docs/tutorials/first-outbox-message.mdx) tutorial told
+  the reader to clone the repository and build the image, although the project publishes one. The
+  quick start now runs `ghcr.io/alternayte/queuebox:0.9.0` with `docker run`, and the tutorial runs
+  it with `docker-compose.image.yml`.
+- **The deploy and security pages name a tag that the registry holds.** Both named
+  `ghcr.io/alternayte/queuebox:1.2.3`. The registry answers that tag with `MANIFEST_UNKNOWN`, so
+  every copied command on those pages failed. Both name `0.9.0` now, and
+  [docs/development/releasing.md](docs/development/releasing.md) carries the release step that
+  moves each pin.
+
 ## [0.9.0] — 2026-10-16
 
 This release ships the server image as `v0.9.0`, with migration V12. The pull clients that set
