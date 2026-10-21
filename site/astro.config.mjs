@@ -45,7 +45,7 @@ export default defineConfig({
       social: [{ icon: "github", label: "GitHub", href: "https://github.com/alternayte/queuebox" }],
       editLink: { baseUrl: "https://github.com/alternayte/queuebox/edit/main/site/" },
       lastUpdated: false,
-      components: { PageTitle: "./src/components/PageTitle.astro" },
+      components: { PageTitle: "./src/components/PageTitle.astro", Footer: "./src/components/Footer.astro" },
       head: [
         // Starlight sets twitter:card to summary_large_image, so a page with no og:image shares as a blank card.
         // public/og.png carries the product name and the one-line description on a flat background.
