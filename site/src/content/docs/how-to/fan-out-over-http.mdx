@@ -7,7 +7,7 @@ sidebar:
 
 import { Aside } from "@astrojs/starlight/components";
 
-This guide shows how to deliver outbox rows to HTTP endpoints. It covers the HTTP destination, the routes that choose a destination by topic, and the way to send one event to several endpoints. `examples/http-fanout` in the repository runs the full setup.
+This guide shows how to deliver outbox rows to HTTP endpoints. It covers the HTTP destination, the routes that choose a destination by topic, and the way to send one event to several endpoints. [Run the example](#run-the-example) starts the full setup on the published image.
 
 ## Declare an HTTP destination
 
@@ -145,20 +145,43 @@ For a message that arrives through the inbox, the source `topic` template sets t
 
 ## Run the example
 
-`examples/http-fanout` runs QueueBox, PostgreSQL and two small HTTP receivers. Its inbox source uses the event type as the topic, so two posts reach two receivers.
+The fan-out example runs QueueBox, PostgreSQL and two small HTTP receivers. Its inbox source uses the event type as the topic, so two posts reach two receivers. You need Docker with the Compose plugin, and `curl`. There is no checkout and no build.
+
+Run these commands in an empty directory. The first two download the stack file and the configuration that it mounts. The stack runs QueueBox `0.9.0`, the image that the project publishes to [`ghcr.io/alternayte/queuebox`](https://github.com/alternayte/queuebox/pkgs/container/queuebox).
 
 ```bash
-cd examples/http-fanout
-docker compose up -d --build
+curl -O https://raw.githubusercontent.com/alternayte/queuebox/main/examples/http-fanout/docker-compose.image.yml
+curl -O https://raw.githubusercontent.com/alternayte/queuebox/main/examples/http-fanout/queuebox.yml
+docker compose -f docker-compose.image.yml up -d
+```
+
+The downloaded `queuebox.yml` holds the two destinations and the two routes of the section above. Wait until QueueBox answers, then post one event per destination topic:
+
+```bash
+curl http://localhost:18081/health
 curl -X POST http://localhost:18081/inbox/stripe -H 'Content-Type: application/json' \
   -d '{"id":"e1","type":"analytics.payment.succeeded"}'
 curl -X POST http://localhost:18081/inbox/stripe -H 'Content-Type: application/json' \
   -d '{"id":"e2","type":"audit.payment.succeeded"}'
-docker compose logs analytics audit
-docker compose down -v
 ```
 
-The `analytics` log shows `e1`, and the `audit` log shows `e2`. `./smoke-test.sh` runs the same steps and checks that no receiver gets the topic of the other.
+Read the log of each receiver, then stop the stack and delete its volume:
+
+```bash
+docker compose -f docker-compose.image.yml logs analytics audit
+docker compose -f docker-compose.image.yml down -v
+```
+
+The `analytics` log shows `e1`, and the `audit` log shows `e2`:
+
+```text
+analytics-1  | delivered POST /events {"id":"e1","type":"analytics.payment.succeeded"}
+audit-1      | delivered POST /events {"id":"e2","type":"audit.payment.succeeded"}
+```
+
+<Aside>
+`examples/http-fanout` in the [repository](https://github.com/alternayte/queuebox/tree/main/examples/http-fanout) holds both stack files. `docker-compose.image.yml` runs the published image, as above. `docker-compose.yml` builds the image from the source tree for a contributor, and `./smoke-test.sh` runs that one and checks that no receiver gets the topic of the other.
+</Aside>
 
 ## Block private addresses
 
