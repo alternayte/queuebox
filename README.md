@@ -88,27 +88,10 @@ docker network rm qbnet
 
 ## Client libraries
 
-Your application talks to QueueBox over HTTP, so no library is required. A pull inbox source is the
-one exception: a worker claims a row, holds a transaction open while your handler runs, and then
-completes the row. Three libraries do that work for you.
-
-| Language | Package | Install |
-|----------|---------|---------|
-| Go | `github.com/alternayte/queuebox/clients/go` | `go get github.com/alternayte/queuebox/clients/go` |
-| TypeScript | `@alternayte/queuebox-inbox` | `npm install @alternayte/queuebox-inbox` |
-| C# | `QueueBox.Inbox` | `dotnet add package QueueBox.Inbox` |
-
-Two more NuGet packages extend the C# client: `QueueBox.Inbox.DependencyInjection` for a hosted
-service, and `QueueBox.Inbox.EntityFrameworkCore` for a context on the handler transaction.
-
-Each library claims the rows of one `consumption: pull` source, runs your handler inside a
-transaction, and then completes, retries or dead-letters the row. It renews the lease while the
-handler runs, it rolls your writes back when another worker takes the row, and it writes no schema.
-
-[Pull clients](https://queuebox-docs.pages.dev/reference/pull-clients/) holds the API surface and the
-settings of each library, and
-[Consume the inbox](https://queuebox-docs.pages.dev/how-to/consume-the-inbox/) shows a worker from
-start to end.
+Your application talks to QueueBox over HTTP, so no library is required. A pull inbox source is the exception: a worker claims a row, runs your handler
+inside a transaction, and then completes, retries or dead-letters it. Install `go get github.com/alternayte/queuebox/clients/go`, `npm install @alternayte/queuebox-inbox`
+or `dotnet add package QueueBox.Inbox`, with `QueueBox.Inbox.DependencyInjection` and `QueueBox.Inbox.EntityFrameworkCore` beside the C# client.
+[Pull clients](https://queuebox-docs.pages.dev/reference/pull-clients/) holds every setting, and [Consume the inbox](https://queuebox-docs.pages.dev/how-to/consume-the-inbox/) shows a worker from start to end.
 
 ## Guarantees
 
