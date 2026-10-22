@@ -428,8 +428,8 @@ jobs:
     runs-on: ubuntu-latest
     # F-073 and F-074: a Compose stack must start a working instance. This job runs
     # `docker-compose.yml`, the stack that builds the image from the source for a contributor.
-    # The README and the first-outbox-message tutorial publish `docker-compose.image.yml`, which
-    # runs the released image, and no job covers that file.
+    # The `compose-image` job below covers `docker-compose.image.yml`, the stack that runs the
+    # released image for a reader of the tutorial and the deploy page.
     steps:
       - name: Check out the repository
         uses: actions/checkout@v4
@@ -521,6 +521,185 @@ jobs:
       - name: Stop the stack
         if: always()
         run: docker compose -f docker-compose.yml --profile rabbitmq down -v
+
+  image-stack-pin:
+    name: Published-image stack pin
+    runs-on: ubuntu-latest
+    # The pinned tag of `docker-compose.image.yml` is the part of the published-image stack that
+    # rots. This job reads it on every event, because the check needs no Docker and no pull. It
+    # also decides whether `compose-image` starts the stack.
+    outputs:
+      start: ${{ steps.decide.outputs.start }}
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+        with:
+          # The decision below reads the release tags and the base commit of a pull request.
+          fetch-depth: 0
+
+      - name: The pinned tag names the newest release
+        id: pin
+        # Step 4 of docs/development/releasing.md moves the pin in the same pull request as the
+        # changelog entry, so the pin equals the newest released version in CHANGELOG.md. A
+        # release that forgets the pin leaves the tutorial and the deploy page on an older image.
+        # That is the defect which NXT-3 corrected by hand, and this step is the guard.
+        run: |
+          pin=$(sed -n 's|^ *image: ghcr\.io/alternayte/queuebox:\(.*\)$|\1|p' docker-compose.image.yml)
+          released=$(sed -n 's|^## \[\([0-9][^]]*\)\].*|\1|p' CHANGELOG.md | head -1)
+          echo "the stack pins '$pin' and the newest release is '$released'"
+          if [ -z "$pin" ] || [ -z "$released" ]; then
+            echo "the pinned tag or the newest released version is unreadable"
+            exit 1
+          fi
+          if [ "$pin" != "$released" ]; then
+            echo "docker-compose.image.yml pins $pin, so a reader of the tutorial and of the"
+            echo "deploy page runs $pin and not $released. Step 4 of"
+            echo "docs/development/releasing.md moves every pin."
+            exit 1
+          fi
+          echo "pin=$pin" >> "$GITHUB_OUTPUT"
+
+      - name: Decide whether the stack starts
+        id: decide
+        env:
+          PIN: ${{ steps.pin.outputs.pin }}
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          # The release pull request pins the new version before the tag exists, because step 8 of
+          # docs/development/releasing.md publishes the image after the merge. The registry cannot
+          # answer the pin inside that window. The run after the tag covers the pull.
+          if ! git rev-parse -q --verify "refs/tags/v${PIN}" >/dev/null; then
+            echo "start=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::v${PIN} carries no tag yet, so the registry holds no such image. The pin is checked and the stack is not started."
+            exit 0
+          fi
+          # A push to main and the nightly schedule always start the stack, because the pin rots
+          # between pull requests.
+          if [ "$EVENT" != "pull_request" ]; then
+            echo "start=true" >> "$GITHUB_OUTPUT"
+            echo "the event is $EVENT, so the stack starts"
+            exit 0
+          fi
+          if ! git cat-file -e "${BASE}^{commit}" 2>/dev/null; then
+            echo "start=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::the base commit ${BASE} is absent, so the stack starts."
+            exit 0
+          fi
+          # On a pull request the stack starts when a file that describes it changed. These are
+          # the stack file, the configuration that the stack mounts, the two pages that publish
+          # its commands, and this workflow.
+          paths='^(docker-compose\.image\.yml|examples/queuebox\.yml|\.github/workflows/ci\.yml|site/src/content/docs/tutorials/first-outbox-message\.mdx|site/src/content/docs/operations/deploy\.mdx)$'
+          changed=$(git diff --name-only "$BASE" HEAD)
+          echo "$changed"
+          if echo "$changed" | grep -qE "$paths"; then
+            echo "start=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "start=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::this pull request changes no file of the published-image stack, so the stack is not started."
+          fi
+
+  compose-image:
+    name: Published-image Compose stack
+    runs-on: ubuntu-latest
+    needs: image-stack-pin
+    if: needs.image-stack-pin.outputs.start == 'true'
+    # F-073 and F-074 for the other stack. The `compose` job builds the image from the source, so
+    # it proves nothing about the image that a reader pulls. The first-outbox-message tutorial and
+    # the Docker Compose section of site/src/content/docs/operations/deploy.mdx tell the reader to
+    # download `docker-compose.image.yml`, and the steps below are the commands of that tutorial.
+    # The package `ghcr.io/alternayte/queuebox` is public, so the pull needs no login and this
+    # workflow needs no `packages: read`. The two pages promise exactly that.
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Write the configuration that the stack mounts
+        # The stack mounts `./queuebox.yml`. Both pages download `examples/queuebox.yml` under
+        # that name, and inside a checkout the copy does the same. Docker creates a directory for
+        # a bind mount whose source is absent, and QueueBox then reads no configuration.
+        run: cp examples/queuebox.yml queuebox.yml
+
+      - name: Pull the pinned image
+        # A separate step, so a tag that the registry does not hold fails here and names itself.
+        # The stack needs no build, which is the purpose of the file.
+        run: docker compose -f docker-compose.image.yml pull
+
+      - name: Start the stack
+        # The rabbitmq profile stays off. The `compose` job proves the RabbitMQ delivery path, and
+        # this job proves the published image on the HTTP path of the tutorial.
+        run: docker compose -f docker-compose.image.yml up -d
+
+      - name: Wait for the instance to become healthy
+        run: |
+          for attempt in $(seq 1 60); do
+            status=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8080/health || true)
+            if [ "$status" = "200" ]; then
+              echo "healthy after $attempt attempts"
+              curl -s http://localhost:8080/health
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "the instance never became healthy"
+          curl -s http://localhost:8080/health || true
+          docker compose -f docker-compose.image.yml logs queuebox
+          exit 1
+
+      - name: Insert the outbox row of the tutorial
+        # The "Insert an outbox row" section, verbatim. The topic `order.created` matches the
+        # route `order.*` of examples/queuebox.yml.
+        run: |
+          docker compose -f docker-compose.image.yml exec -T postgres psql -U queuebox -d queuebox <<'SQL'
+          BEGIN;
+          INSERT INTO outbox (topic, key, payload)
+          VALUES ('order.created', 'order-1001', '{"orderId":"1001","amount":42}');
+          COMMIT;
+          SQL
+
+      - name: The receiver gets the delivery
+        # Item 7 of section 11, and the "Watch the delivery" section: the stack must deliver, not
+        # only accept. The receiver prints every body it gets.
+        run: |
+          for _ in $(seq 1 45); do
+            if docker compose -f docker-compose.image.yml logs receiver 2>&1 \
+              | grep -q 'delivered POST /webhook'; then
+              docker compose -f docker-compose.image.yml logs receiver 2>&1 \
+                | grep 'delivered POST /webhook' | head -1
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "the receiver never logged the delivery"
+          docker compose -f docker-compose.image.yml logs receiver queuebox
+          exit 1
+
+      - name: The row reaches the state sent
+        # The "See the row in state sent" section. The poller writes the state after the
+        # delivery, so the check waits for it.
+        run: |
+          for _ in $(seq 1 45); do
+            state=$(docker compose -f docker-compose.image.yml exec -T postgres \
+              psql -U queuebox -d queuebox -tAc \
+              "SELECT state FROM outbox WHERE key = 'order-1001';" | tr -d '[:space:]')
+            if [ "$state" = "sent" ]; then
+              docker compose -f docker-compose.image.yml exec -T postgres \
+                psql -U queuebox -d queuebox -c "SELECT topic, key, state, attempt FROM outbox;"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "the row never reached the state sent; it is '${state:-}'"
+          docker compose -f docker-compose.image.yml logs queuebox
+          exit 1
+
+      - name: Show the logs on a failure
+        if: failure()
+        run: docker compose -f docker-compose.image.yml logs
+
+      - name: Stop the stack
+        if: always()
+        run: docker compose -f docker-compose.image.yml down -v
 
   examples:
     name: Examples

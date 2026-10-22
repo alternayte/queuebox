@@ -76,6 +76,12 @@ The root build file derives the version from the Git tag. An untagged build carr
    instruction. The pin therefore names an image that the registry gets in step 8. Keep this
    commit in the same pull request as the changelog, so that window is the review time of one
    pull request.
+
+   The `image-stack-pin` job of `.github/workflows/ci.yml` reads the pin of
+   `docker-compose.image.yml` and fails when it differs from the newest version section of
+   `CHANGELOG.md`. The job does not start the published-image stack while the tag `v<version>` is
+   absent, because the registry holds no such image until step 8. The run on `main` after the tag
+   starts the stack and pulls the pin.
 5. Commit the changelog and the tag bump with the message `docs: prepare the <version> release`.
 6. Open a pull request, get it reviewed, and merge it into `main`.
 7. Tag the merge commit on `main` and push the tag.
