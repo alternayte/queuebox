@@ -86,6 +86,13 @@ docker network rm qbnet
 [Deliver your first message](https://queuebox-docs.pages.dev/tutorials/first-outbox-message/) holds the full walkthrough, and
 [Write outbox rows](https://queuebox-docs.pages.dev/how-to/write-outbox-rows/) holds the contract your application writes against.
 
+## Client libraries
+
+Your application talks to QueueBox over HTTP, so no library is required. A pull inbox source is the exception: a worker claims a row, runs your handler
+inside a transaction, and then completes, retries or dead-letters it. Install `go get github.com/alternayte/queuebox/clients/go`, `npm install @alternayte/queuebox-inbox`
+or `dotnet add package QueueBox.Inbox`, with `QueueBox.Inbox.DependencyInjection` and `QueueBox.Inbox.EntityFrameworkCore` beside the C# client.
+[Pull clients](https://queuebox-docs.pages.dev/reference/pull-clients/) holds every setting, and [Consume the inbox](https://queuebox-docs.pages.dev/how-to/consume-the-inbox/) shows a worker from start to end.
+
 ## Guarantees
 
 An infrastructure component must state what it promises. QueueBox promises this, and a test proves
