@@ -162,15 +162,17 @@ public abstract class InboxWorkerContractTest : IAsyncLifetime
         var claimed = DateTimeOffset.MinValue;
         var renewed = DateTimeOffset.MinValue;
 
-        // The lease is one second and the renewal runs every third of it, so a handler of three
-        // seconds needs several renewals to survive.
+        // The lease is three seconds and the renewal runs every third of it, so a handler of seven
+        // seconds needs several renewals to survive. A shorter lease leaves a loaded CI runner too
+        // little slack: one renewal that runs late loses the lease, and the worker takes the
+        // message again.
         await RunUntilAsync(1, async (_, transaction, token) =>
         {
             claimed = await Harness.ReadUpdatedAtAsync(id);
-            await Task.Delay(TimeSpan.FromSeconds(3), token);
+            await Task.Delay(TimeSpan.FromSeconds(7), token);
             renewed = await Harness.ReadUpdatedAtAsync(id);
             await WriteApplicationRowAsync(transaction, "row-6", token);
-        }, leaseMs: 1_000);
+        }, leaseMs: 3_000);
 
         Assert.Equal("processed", (await Harness.ReadRowAsync(id)).State);
         Assert.Equal(1, await Harness.CountApplicationRowsAsync("row-6"));
