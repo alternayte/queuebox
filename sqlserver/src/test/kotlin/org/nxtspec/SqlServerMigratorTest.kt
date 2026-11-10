@@ -95,9 +95,9 @@ class SqlServerMigratorTest {
         try {
             applyByHand(dataSource, bundledVersions().filter { it.toInt() <= 10 })
 
-            assertEquals(listOf("11", "12"), SqlServerMigrator().baseline(dataSource, "10"))
+            assertEquals(bundledVersions().filter { it.toInt() > 10 }, SqlServerMigrator().baseline(dataSource, "10"))
             assertTrue(hasColumn(dataSource, "outbox", "sequence"), "V11 must run after the baseline")
-            assertEquals(listOf("10", "11", "12"), historyVersions(dataSource))
+            assertEquals(bundledVersions().filter { it.toInt() >= 10 }, historyVersions(dataSource))
 
             // The database is a normal one now.
             assertEquals(emptyList(), SqlServerMigrator().migrate(dataSource, QUEUEBOX_TABLES))

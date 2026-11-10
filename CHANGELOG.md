@@ -18,6 +18,19 @@ the configuration schema and for the database schema.
 
 ### Fixed
 
+- **The PostgreSQL pull claim no longer reads the whole backlog after a stale `ANALYZE`.** Two
+  older indexes held every pending pull row, and the planner chose each of them over
+  `idx_inbox_pull_pending`. With statistics from an empty queue, it read every pending row
+  through `idx_inbox_pending` and sorted them, so each claim got slower as the backlog grew.
+  Migration V13 adds `idx_inbox_push_pending` for the push claim, and drops
+  `idx_inbox_consumption_pending` and `idx_inbox_pending`. The build of the new index blocks
+  inserts into the inbox until it ends, as V8 does. No client changes. Fixes #117.
+- **PostgreSQL refreshes the inbox and outbox statistics while a backlog grows.** Retention keeps
+  most rows of both tables, so the default autovacuum thresholds, a fraction of the table, did not
+  start an analyze for a backlog. Migration V14 sets `autovacuum_analyze_scale_factor = 0.005`,
+  `autovacuum_analyze_threshold = 1000`, `autovacuum_vacuum_scale_factor = 0.01` and
+  `autovacuum_vacuum_threshold = 1000` on both tables. It keeps each key that the table already
+  carries, so a value that an operator set stays. Fixes #116.
 - **Every documented first run uses the published image.** The quick start in `README.md` and the
   [first outbox message](site/src/content/docs/tutorials/first-outbox-message.mdx) tutorial told
   the reader to clone the repository and build the image, although the project publishes one. The

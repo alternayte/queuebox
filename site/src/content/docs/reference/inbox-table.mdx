@@ -160,12 +160,11 @@ A loader that runs during the upgrade does one full reload after the last old re
 | --- | --- | --- |
 | Primary key | `id` | none |
 | `uq_inbox_source_idempotency` | `source`, `idempotency_key` | unique |
-| `idx_inbox_pending` | `state` | pending rows |
 | `idx_inbox_source` | `source` | none |
 | `idx_inbox_aggregate_state` | `aggregate_id`, `state` | none |
 | `idx_inbox_processing_claimed` | `claimed_at` | processing rows |
 | `idx_inbox_state_created` | `state`, `created_at` | none |
-| `idx_inbox_consumption_pending` | `consumption`, `state`, `scheduled_at` | none |
+| `idx_inbox_push_pending` | `scheduled_at`, `created_at` | pending push rows |
 | `idx_inbox_pull_pending` | `source`, `scheduled_at`, `created_at`, `id` | pending pull rows |
 | `idx_inbox_pull_busy` | `source`, `aggregate_id`, `lease_expires_at` | processing pull rows |
 | `idx_inbox_updated_at` | `updated_at` | none |

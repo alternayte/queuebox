@@ -120,9 +120,9 @@ class PostgresMigratorTest {
         try {
             applyByHand(dataSource, bundledVersions().filter { it.toInt() <= 10 })
 
-            assertEquals(listOf("11", "12"), PostgresMigrator().baseline(dataSource, "10"))
+            assertEquals(bundledVersions().filter { it.toInt() > 10 }, PostgresMigrator().baseline(dataSource, "10"))
             assertTrue(hasColumn(dataSource, "outbox", "sequence"), "V11 must run after the baseline")
-            assertEquals(listOf("10", "11", "12"), historyVersions(dataSource))
+            assertEquals(bundledVersions().filter { it.toInt() >= 10 }, historyVersions(dataSource))
 
             // The database is a normal one now.
             assertEquals(emptyList(), PostgresMigrator().migrate(dataSource, QUEUEBOX_TABLES))
@@ -461,6 +461,92 @@ class PostgresMigratorTest {
                 connection.commit()
             }
             assertEquals(backfilled, updatedAtByKey())
+        } finally {
+            DatabaseFactory.close(dataSource)
+        }
+    }
+
+    /**
+     * Issue #117. The last ANALYZE saw an empty queue, then a backlog arrived. The pending branch of
+     * the pull claim must still read idx_inbox_pull_pending in claim order. Before V13 the planner
+     * read every pending row through idx_inbox_pending and sorted them.
+     */
+    @Test
+    fun `the pull claim reads its own index in order after a stale analyze`() {
+        val dataSource = newDatabase("queuebox_stale_analyze")
+        try {
+            PostgresMigrator().migrate(dataSource, QUEUEBOX_TABLES)
+            val plan = dataSource.connection.use { connection ->
+                connection.createStatement().use { stmt ->
+                    stmt.execute("ALTER TABLE inbox SET (autovacuum_enabled = false)")
+                    stmt.execute(
+                        "INSERT INTO inbox (source, idempotency_key, payload, state, consumption, processed_at) " +
+                            "SELECT 'orders', 'done-' || g, '{}', 'processed', 'pull', now() " +
+                            "FROM generate_series(1, 20000) AS g"
+                    )
+                    connection.commit()
+                    stmt.execute("ANALYZE inbox")
+                    stmt.execute(
+                        "INSERT INTO inbox (source, idempotency_key, payload, state, consumption) " +
+                            "SELECT 'orders', 'backlog-' || g, '{}', 'pending', 'pull' " +
+                            "FROM generate_series(1, 2000) AS g"
+                    )
+                    connection.commit()
+                    stmt.executeQuery(
+                        """
+                        EXPLAIN (FORMAT TEXT)
+                        SELECT id, aggregate_id, scheduled_at, created_at
+                        FROM inbox
+                        WHERE consumption = 'pull' AND source = 'orders' AND state = 'pending'
+                          AND scheduled_at <= clock_timestamp()
+                        ORDER BY scheduled_at, created_at, id
+                        LIMIT 50
+                        """.trimIndent()
+                    ).use { rs -> buildList { while (rs.next()) add(rs.getString(1)) }.joinToString("\n") }
+                }
+            }
+            assertTrue("idx_inbox_pull_pending" in plan, plan)
+            assertFalse("Sort" in plan, plan)
+        } finally {
+            DatabaseFactory.close(dataSource)
+        }
+    }
+
+    /** Issue #116. V14 sets each autovacuum key that the operator has not set on the table. */
+    @Test
+    fun `V14 keeps an autovacuum value that the operator set`() {
+        val dataSource = newDatabase("queuebox_v14_operator")
+        try {
+            Flyway.configure()
+                .dataSource(dataSource)
+                .locations(PostgresMigrator.LOCATION)
+                .baselineOnMigrate(true)
+                .baselineVersion("0")
+                .target("13")
+                .load()
+                .migrate()
+            dataSource.connection.use { connection ->
+                connection.createStatement().use {
+                    it.execute("ALTER TABLE inbox SET (autovacuum_analyze_scale_factor = 0.02)")
+                }
+                connection.commit()
+            }
+
+            PostgresMigrator().migrate(dataSource, QUEUEBOX_TABLES)
+
+            fun options(table: String): Set<String> = dataSource.connection.use { connection ->
+                connection.prepareStatement("SELECT unnest(reloptions) FROM pg_class WHERE oid = ?::regclass").use {
+                    it.setString(1, table)
+                    it.executeQuery().use { rs -> buildSet { while (rs.next()) add(rs.getString(1)) } }
+                }
+            }
+            val tuned = setOf(
+                "autovacuum_analyze_threshold=1000",
+                "autovacuum_vacuum_scale_factor=0.01",
+                "autovacuum_vacuum_threshold=1000"
+            )
+            assertEquals(tuned + "autovacuum_analyze_scale_factor=0.02", options("inbox"))
+            assertEquals(tuned + "autovacuum_analyze_scale_factor=0.005", options("outbox"))
         } finally {
             DatabaseFactory.close(dataSource)
         }
