@@ -16,7 +16,7 @@ QueueBox publishes a multi-architecture image for `linux/amd64` and `linux/arm64
 
 | Tag | Meaning |
 | --- | --- |
-| `ghcr.io/alternayte/queuebox:0.9.0` | The exact release. |
+| `ghcr.io/alternayte/queuebox:0.9.1` | The exact release. |
 | `ghcr.io/alternayte/queuebox:0.9` | The newest patch of that minor release. |
 | `ghcr.io/alternayte/queuebox:latest` | The newest release. |
 
@@ -38,7 +38,7 @@ docker run --rm -p 8080:8080 \
   -e QUEUEBOX_DATABASE_USERNAME=queuebox \
   -e QUEUEBOX_DATABASE_PASSWORD=secret \
   -v /etc/queuebox/queuebox.yml:/etc/queuebox/queuebox.yml:ro \
-  ghcr.io/alternayte/queuebox:0.9.0
+  ghcr.io/alternayte/queuebox:0.9.1
 ```
 
 ## The database
@@ -66,7 +66,7 @@ docker run --rm \
   -e QUEUEBOX_DATABASE_URL=jdbc:postgresql://db.internal:5432/queuebox \
   -e QUEUEBOX_DATABASE_USERNAME=queuebox_admin \
   -e QUEUEBOX_DATABASE_PASSWORD=secret \
-  ghcr.io/alternayte/queuebox:0.9.0 migrate
+  ghcr.io/alternayte/queuebox:0.9.1 migrate
 ```
 
 The command reads the same configuration as the service and ignores `database.migrate`.
@@ -166,7 +166,7 @@ docker compose -f docker-compose.yml --env-file .env.example up -d --build
 To run a released image with the build stack, add `docker-compose.release.yml`:
 
 ```bash
-RELEASE_IMAGE=ghcr.io/alternayte/queuebox:0.9.0 \
+RELEASE_IMAGE=ghcr.io/alternayte/queuebox:0.9.1 \
   docker compose -f docker-compose.yml -f docker-compose.release.yml --env-file .env.example up -d
 ```
 
@@ -271,7 +271,7 @@ spec:
       terminationGracePeriodSeconds: 75
       containers:
         - name: queuebox
-          image: ghcr.io/alternayte/queuebox:0.9.0
+          image: ghcr.io/alternayte/queuebox:0.9.1
           ports:
             - name: http
               containerPort: 8080

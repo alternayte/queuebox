@@ -28,7 +28,7 @@ The stack runs three services:
 | Service | What it does |
 |---------|--------------|
 | `postgres` | PostgreSQL 16. QueueBox creates its tables in it at startup. |
-| `queuebox` | QueueBox `0.9.0`, the image that the project publishes to `ghcr.io/alternayte/queuebox`. It reads the `queuebox.yml` beside the stack file. |
+| `queuebox` | QueueBox `0.9.1`, the image that the project publishes to `ghcr.io/alternayte/queuebox`. It reads the `queuebox.yml` beside the stack file. |
 | `receiver` | A small HTTP server. It answers `200` and prints every request body it receives. |
 
 Docker pulls the three images on the first start. Ask QueueBox whether it is ready:
