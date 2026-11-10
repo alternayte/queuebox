@@ -14,6 +14,11 @@ the configuration schema and for the database schema.
 This release ships the server image as `v0.9.1`, with migrations V13 and V14. Both change
 PostgreSQL only. The pull clients do not change.
 
+### Security
+
+- **snappy-java 1.1.10.9.** The Kafka client brought snappy-java 1.1.10.7, which carries
+  CVE-2026-108106 and CVE-2026-93451. A security floor in `gradle/libs.versions.toml` raises it.
+
 ### Added
 
 - **A Compose stack that runs the published image.** `docker-compose.image.yml` starts
