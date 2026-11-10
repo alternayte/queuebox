@@ -18,6 +18,9 @@ PostgreSQL only. The pull clients do not change.
 
 - **snappy-java 1.1.10.9.** The Kafka client brought snappy-java 1.1.10.7, which carries
   CVE-2026-108106 and CVE-2026-93451. A security floor in `gradle/libs.versions.toml` raises it.
+- **The image upgrades brotli-libs, musl and zlib.** The pinned Temurin base carried
+  CVE-2026-111497 (brotli-libs), CVE-2026-107891 (musl) and CVE-2026-85091 (zlib). The runtime
+  stage upgrades the three packages to their fixed releases.
 
 ### Added
 
