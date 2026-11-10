@@ -210,6 +210,7 @@ dependencies {
         add("implementation", "org.lz4:lz4-java:${catalogVersion("lz4Floor")}")
         add("implementation", "at.yawk.lz4:lz4-java:${catalogVersion("yawkLz4Floor")}")
         add("implementation", "org.codehaus.plexus:plexus-utils:${catalogVersion("plexusUtilsFloor")}")
+        add("implementation", "org.xerial.snappy:snappy-java:${catalogVersion("snappyFloor")}")
     }
 }
 

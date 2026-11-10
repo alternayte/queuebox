@@ -42,7 +42,7 @@ docker run -d --name queuebox --network qbnet -p 8080:8080 \
   -e QUEUEBOX_DATABASE_USERNAME=queuebox \
   -e QUEUEBOX_DATABASE_PASSWORD=queuebox \
   -v "$PWD/queuebox.yml:/etc/queuebox/queuebox.yml:ro" \
-  ghcr.io/alternayte/queuebox:0.9.0
+  ghcr.io/alternayte/queuebox:0.9.1
 
 curl http://localhost:8080/health
 ```

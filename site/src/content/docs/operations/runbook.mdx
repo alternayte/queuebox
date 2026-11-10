@@ -435,6 +435,18 @@ Actions, in order:
 2. For a `push` backlog, read the `inbox-relay` component of `/health/ready` and the counter `queuebox_inbox_relay_errors_total`.
 3. Confirm that `inbox.relay.enabled` is true.
 4. Raise `inbox.relay.batchSize` or lower `inbox.relay.pollIntervalMs` if the relay keeps up but lags.
+5. On PostgreSQL, check the age of the table statistics.
+   A plan from statistics of an empty queue can make each claim slower as the backlog grows.
+
+```sql
+SELECT relname, n_live_tup, n_dead_tup, n_mod_since_analyze, last_analyze, last_autoanalyze
+FROM pg_stat_user_tables
+WHERE relname IN ('inbox', 'outbox');
+```
+
+   If `n_mod_since_analyze` is near the backlog size, run `ANALYZE inbox` as the table owner.
+   Migration V14 sets the autovacuum thresholds of both tables, so this case is rare after V14.
+   V14 keeps a threshold that you set on the table before the upgrade.
 
 <Aside>
 On SQL Server, the pull claim serializes per source.

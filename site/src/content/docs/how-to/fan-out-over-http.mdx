@@ -147,7 +147,7 @@ For a message that arrives through the inbox, the source `topic` template sets t
 
 The fan-out example runs QueueBox, PostgreSQL and two small HTTP receivers. Its inbox source uses the event type as the topic, so two posts reach two receivers. You need Docker with the Compose plugin, and `curl`. There is no checkout and no build.
 
-Run these commands in an empty directory. The first two download the stack file and the configuration that it mounts. The stack runs QueueBox `0.9.0`, the image that the project publishes to [`ghcr.io/alternayte/queuebox`](https://github.com/alternayte/queuebox/pkgs/container/queuebox).
+Run these commands in an empty directory. The first two download the stack file and the configuration that it mounts. The stack runs QueueBox `0.9.1`, the image that the project publishes to [`ghcr.io/alternayte/queuebox`](https://github.com/alternayte/queuebox/pkgs/container/queuebox).
 
 ```bash
 curl -O https://raw.githubusercontent.com/alternayte/queuebox/main/examples/http-fanout/docker-compose.image.yml

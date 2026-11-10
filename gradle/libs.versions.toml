@@ -46,6 +46,8 @@ lz4Floor = "1.8.1"
 # kafka-clients 4.1 moved to the at.yawk.lz4 fork. 1.11.4 fixes CVE-2026-106451.
 yawkLz4Floor = "1.11.4"
 plexusUtilsFloor = "3.6.1"
+# 1.1.10.9 fixes CVE-2026-108106 and CVE-2026-93451.
+snappyFloor = "1.1.10.9"
 
 # Testing
 testcontainers = "1.21.4"

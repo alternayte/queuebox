@@ -9,23 +9,49 @@ the configuration schema and for the database schema.
 
 ## [Unreleased]
 
+## [0.9.1] — 2026-11-10
+
+This release ships the server image as `v0.9.1`, with migrations V13 and V14. Both change
+PostgreSQL only. The pull clients do not change.
+
+### Security
+
+- **snappy-java 1.1.10.9.** The Kafka client brought snappy-java 1.1.10.7, which carries
+  CVE-2026-108106 and CVE-2026-93451. A security floor in `gradle/libs.versions.toml` raises it.
+- **The image upgrades brotli-libs, musl and zlib.** The pinned Temurin base carried
+  CVE-2026-111497 (brotli-libs), CVE-2026-107891 (musl) and CVE-2026-85091 (zlib). The runtime
+  stage upgrades the three packages to their fixed releases.
+
 ### Added
 
 - **A Compose stack that runs the published image.** `docker-compose.image.yml` starts
-  `ghcr.io/alternayte/queuebox:0.9.0` with PostgreSQL and the test receiver, so a first run needs
+  `ghcr.io/alternayte/queuebox:0.9.1` with PostgreSQL and the test receiver, so a first run needs
   no checkout and no build. It mounts the `queuebox.yml` beside it, and `examples/queuebox.yml` is
   that file. `docker-compose.yml` still builds the image from the source for a contributor.
 
 ### Fixed
 
+- **The PostgreSQL pull claim no longer reads the whole backlog after a stale `ANALYZE`.** Two
+  older indexes held every pending pull row, and the planner chose each of them over
+  `idx_inbox_pull_pending`. With statistics from an empty queue, it read every pending row
+  through `idx_inbox_pending` and sorted them, so each claim got slower as the backlog grew.
+  Migration V13 adds `idx_inbox_push_pending` for the push claim, and drops
+  `idx_inbox_consumption_pending` and `idx_inbox_pending`. The build of the new index blocks
+  inserts into the inbox until it ends, as V8 does. No client changes. Fixes #117.
+- **PostgreSQL refreshes the inbox and outbox statistics while a backlog grows.** Retention keeps
+  most rows of both tables, so the default autovacuum thresholds, a fraction of the table, did not
+  start an analyze for a backlog. Migration V14 sets `autovacuum_analyze_scale_factor = 0.005`,
+  `autovacuum_analyze_threshold = 1000`, `autovacuum_vacuum_scale_factor = 0.01` and
+  `autovacuum_vacuum_threshold = 1000` on both tables. It keeps each key that the table already
+  carries, so a value that an operator set stays. Fixes #116.
 - **Every documented first run uses the published image.** The quick start in `README.md` and the
   [first outbox message](site/src/content/docs/tutorials/first-outbox-message.mdx) tutorial told
   the reader to clone the repository and build the image, although the project publishes one. The
-  quick start now runs `ghcr.io/alternayte/queuebox:0.9.0` with `docker run`, and the tutorial runs
+  quick start now runs `ghcr.io/alternayte/queuebox:0.9.1` with `docker run`, and the tutorial runs
   it with `docker-compose.image.yml`.
 - **The deploy and security pages name a tag that the registry holds.** Both named
   `ghcr.io/alternayte/queuebox:1.2.3`. The registry answers that tag with `MANIFEST_UNKNOWN`, so
-  every copied command on those pages failed. Both name `0.9.0` now, and
+  every copied command on those pages failed. Both name `0.9.1` now, and
   [docs/development/releasing.md](docs/development/releasing.md) carries the release step that
   moves each pin.
 
@@ -744,7 +770,8 @@ release exists.
   cannot push a credential into a log.
 - The admin surface is off by default.
 
-[Unreleased]: https://github.com/AlterNayte/queuebox/compare/v0.9.0...HEAD
+[Unreleased]: https://github.com/AlterNayte/queuebox/compare/v0.9.1...HEAD
+[0.9.1]: https://github.com/AlterNayte/queuebox/compare/v0.9.0...v0.9.1
 [0.9.0]: https://github.com/AlterNayte/queuebox/compare/v0.8.1...v0.9.0
 [0.8.1]: https://github.com/AlterNayte/queuebox/compare/v0.8.0...v0.8.1
 [0.8.0]: https://github.com/AlterNayte/queuebox/compare/v0.7.0...v0.8.0
