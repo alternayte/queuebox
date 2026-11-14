@@ -42,7 +42,7 @@ jobs:
           fetch-depth: 0
 
       - name: Set up .NET
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@v6
         with:
           # The 8.0 SDK brings the 8.0 runtime, so the tests run on the floor that the library
           # targets. The newer SDK reads the solution format.
