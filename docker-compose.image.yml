@@ -17,7 +17,7 @@
 # docs/development/releasing.md.
 services:
   queuebox:
-    image: ghcr.io/alternayte/queuebox:0.9.1
+    image: ghcr.io/alternayte/queuebox:0.9.2
     ports:
       - "8080:8080"
     volumes:
