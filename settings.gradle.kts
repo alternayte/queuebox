@@ -3,10 +3,28 @@
 // It is also used for some aspects of project-wide configuration, like managing plugins, dependencies, etc.
 // https://docs.gradle.org/current/userguide/settings_file_basics.html
 
+pluginManagement {
+    repositories {
+        // Maven Central rate limits GitHub runners with 429 responses. This mirror of Maven Central
+        // takes the load first. gradle/verification-metadata.xml checks every artifact, whatever the host.
+        // Plugin marker modules stay on the Plugin Portal, because the mirror serves different marker POMs.
+        maven("https://maven-central.storage-download.googleapis.com/maven2/") {
+            content { excludeModuleByRegex(".*", ".*\\.gradle\\.plugin") }
+        }
+        gradlePluginPortal()
+    }
+}
+
 dependencyResolutionManagement {
     // Use Maven Central as the default repository (where Gradle will download dependencies) in all subprojects.
     @Suppress("UnstableApiUsage")
     repositories {
+        // Maven Central rate limits GitHub runners with 429 responses. This mirror of Maven Central
+        // takes the load first. gradle/verification-metadata.xml checks every artifact, whatever the host.
+        // Plugin marker modules stay on the Plugin Portal, because the mirror serves different marker POMs.
+        maven("https://maven-central.storage-download.googleapis.com/maven2/") {
+            content { excludeModuleByRegex(".*", ".*\\.gradle\\.plugin") }
+        }
         mavenCentral()
     }
 }

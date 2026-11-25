@@ -9,6 +9,25 @@ the configuration schema and for the database schema.
 
 ## [Unreleased]
 
+## [0.9.2] — 2026-11-26
+
+This release ships the server image as `v0.9.2`. It has no migration and no configuration change.
+The pull clients do not change.
+
+### Security
+
+- **The image moves to a newer Temurin base.** The pinned Temurin base carried CVE-2026-109908
+  in libfontenc 1.1.9-r0. The new digest ships libfontenc 1.1.10-r0.
+
+### Fixed
+
+- **The build resolves dependencies through a Maven Central mirror first.** Maven Central
+  answered GitHub runners with `429 Too Many Requests`, so a different CI job failed most days.
+  Both settings files now list Google's mirror of Maven Central before Maven Central.
+  Plugin marker modules still come from the Gradle Plugin Portal, because the mirror serves
+  different marker POMs. `gradle/verification-metadata.xml` checks every artifact, whatever the
+  host.
+
 ## [0.9.1] — 2026-11-10
 
 This release ships the server image as `v0.9.1`, with migrations V13 and V14. Both change
@@ -770,7 +789,8 @@ release exists.
   cannot push a credential into a log.
 - The admin surface is off by default.
 
-[Unreleased]: https://github.com/AlterNayte/queuebox/compare/v0.9.1...HEAD
+[Unreleased]: https://github.com/AlterNayte/queuebox/compare/v0.9.2...HEAD
+[0.9.2]: https://github.com/AlterNayte/queuebox/compare/v0.9.1...v0.9.2
 [0.9.1]: https://github.com/AlterNayte/queuebox/compare/v0.9.0...v0.9.1
 [0.9.0]: https://github.com/AlterNayte/queuebox/compare/v0.8.1...v0.9.0
 [0.8.1]: https://github.com/AlterNayte/queuebox/compare/v0.8.0...v0.8.1
