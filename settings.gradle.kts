@@ -16,6 +16,9 @@ pluginManagement {
 }
 
 dependencyResolutionManagement {
+    // A project-level repositories block would bypass the mirror below, so the build rejects one.
+    @Suppress("UnstableApiUsage")
+    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
     // Use Maven Central as the default repository (where Gradle will download dependencies) in all subprojects.
     @Suppress("UnstableApiUsage")
     repositories {

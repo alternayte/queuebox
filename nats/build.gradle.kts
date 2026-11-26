@@ -6,10 +6,6 @@ plugins {
 group = "org.nxtspec"
 version = "unspecified"
 
-repositories {
-    mavenCentral()
-}
-
 dependencies {
     // Logging facade. The app module supplies the binding.
     implementation(libs.slf4j.api)
