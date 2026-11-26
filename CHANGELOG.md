@@ -9,6 +9,14 @@ the configuration schema and for the database schema.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Every module resolves through the Maven Central mirror.** The 0.9.2 mirror reached the
+  settings only. Nine modules declared `mavenCentral()` in their own build file, and that block
+  overrides the settings, so the build still met `429 Too Many Requests`. The modules no longer
+  declare repositories, and the settings set `FAIL_ON_PROJECT_REPOS`, so a new block fails the
+  build.
+
 ## [0.9.2] — 2026-11-26
 
 This release ships the server image as `v0.9.2`. It has no migration and no configuration change.

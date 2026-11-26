@@ -11,6 +11,9 @@ pluginManagement {
 }
 
 dependencyResolutionManagement {
+    // A project-level repositories block would bypass the mirror below, so the build rejects one.
+    @Suppress("UnstableApiUsage")
+    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
 
     // Use Maven Central and the Gradle Plugin Portal for resolving dependencies in the shared build logic (`buildSrc`) project.
     @Suppress("UnstableApiUsage")
